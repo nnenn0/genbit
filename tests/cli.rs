@@ -1,46 +1,42 @@
-#![allow(
-    clippy::unwrap_used,
-    reason = "Test setup and fixture assertions should fail immediately on unexpected errors"
-)]
-
+use anyhow::{Context, Result};
 use std::{
     fs,
-    path::PathBuf,
     process::{Command, Output},
-    sync::atomic::{AtomicU64, Ordering},
 };
+use tempfile::TempDir;
 
-struct Workspace(PathBuf);
+struct Workspace(TempDir);
+
 impl Workspace {
-    fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "genbit-test-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
+    fn new() -> Result<Self> {
+        Ok(Self(
+            tempfile::tempdir().context("cannot create test workspace")?,
+        ))
     }
-    fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_genbit"))
+
+    fn run(&self, args: &[&str], expected_success: bool) -> Result<Output> {
+        let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
             .args(args)
-            .current_dir(&self.0)
+            .current_dir(self.0.path())
             .output()
-            .unwrap()
-    }
-}
-impl Drop for Workspace {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+            .with_context(|| format!("cannot execute genbit {args:?}"))?;
+        assert_eq!(
+            output.status.success(),
+            expected_success,
+            "genbit {args:?}: unexpected status {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        Ok(output)
     }
 }
 
 #[test]
-fn creates_site_and_refuses_overwrite() {
-    let workspace = Workspace::new();
-    assert!(workspace.run(&["new", "test-blog"]).status.success());
-    let root = workspace.0.join("test-blog");
+fn creates_site_and_refuses_overwrite() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "test-blog"], true)?;
+    let root = workspace.0.path().join("test-blog");
     for file in [
         "config.toml",
         "content/index.md",
@@ -52,24 +48,29 @@ fn creates_site_and_refuses_overwrite() {
     ] {
         assert!(root.join(file).is_file(), "missing {file}");
     }
-    assert!(
-        fs::read_to_string(root.join("content/index.md"))
-            .unwrap()
-            .contains("```rust")
-    );
-    fs::write(root.join("config.toml"), "user content").unwrap();
-    assert!(!workspace.run(&["new", "test-blog"]).status.success());
+    assert!(fs::read_to_string(root.join("content/index.md"))?.contains("```rust"));
+    fs::write(root.join("config.toml"), "user content")?;
+    let output = workspace.run(&["new", "test-blog"], false)?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("destination already exists"), "{stderr}");
     assert_eq!(
-        fs::read_to_string(root.join("config.toml")).unwrap(),
+        fs::read_to_string(root.join("config.toml"))?,
         "user content"
     );
-    fs::create_dir(workspace.0.join("empty")).unwrap();
-    assert!(!workspace.run(&["new", "empty"]).status.success());
+    fs::create_dir(workspace.0.path().join("empty"))?;
+    workspace.run(&["new", "empty"], false)?;
+    fs::write(workspace.0.path().join("existing-file"), "keep me")?;
+    workspace.run(&["new", "existing-file"], false)?;
+    assert_eq!(
+        fs::read_to_string(workspace.0.path().join("existing-file"))?,
+        "keep me"
+    );
+    Ok(())
 }
 
 #[test]
-fn rejects_paths_and_unsafe_names_without_writing() {
-    let workspace = Workspace::new();
+fn rejects_paths_and_unsafe_names_without_writing() -> Result<()> {
+    let workspace = Workspace::new()?;
     for name in [
         "",
         ".",
@@ -80,21 +81,22 @@ fn rejects_paths_and_unsafe_names_without_writing() {
         "quote\"",
         "a\\b",
     ] {
-        assert!(
-            !workspace.run(&["new", name]).status.success(),
-            "accepted {name}"
-        );
+        let output = workspace.run(&["new", name], false)?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("invalid site name"), "{name:?}: {stderr}");
     }
-    assert_eq!(fs::read_dir(&workspace.0).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(workspace.0.path())?.count(), 0);
+    Ok(())
 }
 
 #[test]
-fn help_and_unimplemented_commands_are_explicit() {
-    let workspace = Workspace::new();
-    assert!(workspace.run(&["--help"]).status.success());
+fn help_and_unimplemented_commands_are_explicit() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["--help"], true)?;
     for command in ["build", "dev"] {
-        let output = workspace.run(&[command]);
-        assert!(!output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("not implemented yet"));
+        let output = workspace.run(&[command], false)?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("not implemented yet"), "{stderr}");
     }
+    Ok(())
 }
