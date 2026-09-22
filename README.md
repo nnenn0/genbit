@@ -29,16 +29,19 @@ genbit build
 my-blog/
 ├── config.toml
 ├── content/
-│   └── index.md
+│   └── hello-world.md
 ├── templates/
 │   ├── base.html
-│   └── page.html
+│   ├── page.html
+│   └── root.html
 ├── styles/
 │   └── main.css
 └── static/
 ```
 
-`config.toml` の必須項目は `title` です。記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。`updated_at` は任意で、指定する場合は作成日以降の日付にします。日付は引用符で囲まず、TOMLのローカル日付（`YYYY-MM-DD`）として記述します。トップページ用の `content/index.md` だけは作成日を省略できます。
+`config.toml` の必須項目はサイトの `title` です。トップページは `templates/root.html` から自動生成され、ブログタイトルと記事一覧だけを表示します。`content/root.md` は不要です。
+
+記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。`updated_at` は任意で、指定する場合は作成日以降の日付にします。日付は引用符で囲まず、TOMLのローカル日付（`YYYY-MM-DD`）として記述します。自分で記事を追加するときは執筆日を入力してください。`new` が作るサンプル記事の日付は固定の例なので、記事を使う場合は実際の日付へ書き換えてください。
 
 ```markdown
 +++
@@ -53,7 +56,7 @@ updated_at = 2026-09-22
 
 `content/about.md` は `dist/about/index.html` になり、URLは `/about/` です。トップページには記事の作成日とタイトルを作成日の新しい順に並べます。同じ作成日の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。テンプレートでは `site`、`page`、`pages`、`content`、`css` を参照でき、各 `page` と `pages` の要素には `created_at` と `updated_at` も含まれます。
 
-既存サイトでは、各記事に `created_at` を追加してください。`new` でコピー済みのテンプレートは自動更新されないため、日付も表示する場合はサイト側のトップページ用テンプレートで `{{ entry.created_at }}` を表示します。
+既存サイトでは、`content/index.md` の内容を日付付きの記事へ移し、元のファイルを取り除いてください。`new` でコピー済みのテンプレートは自動更新されないため、サイト側で `templates/root.html` を作成し、記事一覧に `{{ entry.created_at }}` を表示します。
 
 CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮、コードのシンタックスハイライト、ダークモードは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。
 

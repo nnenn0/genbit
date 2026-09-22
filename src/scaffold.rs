@@ -15,12 +15,16 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../scaffold/templates/page.html"),
     ),
     (
+        "templates/root.html",
+        include_str!("../scaffold/templates/root.html"),
+    ),
+    (
         "styles/main.css",
         include_str!("../scaffold/styles/main.css"),
     ),
     (
-        "content/index.md",
-        include_str!("../scaffold/content/index.md"),
+        "content/hello-world.md",
+        include_str!("../scaffold/content/hello-world.md"),
     ),
     ("static/.gitkeep", ""),
     (".gitignore", "/dist/\n"),

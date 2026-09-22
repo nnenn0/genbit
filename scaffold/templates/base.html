@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page.title }} | {{ site.title }}</title>
+  <title>{% block title %}{{ page.title }} | {{ site.title }}{% endblock title %}</title>
   <style>{{ css | safe }}</style>
 </head>
 <body>
-  <header><a href="/">{{ site.title }}</a></header>
+  <header>{% block header %}<a href="/">{{ site.title }}</a>{% endblock header %}</header>
   <main>{% block main %}{% endblock main %}</main>
 </body>
 </html>

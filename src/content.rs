@@ -41,14 +41,7 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Page> {
         .as_deref()
         .map(|value| local_date(value, "updated_at"))
         .transpose()?;
-    ensure!(
-        url == "/" || created_at.is_some(),
-        "created_at is required for articles"
-    );
-    ensure!(
-        created_at.is_some() || updated_at.is_none(),
-        "updated_at requires created_at"
-    );
+    ensure!(created_at.is_some(), "created_at is required for articles");
     if let (Some(created), Some(updated)) = (&created_at, &updated_at) {
         ensure!(updated >= created, "updated_at must not precede created_at");
     }
@@ -138,6 +131,10 @@ fn route(relative: &Path) -> Result<(String, PathBuf)> {
         relative.extension().is_some_and(|ext| ext == "md"),
         "expected a .md file"
     );
+    ensure!(
+        relative != Path::new("index.md"),
+        "content/index.md is not supported; the home page is generated from config.toml and templates/root.html"
+    );
     let stem = relative.with_extension("");
     let mut segments = stem
         .components()
@@ -174,7 +171,7 @@ pub(crate) fn home(title: &str) -> Page {
         url: "/".to_owned(),
         created_at: None,
         updated_at: None,
-        template: "page.html".to_owned(),
+        template: "root.html".to_owned(),
         html: String::new(),
         output: PathBuf::from("index.html"),
         source: PathBuf::from("<generated home>"),
@@ -221,7 +218,7 @@ mod tests {
     #[test]
     fn maps_clean_urls_and_rejects_unsafe_paths() -> Result<()> {
         for (source, url, output) in [
-            ("index.md", "/", "index.html"),
+            ("root.md", "/root/", "root/index.html"),
             ("about.md", "/about/", "about/index.html"),
             ("posts/index.md", "/posts/", "posts/index.html"),
             ("posts/hello.md", "/posts/hello/", "posts/hello/index.html"),
@@ -229,7 +226,14 @@ mod tests {
             let actual = route(Path::new(source))?;
             assert_eq!(actual, (url.to_owned(), PathBuf::from(output)));
         }
-        for path in ["../escape.md", "/absolute.md", "a?b.md", "a\\b.md", ".md"] {
+        for path in [
+            "../escape.md",
+            "/absolute.md",
+            "a?b.md",
+            "a\\b.md",
+            ".md",
+            "index.md",
+        ] {
             assert!(route(Path::new(path)).is_err(), "accepted {path}");
         }
         Ok(())
@@ -237,7 +241,6 @@ mod tests {
 
     #[test]
     fn requires_article_creation_date_and_validates_update_date() -> Result<()> {
-        assert!(parse("# Home", Path::new("index.md")).is_ok());
         for source in [
             "# Missing date",
             "+++\ncreated_at = \"2026-09-17\"\n+++\n# Quoted date",

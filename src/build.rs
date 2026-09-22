@@ -44,9 +44,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     let css = read_text(&root.join("styles/main.css"))?;
     let tera = load_templates(&root.join("templates"))?;
     let mut pages = load_pages(&root.join("content"))?;
-    if !pages.iter().any(|page| page.url == "/") {
-        pages.push(content::home(&config.title));
-    }
+    pages.push(content::home(&config.title));
     let mut listing = pages
         .iter()
         .filter(|page| page.url != "/")

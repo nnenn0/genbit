@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ site.title }}{% endblock title %}
+{% block header %}<h1>{{ site.title }}</h1>{% endblock header %}
+{% block main %}
+<ul class="post-list">
+  {% for entry in pages %}
+  <li><time datetime="{{ entry.created_at }}">{{ entry.created_at }}</time> <a href="{{ entry.url }}">{{ entry.title }}</a></li>
+  {% endfor %}
+</ul>
+{% endblock main %}
