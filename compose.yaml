@@ -1,0 +1,15 @@
+services:
+  cli:
+    build: .
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/workspace/target
+    entrypoint: [cargo]
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:
