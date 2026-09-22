@@ -31,8 +31,8 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../scaffold/styles/root.css"),
     ),
     (
-        "content/hello-world.md",
-        include_str!("../scaffold/content/hello-world.md"),
+        "content/entries/hello-world.md",
+        include_str!("../scaffold/content/entries/hello-world.md"),
     ),
     ("static/.gitkeep", ""),
     (".gitignore", "/dist/\n"),
@@ -69,7 +69,13 @@ fn validate_name(name: &str) -> Result<()> {
 }
 
 fn write_site(root: &Path, name: &str) -> Result<()> {
-    for directory in ["templates", "styles", "content", "static"] {
+    for directory in [
+        "templates",
+        "styles",
+        "content",
+        "content/entries",
+        "static",
+    ] {
         let path = root.join(directory);
         fs::create_dir(&path).with_context(|| format!("cannot create {}", path.display()))?;
     }

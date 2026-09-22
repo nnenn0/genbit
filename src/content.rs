@@ -136,7 +136,7 @@ fn route(relative: &Path) -> Result<(String, PathBuf)> {
         "content/index.md is not supported; the home page is generated from config.toml and templates/root.html"
     );
     let stem = relative.with_extension("");
-    let mut segments = stem
+    let segments = stem
         .components()
         .map(|part| {
             let Component::Normal(segment) = part else {
@@ -153,15 +153,8 @@ fn route(relative: &Path) -> Result<(String, PathBuf)> {
             Ok(segment.to_owned())
         })
         .collect::<Result<Vec<_>>>()?;
-    if segments.last().is_some_and(|segment| segment == "index") {
-        segments.pop();
-    }
-    let url = if segments.is_empty() {
-        "/".to_owned()
-    } else {
-        format!("/{}/", segments.join("/"))
-    };
-    let output = segments.iter().collect::<PathBuf>().join("index.html");
+    let output = segments.iter().collect::<PathBuf>().with_extension("html");
+    let url = format!("/{}.html", segments.join("/"));
     Ok((url, output))
 }
 
@@ -218,10 +211,18 @@ mod tests {
     #[test]
     fn maps_clean_urls_and_rejects_unsafe_paths() -> Result<()> {
         for (source, url, output) in [
-            ("root.md", "/root/", "root/index.html"),
-            ("about.md", "/about/", "about/index.html"),
-            ("posts/index.md", "/posts/", "posts/index.html"),
-            ("posts/hello.md", "/posts/hello/", "posts/hello/index.html"),
+            ("root.md", "/root.html", "root.html"),
+            ("about.md", "/about.html", "about.html"),
+            (
+                "entries/index.md",
+                "/entries/index.html",
+                "entries/index.html",
+            ),
+            (
+                "entries/hello.md",
+                "/entries/hello.html",
+                "entries/hello.html",
+            ),
         ] {
             let actual = route(Path::new(source))?;
             assert_eq!(actual, (url.to_owned(), PathBuf::from(output)));

@@ -52,7 +52,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     let root = workspace.0.path().join("test-blog");
     for file in [
         "config.toml",
-        "content/hello-world.md",
+        "content/entries/hello-world.md",
         "templates/base.html",
         "templates/page.html",
         "templates/root.html",
@@ -64,7 +64,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     ] {
         assert!(root.join(file).is_file(), "missing {file}");
     }
-    let article = fs::read_to_string(root.join("content/hello-world.md"))?;
+    let article = fs::read_to_string(root.join("content/entries/hello-world.md"))?;
     assert!(article.contains("```rust"));
     assert!(article.contains("title = \"はじめての記事\""));
     assert!(article.contains("created_at = "));
@@ -123,12 +123,12 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     workspace.run(&["new", "blog"], true)?;
     let site = workspace.0.path().join("blog");
     fs::write(
-        site.join("content/hello-world.md"),
+        site.join("content/entries/hello-world.md"),
         "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\n+++\n\n**A post**\n",
     )?;
-    fs::create_dir(site.join("content/posts"))?;
+    fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
-        site.join("content/posts/another.md"),
+        site.join("content/entries/posts/another.md"),
         "+++\ncreated_at = 2026-09-16\n+++\n# Another\n",
     )?;
     fs::write(site.join("static/logo.png"), [0, 1, 2, 255])?;
@@ -145,12 +145,12 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(home.contains("<style>"));
     assert!(home.contains("<h1>blog</h1>"), "{home}");
     assert!(!home.contains("<strong>A post</strong>"), "{home}");
-    assert!(home.contains("/hello-world/"));
-    assert!(home.contains("/posts/another/"));
-    let article = fs::read_to_string(site.join("dist/hello-world/index.html"))?;
+    assert!(home.contains("/entries/hello-world.html"));
+    assert!(home.contains("/entries/posts/another.html"));
+    let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(article.contains("<h1>&lt;Hello & world></h1>"), "{article}");
     assert!(article.contains("<strong>A post</strong>"));
-    assert!(site.join("dist/posts/another/index.html").is_file());
+    assert!(site.join("dist/entries/posts/another.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
     Ok(())
 }
@@ -166,7 +166,7 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
         ("middle", "2026-09-16"),
     ] {
         fs::write(
-            site.join(format!("content/{name}.md")),
+            site.join(format!("content/entries/{name}.md")),
             format!("+++\ntitle = \"{name}\"\ncreated_at = {date}\n+++\n# {name}\n"),
         )?;
     }
@@ -180,9 +180,15 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
         String::from_utf8_lossy(&output.stderr)
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
-    let newest = home.find("/new/").context("newest article missing")?;
-    let middle = home.find("/middle/").context("middle article missing")?;
-    let oldest = home.find("/old/").context("oldest article missing")?;
+    let newest = home
+        .find("/entries/new.html")
+        .context("newest article missing")?;
+    let middle = home
+        .find("/entries/middle.html")
+        .context("middle article missing")?;
+    let oldest = home
+        .find("/entries/old.html")
+        .context("oldest article missing")?;
     assert!(newest < middle && middle < oldest, "{home}");
     for date in ["2026-09-17", "2026-09-16", "2026-09-05"] {
         assert!(home.contains(&format!("datetime={date}")), "{home}");
@@ -198,7 +204,7 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     fs::write(site.join("styles/common.css"), "h1 { color: red; }\n")?;
     fs::remove_file(site.join("styles/page.css"))?;
     fs::write(
-        site.join("content/hello-world.md"),
+        site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
     )?;
     let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
@@ -210,7 +216,7 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let html = fs::read_to_string(site.join("dist/hello-world/index.html"))?;
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("<style>h1{color:red}</style>"), "{html}");
     assert!(html.contains("src=photo.png"), "{html}");
     assert!(html.contains("alt=\"A & B\""), "{html}");
@@ -260,7 +266,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let page = http_get(&address, "/")?;
     assert!(page.starts_with("HTTP/1.1 200"), "{page}");
     assert!(page.contains("EventSource"), "{page}");
-    assert!(http_get(&address, "/about/")?.contains("About page"));
+    assert!(http_get(&address, "/about.html")?.contains("About page"));
     assert!(http_get(&address, "/asset.txt")?.contains("static asset"));
 
     let mut events = TcpStream::connect(&address)?;
@@ -278,7 +284,10 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     assert!(String::from_utf8_lossy(&data).contains("text/event-stream"));
 
     let before = fs::read_to_string(site.join("dist/index.html"))?;
-    fs::write(site.join("content/hello-world.md"), "+++\ntitle = [\n+++\n")?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        "+++\ntitle = [\n+++\n",
+    )?;
     events.set_read_timeout(Some(Duration::from_millis(500)))?;
     let Err(error) = events.read(&mut buffer) else {
         bail!("invalid source sent a reload");
@@ -291,7 +300,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
 
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
     fs::write(
-        site.join("content/hello-world.md"),
+        site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\n+++\n# Changed in dev\n",
     )?;
     while !String::from_utf8_lossy(&data).contains("data: reload") {
@@ -299,7 +308,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         assert!(read_count > 0, "SSE connection closed before reload");
         data.extend(buffer.iter().take(read_count).copied());
     }
-    let updated = http_get(&address, "/hello-world/")?;
+    let updated = http_get(&address, "/entries/hello-world.html")?;
     assert!(updated.contains("Changed in dev"), "{updated}");
 
     data.clear();
@@ -312,7 +321,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         );
         data.extend(buffer.iter().take(read_count).copied());
     }
-    assert!(http_get(&address, "/about/")?.starts_with("HTTP/1.1 404"));
+    assert!(http_get(&address, "/about.html")?.starts_with("HTTP/1.1 404"));
 
     let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
         .arg("build")
@@ -353,15 +362,15 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
     assert!(build()?.status.success());
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
-        site.join("content/hello-world.md"),
+        site.join("content/entries/hello-world.md"),
         "+++\ntitle = [\n+++\nInvalid",
     )?;
     let failed = build()?;
     assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("content/hello-world.md"));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("content/entries/hello-world.md"));
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     fs::write(
-        site.join("content/hello-world.md"),
+        site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\n+++\n# Working again\n",
     )?;
     fs::write(
@@ -369,10 +378,10 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
         "+++\ncreated_at = 2026-09-17\n+++\n# Old\n",
     )?;
     assert!(build()?.status.success());
-    assert!(site.join("dist/stale/index.html").is_file());
+    assert!(site.join("dist/stale.html").is_file());
     fs::remove_file(site.join("content/stale.md"))?;
     assert!(build()?.status.success());
-    assert!(!site.join("dist/stale/index.html").exists());
+    assert!(!site.join("dist/stale.html").exists());
     Ok(())
 }
 
@@ -393,11 +402,7 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
         site.join("content/about.md"),
         "+++\ncreated_at = 2026-09-17\n+++\n# First\n",
     )?;
-    fs::create_dir(site.join("content/about"))?;
-    fs::write(
-        site.join("content/about/index.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Second\n",
-    )?;
+    fs::write(site.join("static/about.html"), "conflict")?;
     let failed = build()?;
     assert!(!failed.status.success());
     assert!(String::from_utf8_lossy(&failed.stderr).contains("output collision"));

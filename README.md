@@ -29,7 +29,8 @@ genbit build
 my-blog/
 ├── config.toml
 ├── content/
-│   └── hello-world.md
+│   └── entries/
+│       └── hello-world.md
 ├── templates/
 │   ├── base.html
 │   ├── page.html
@@ -56,7 +57,7 @@ updated_at = 2026-09-22
 # はじめに
 ```
 
-`content/about.md` は `dist/about/index.html` になり、URLは `/about/` です。トップページには記事の作成日とタイトルを作成日の新しい順に並べます。同じ作成日の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。テンプレートでは `site`、`page`、`pages`、`content`、`css` を参照でき、各 `page` と `pages` の要素には `created_at` と `updated_at` も含まれます。
+`content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、URLは `/entries/hello-world.html` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。トップページには記事の作成日とタイトルを作成日の新しい順に並べます。同じ作成日の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。テンプレートでは `site`、`page`、`pages`、`content`、`css` を参照でき、各 `page` と `pages` の要素には `created_at` と `updated_at` も含まれます。
 
 既存サイトでは、`content/index.md` の内容を日付付きの記事へ移し、元のファイルを取り除いてください。`new` でコピー済みのテンプレートは自動更新されないため、サイト側で `templates/root.html` を作成し、記事一覧に `{{ entry.created_at }}` を表示します。
 
