@@ -1,11 +1,13 @@
 mod build;
 mod content;
+mod dev;
 mod markdown;
 mod output;
 mod scaffold;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::net::IpAddr;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -23,8 +25,15 @@ enum Command {
     },
     /// Build the current site into dist/
     Build,
-    /// Serve the current site (not implemented yet)
-    Dev,
+    /// Build and serve the current site with live reload
+    Dev {
+        /// Address to bind (use 0.0.0.0 for Docker port forwarding)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: IpAddr,
+        /// Port to listen on
+        #[arg(long, default_value_t = 3000)]
+        port: u16,
+    },
 }
 
 fn main() -> Result<()> {
@@ -42,6 +51,13 @@ fn main() -> Result<()> {
             println!("Built {count} pages into dist/");
             Ok(())
         }
-        Command::Dev => bail!("dev is not implemented yet"),
+        Command::Dev { host, port } => {
+            let root = std::env::current_dir()?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .context("cannot start development runtime")?;
+            runtime.block_on(dev::run(root, (host, port).into()))
+        }
     }
 }

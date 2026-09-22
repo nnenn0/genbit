@@ -26,6 +26,14 @@ struct View<'a> {
 }
 
 pub(crate) fn run(root: &Path) -> Result<usize> {
+    run_with_mode(root, false)
+}
+
+pub(crate) fn run_dev(root: &Path) -> Result<usize> {
+    run_with_mode(root, true)
+}
+
+fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     let config_path = root.join("config.toml");
     let config: Config = toml::from_str(&read_text(&config_path)?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
@@ -45,7 +53,7 @@ pub(crate) fn run(root: &Path) -> Result<usize> {
         .collect::<Vec<_>>();
     let mut artifacts = pages
         .iter()
-        .map(|page| render(&tera, &config, &css, page, &listing))
+        .map(|page| render(&tera, &config, &css, page, &listing, dev))
         .collect::<Result<Vec<_>>>()?;
     let static_root = root.join("static");
     let assets = files(&static_root)?
@@ -67,7 +75,14 @@ pub(crate) fn run(root: &Path) -> Result<usize> {
     Ok(pages.len())
 }
 
-fn render(tera: &Tera, site: &Config, css: &str, page: &Page, pages: &[&Page]) -> Result<Artifact> {
+fn render(
+    tera: &Tera,
+    site: &Config,
+    css: &str,
+    page: &Page,
+    pages: &[&Page],
+    dev: bool,
+) -> Result<Artifact> {
     let view = View {
         site,
         page,
@@ -76,13 +91,16 @@ fn render(tera: &Tera, site: &Config, css: &str, page: &Page, pages: &[&Page]) -
         css,
     };
     let context = Context::from_serialize(&view).context("cannot serialize template context")?;
-    let html = tera.render(&page.template, &context).with_context(|| {
+    let mut html = tera.render(&page.template, &context).with_context(|| {
         format!(
             "cannot render {} with template {}",
             page.source.display(),
             page.template
         )
     })?;
+    if dev {
+        html.push_str(crate::dev::RELOAD_SCRIPT);
+    }
     let minified = minify_html::minify(
         html.as_bytes(),
         &minify_html::Cfg {

@@ -1,11 +1,24 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use std::{
     fs,
-    process::{Command, Output},
+    io::{ErrorKind, Read, Write},
+    net::{TcpListener, TcpStream},
+    process::{Child, Command, Output, Stdio},
+    thread,
+    time::Duration,
 };
 use tempfile::TempDir;
 
 struct Workspace(TempDir);
+
+struct DevProcess(Child);
+
+impl Drop for DevProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
 
 impl Workspace {
     fn new() -> Result<Self> {
@@ -90,12 +103,9 @@ fn rejects_paths_and_unsafe_names_without_writing() -> Result<()> {
 }
 
 #[test]
-fn help_and_unimplemented_commands_are_explicit() -> Result<()> {
+fn help_is_available() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["--help"], true)?;
-    let output = workspace.run(&["dev"], false)?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not implemented yet"), "{stderr}");
     Ok(())
 }
 
@@ -160,6 +170,106 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     assert!(html.contains("  keep spacing"), "{html}");
     assert!(!html.contains("\n  <header>"), "{html}");
     Ok(())
+}
+
+#[test]
+fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    fs::write(site.join("content/about.md"), "# About page\n")?;
+    fs::write(site.join("static/asset.txt"), "static asset")?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    let mut server = DevProcess(
+        Command::new(env!("CARGO_BIN_EXE_genbit"))
+            .args(["dev", "--port", &port.to_string()])
+            .current_dir(&site)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?,
+    );
+    let address = format!("127.0.0.1:{port}");
+    let mut ready = false;
+    for _ in 0..50 {
+        if TcpStream::connect(&address).is_ok() {
+            ready = true;
+            break;
+        }
+        assert!(
+            server.0.try_wait()?.is_none(),
+            "dev exited before listening"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(ready, "dev did not start");
+
+    let page = http_get(&address, "/")?;
+    assert!(page.starts_with("HTTP/1.1 200"), "{page}");
+    assert!(page.contains("EventSource"), "{page}");
+    assert!(http_get(&address, "/about/")?.contains("About page"));
+    assert!(http_get(&address, "/asset.txt")?.contains("static asset"));
+
+    let mut events = TcpStream::connect(&address)?;
+    events.set_read_timeout(Some(Duration::from_secs(8)))?;
+    events.write_all(
+        b"GET /__genbit/reload HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n",
+    )?;
+    let mut data = Vec::new();
+    let mut buffer = [0; 4096];
+    while !data.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+        let read_count = events.read(&mut buffer)?;
+        assert!(read_count > 0, "SSE connection closed before headers");
+        data.extend(buffer.iter().take(read_count).copied());
+    }
+    assert!(String::from_utf8_lossy(&data).contains("text/event-stream"));
+
+    let before = fs::read_to_string(site.join("dist/index.html"))?;
+    fs::write(site.join("content/index.md"), "+++\ntitle = [\n+++\n")?;
+    events.set_read_timeout(Some(Duration::from_millis(500)))?;
+    let Err(error) = events.read(&mut buffer) else {
+        bail!("invalid source sent a reload");
+    };
+    assert!(matches!(
+        error.kind(),
+        ErrorKind::TimedOut | ErrorKind::WouldBlock
+    ));
+    assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
+
+    events.set_read_timeout(Some(Duration::from_secs(8)))?;
+    fs::write(site.join("content/index.md"), "# Changed in dev\n")?;
+    while !String::from_utf8_lossy(&data).contains("data: reload") {
+        let read_count = events.read(&mut buffer)?;
+        assert!(read_count > 0, "SSE connection closed before reload");
+        data.extend(buffer.iter().take(read_count).copied());
+    }
+    let updated = http_get(&address, "/")?;
+    assert!(updated.contains("Changed in dev"), "{updated}");
+
+    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let production = fs::read_to_string(site.join("dist/index.html"))?;
+    assert!(!production.contains("EventSource"), "{production}");
+    Ok(())
+}
+
+fn http_get(address: &str, path: &str) -> Result<String> {
+    let mut stream = TcpStream::connect(address)?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.write_all(
+        format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").as_bytes(),
+    )?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+    Ok(response)
 }
 
 #[test]
