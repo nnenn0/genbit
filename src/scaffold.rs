@@ -28,7 +28,10 @@ pub fn create(name: &str) -> Result<()> {
             && name
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-            && name.as_bytes()[0].is_ascii_alphanumeric(),
+            && name
+                .bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_alphanumeric()),
         "invalid site name: use ASCII letters, numbers, hyphens or underscores; start with a letter or number"
     );
     let root = Path::new(name);

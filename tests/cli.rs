@@ -1,3 +1,8 @@
+#![allow(
+    clippy::unwrap_used,
+    reason = "Test setup and fixture assertions should fail immediately on unexpected errors"
+)]
+
 use std::{
     fs,
     path::PathBuf,
