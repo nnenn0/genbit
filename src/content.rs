@@ -8,12 +8,16 @@ use std::path::{Component, Path, PathBuf};
 struct FrontMatter {
     title: Option<String>,
     template: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
 }
 
 #[derive(Serialize)]
 pub(crate) struct Page {
     pub(crate) title: String,
     pub(crate) url: String,
+    pub(crate) created_at: Option<String>,
+    pub(crate) updated_at: Option<String>,
     #[serde(skip)]
     pub(crate) template: String,
     #[serde(skip)]
@@ -27,6 +31,27 @@ pub(crate) struct Page {
 pub(crate) fn parse(source: &str, relative: &Path) -> Result<Page> {
     let (metadata, body) = split_front_matter(source)?;
     let (url, output) = route(relative)?;
+    let created_at = metadata
+        .created_at
+        .as_deref()
+        .map(|value| local_date(value, "created_at"))
+        .transpose()?;
+    let updated_at = metadata
+        .updated_at
+        .as_deref()
+        .map(|value| local_date(value, "updated_at"))
+        .transpose()?;
+    ensure!(
+        url == "/" || created_at.is_some(),
+        "created_at is required for articles"
+    );
+    ensure!(
+        created_at.is_some() || updated_at.is_none(),
+        "updated_at requires created_at"
+    );
+    if let (Some(created), Some(updated)) = (&created_at, &updated_at) {
+        ensure!(updated >= created, "updated_at must not precede created_at");
+    }
     let title = metadata.title.unwrap_or_else(|| {
         relative
             .file_stem()
@@ -48,11 +73,24 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Page> {
     Ok(Page {
         title,
         url,
+        created_at,
+        updated_at,
         template,
         html: rendered,
         output,
         source: relative.to_path_buf(),
     })
+}
+
+fn local_date(value: &str, field: &str) -> Result<String> {
+    let parsed = value
+        .parse::<toml::value::Datetime>()
+        .with_context(|| format!("{field} must be a TOML local date (YYYY-MM-DD)"))?;
+    ensure!(
+        parsed.date.is_some() && parsed.time.is_none() && parsed.offset.is_none(),
+        "{field} must be a TOML local date (YYYY-MM-DD)"
+    );
+    Ok(parsed.to_string())
 }
 
 fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
@@ -69,6 +107,19 @@ fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
         end += line.len();
         if line.trim_end() == "+++" {
             let header = source.get(..end).context("invalid front matter boundary")?;
+            let fields = source
+                .get(first.len()..end - line.len())
+                .context("invalid front matter fields boundary")?;
+            let values: toml::Table =
+                toml::from_str(fields).context("invalid TOML front matter")?;
+            for field in ["created_at", "updated_at"] {
+                if let Some(value) = values.get(field) {
+                    ensure!(
+                        matches!(value, toml::Value::Datetime(_)),
+                        "{field} must be a TOML local date (YYYY-MM-DD)"
+                    );
+                }
+            }
             let body = source.get(end..).context("invalid body boundary")?;
             let mut matter = Matter::<TOML>::new();
             "+++".clone_into(&mut matter.delimiter);
@@ -121,6 +172,8 @@ pub(crate) fn home(title: &str) -> Page {
     Page {
         title: title.to_owned(),
         url: "/".to_owned(),
+        created_at: None,
+        updated_at: None,
         template: "page.html".to_owned(),
         html: String::new(),
         output: PathBuf::from("index.html"),
@@ -179,6 +232,29 @@ mod tests {
         for path in ["../escape.md", "/absolute.md", "a?b.md", "a\\b.md", ".md"] {
             assert!(route(Path::new(path)).is_err(), "accepted {path}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn requires_article_creation_date_and_validates_update_date() -> Result<()> {
+        assert!(parse("# Home", Path::new("index.md")).is_ok());
+        for source in [
+            "# Missing date",
+            "+++\ncreated_at = \"2026-09-17\"\n+++\n# Quoted date",
+            "+++\ncreated_at = 2026-09-17T10:00:00\n+++\n# Date and time",
+            "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-16\n+++\n# Reversed",
+        ] {
+            assert!(
+                parse(source, Path::new("post.md")).is_err(),
+                "accepted {source:?}"
+            );
+        }
+        let page = parse(
+            "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\n+++\n# Post",
+            Path::new("post.md"),
+        )?;
+        assert_eq!(page.created_at.as_deref(), Some("2026-09-17"));
+        assert_eq!(page.updated_at.as_deref(), Some("2026-09-22"));
         Ok(())
     }
 }

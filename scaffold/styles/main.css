@@ -4,3 +4,5 @@ a { color: #1557b0; }
 pre { overflow-x: auto; padding: 1rem; background: #f3f4f6; }
 code { font-family: ui-monospace, monospace; }
 img { max-width: 100%; height: auto; }
+.post-list { list-style: none; padding: 0; }
+.post-list time { font-variant-numeric: tabular-nums; }

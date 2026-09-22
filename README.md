@@ -38,18 +38,22 @@ my-blog/
 └── static/
 ```
 
-`config.toml` の必須項目は `title` です。各Markdownファイルには任意でTOMLフロントマターを付けられます。
+`config.toml` の必須項目は `title` です。記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。`updated_at` は任意で、指定する場合は作成日以降の日付にします。日付は引用符で囲まず、TOMLのローカル日付（`YYYY-MM-DD`）として記述します。トップページ用の `content/index.md` だけは作成日を省略できます。
 
 ```markdown
 +++
 title = "最初の記事"
 template = "page.html"
+created_at = 2026-09-17
+updated_at = 2026-09-22
 +++
 
 # はじめに
 ```
 
-`content/about.md` は `dist/about/index.html` になり、URLは `/about/` です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。テンプレートでは `site`、`page`、`pages`、`content`、`css` を参照できます。
+`content/about.md` は `dist/about/index.html` になり、URLは `/about/` です。トップページには記事の作成日とタイトルを作成日の新しい順に並べます。同じ作成日の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。テンプレートでは `site`、`page`、`pages`、`content`、`css` を参照でき、各 `page` と `pages` の要素には `created_at` と `updated_at` も含まれます。
+
+既存サイトでは、各記事に `created_at` を追加してください。`new` でコピー済みのテンプレートは自動更新されないため、日付も表示する場合はサイト側のトップページ用テンプレートで `{{ entry.created_at }}` を表示します。
 
 CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮、コードのシンタックスハイライト、ダークモードは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。
 

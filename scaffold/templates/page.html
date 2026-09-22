@@ -4,9 +4,9 @@
   <h1>{{ page.title }}</h1>
   {{ content | safe }}
   {% if page.url == "/" %}
-  <ul>
+  <ul class="post-list">
     {% for entry in pages %}
-    <li><a href="{{ entry.url }}">{{ entry.title }}</a></li>
+    <li><time datetime="{{ entry.created_at }}">{{ entry.created_at }}</time> <a href="{{ entry.url }}">{{ entry.title }}</a></li>
     {% endfor %}
   </ul>
   {% endif %}

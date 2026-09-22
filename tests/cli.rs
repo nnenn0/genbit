@@ -116,10 +116,13 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let site = workspace.0.path().join("blog");
     fs::write(
         site.join("content/hello-world.md"),
-        "+++\ntitle = \"<Hello & world>\"\n+++\n\n**A post**\n",
+        "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\n+++\n\n**A post**\n",
     )?;
     fs::create_dir(site.join("content/posts"))?;
-    fs::write(site.join("content/posts/another.md"), "# Another\n")?;
+    fs::write(
+        site.join("content/posts/another.md"),
+        "+++\ncreated_at = 2026-09-16\n+++\n# Another\n",
+    )?;
     fs::write(site.join("static/logo.png"), [0, 1, 2, 255])?;
     let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
         .arg("build")
@@ -139,6 +142,41 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(article.contains("<strong>A post</strong>"));
     assert!(site.join("dist/posts/another/index.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
+    Ok(())
+}
+
+#[test]
+fn homepage_lists_articles_by_creation_date() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    for (name, date) in [
+        ("old", "2026-09-05"),
+        ("new", "2026-09-17"),
+        ("middle", "2026-09-16"),
+    ] {
+        fs::write(
+            site.join(format!("content/{name}.md")),
+            format!("+++\ntitle = \"{name}\"\ncreated_at = {date}\n+++\n# {name}\n"),
+        )?;
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    let newest = home.find("/new/").context("newest article missing")?;
+    let middle = home.find("/middle/").context("middle article missing")?;
+    let oldest = home.find("/old/").context("oldest article missing")?;
+    assert!(newest < middle && middle < oldest, "{home}");
+    for date in ["2026-09-17", "2026-09-16", "2026-09-05"] {
+        assert!(home.contains(&format!("datetime={date}")), "{home}");
+    }
     Ok(())
 }
 
@@ -177,7 +215,10 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;
     let site = workspace.0.path().join("blog");
-    fs::write(site.join("content/about.md"), "# About page\n")?;
+    fs::write(
+        site.join("content/about.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n# About page\n",
+    )?;
     fs::write(site.join("static/asset.txt"), "static asset")?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
@@ -306,7 +347,10 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
     assert!(String::from_utf8_lossy(&failed.stderr).contains("content/index.md"));
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     fs::write(site.join("content/index.md"), "# Working again\n")?;
-    fs::write(site.join("content/stale.md"), "# Old\n")?;
+    fs::write(
+        site.join("content/stale.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n# Old\n",
+    )?;
     assert!(build()?.status.success());
     assert!(site.join("dist/stale/index.html").is_file());
     fs::remove_file(site.join("content/stale.md"))?;
@@ -328,9 +372,15 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
     };
     assert!(build()?.status.success());
     let before = fs::read_to_string(site.join("dist/index.html"))?;
-    fs::write(site.join("content/about.md"), "# First\n")?;
+    fs::write(
+        site.join("content/about.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n# First\n",
+    )?;
     fs::create_dir(site.join("content/about"))?;
-    fs::write(site.join("content/about/index.md"), "# Second\n")?;
+    fs::write(
+        site.join("content/about/index.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n# Second\n",
+    )?;
     let failed = build()?;
     assert!(!failed.status.success());
     assert!(String::from_utf8_lossy(&failed.stderr).contains("output collision"));

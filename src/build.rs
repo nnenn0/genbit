@@ -47,10 +47,16 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     if !pages.iter().any(|page| page.url == "/") {
         pages.push(content::home(&config.title));
     }
-    let listing = pages
+    let mut listing = pages
         .iter()
         .filter(|page| page.url != "/")
         .collect::<Vec<_>>();
+    listing.sort_by(|left, right| {
+        right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| left.url.cmp(&right.url))
+    });
     let mut artifacts = pages
         .iter()
         .map(|page| render(&tera, &config, &css, page, &listing, dev))
