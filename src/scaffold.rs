@@ -19,8 +19,16 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../scaffold/templates/root.html"),
     ),
     (
-        "styles/main.css",
-        include_str!("../scaffold/styles/main.css"),
+        "styles/common.css",
+        include_str!("../scaffold/styles/common.css"),
+    ),
+    (
+        "styles/page.css",
+        include_str!("../scaffold/styles/page.css"),
+    ),
+    (
+        "styles/root.css",
+        include_str!("../scaffold/styles/root.css"),
     ),
     (
         "content/hello-world.md",

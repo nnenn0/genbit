@@ -5,7 +5,9 @@ use crate::{
 use anyhow::{Context as _, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 use tera::{Context, Tera};
@@ -41,10 +43,10 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         !config.title.trim().is_empty(),
         "config.toml: title must not be empty"
     );
-    let css = read_text(&root.join("styles/main.css"))?;
     let tera = load_templates(&root.join("templates"))?;
     let mut pages = load_pages(&root.join("content"))?;
     pages.push(content::home(&config.title));
+    let styles = load_styles(root, &pages)?;
     let mut listing = pages
         .iter()
         .filter(|page| page.url != "/")
@@ -57,7 +59,12 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     });
     let mut artifacts = pages
         .iter()
-        .map(|page| render(&tera, &config, &css, page, &listing, dev))
+        .map(|page| {
+            let css = styles
+                .get(&page.template)
+                .with_context(|| format!("missing styles for template {}", page.template))?;
+            render(&tera, &config, css, page, &listing, dev)
+        })
         .collect::<Result<Vec<_>>>()?;
     let static_root = root.join("static");
     let assets = files(&static_root)?
@@ -77,6 +84,24 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     artifacts.extend(assets);
     output::publish(root, &artifacts)?;
     Ok(pages.len())
+}
+
+fn load_styles(root: &Path, pages: &[Page]) -> Result<BTreeMap<String, String>> {
+    let styles = root.join("styles");
+    let common = read_text(&styles.join("common.css"))?;
+    pages
+        .iter()
+        .map(|page| {
+            let template = Path::new(&page.template).with_extension("css");
+            let specific = styles.join(template);
+            let mut css = common.clone();
+            if let Some(specific) = read_optional_text(&specific)? {
+                css.push('\n');
+                css.push_str(&specific);
+            }
+            Ok((page.template.clone(), css))
+        })
+        .collect()
 }
 
 fn render(
@@ -160,6 +185,23 @@ fn read_text(path: &Path) -> Result<String> {
         path.display()
     );
     fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))
+}
+
+fn read_optional_text(path: &Path) -> Result<Option<String>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "expected a regular file: {}",
+                path.display()
+            );
+            fs::read_to_string(path)
+                .map(Some)
+                .with_context(|| format!("cannot read {}", path.display()))
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("cannot inspect {}", path.display())),
+    }
 }
 
 fn files(root: &Path) -> Result<Vec<PathBuf>> {

@@ -56,7 +56,9 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "templates/base.html",
         "templates/page.html",
         "templates/root.html",
-        "styles/main.css",
+        "styles/common.css",
+        "styles/page.css",
+        "styles/root.css",
         "static/.gitkeep",
         ".gitignore",
     ] {
@@ -193,7 +195,8 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;
     let site = workspace.0.path().join("blog");
-    fs::write(site.join("styles/main.css"), "h1 { color: red; }\n")?;
+    fs::write(site.join("styles/common.css"), "h1 { color: red; }\n")?;
+    fs::remove_file(site.join("styles/page.css"))?;
     fs::write(
         site.join("content/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",

@@ -35,7 +35,9 @@ my-blog/
 │   ├── page.html
 │   └── root.html
 ├── styles/
-│   └── main.css
+│   ├── common.css
+│   ├── page.css
+│   └── root.css
 └── static/
 ```
 
@@ -58,7 +60,7 @@ updated_at = 2026-09-22
 
 既存サイトでは、`content/index.md` の内容を日付付きの記事へ移し、元のファイルを取り除いてください。`new` でコピー済みのテンプレートは自動更新されないため、サイト側で `templates/root.html` を作成し、記事一覧に `{{ entry.created_at }}` を表示します。
 
-CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮、コードのシンタックスハイライト、ダークモードは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。
+CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。`styles/common.css` は全ページへ適用する共通CSSです。任意でテンプレートと同じ相対パス・拡張子を `.css` に替えたCSS（例: `templates/page.html` に対する `styles/page.css`）を置くと、そのテンプレートを使うページだけに追加でインライン展開されます。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮、コードのシンタックスハイライト、ダークモードは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。
 
 ## Dockerでの開発
 
