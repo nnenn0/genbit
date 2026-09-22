@@ -247,6 +247,18 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let updated = http_get(&address, "/")?;
     assert!(updated.contains("Changed in dev"), "{updated}");
 
+    data.clear();
+    fs::remove_file(site.join("content/about.md"))?;
+    while !String::from_utf8_lossy(&data).contains("data: reload") {
+        let read_count = events.read(&mut buffer)?;
+        assert!(
+            read_count > 0,
+            "SSE connection closed before removal reload"
+        );
+        data.extend(buffer.iter().take(read_count).copied());
+    }
+    assert!(http_get(&address, "/about/")?.starts_with("HTTP/1.1 404"));
+
     let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
         .arg("build")
         .current_dir(&site)
