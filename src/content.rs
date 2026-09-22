@@ -17,6 +17,8 @@ pub(crate) struct Article {
     pub(crate) title: String,
     pub(crate) url: String,
     pub(crate) created_at: String,
+    #[serde(skip)]
+    pub(crate) created_at_order: String,
     pub(crate) updated_at: Option<String>,
     #[serde(skip)]
     pub(crate) template: String,
@@ -31,11 +33,11 @@ pub(crate) struct Article {
 pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
     let (metadata, body) = split_front_matter(source)?;
     let (url, output) = route(relative)?;
-    let created_at = metadata
+    let (created_at, created_at_order) = metadata
         .created_at
         .as_deref()
         .context("created_at is required for articles")
-        .and_then(|value| local_date(value, "created_at"))?;
+        .and_then(local_created_at)?;
     let updated_at = metadata
         .updated_at
         .as_deref()
@@ -69,12 +71,32 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
         title,
         url,
         created_at,
+        created_at_order,
         updated_at,
         template,
         html: rendered,
         output,
         source: relative.to_path_buf(),
     })
+}
+
+fn local_created_at(value: &str) -> Result<(String, String)> {
+    const FORMAT: &str = "created_at must be a TOML local date or date-time without fractional seconds (YYYY-MM-DD, YYYY-MM-DD HH:MM, or YYYY-MM-DD HH:MM:SS)";
+    let parsed = value.parse::<toml::value::Datetime>().context(FORMAT)?;
+    ensure!(parsed.offset.is_none(), "{FORMAT}");
+    let date = parsed.date.context(FORMAT)?.to_string();
+    let order = if let Some(time) = parsed.time {
+        ensure!(time.nanosecond.is_none(), "{FORMAT}");
+        format!(
+            "{date}T{:02}:{:02}:{:02}",
+            time.hour,
+            time.minute,
+            time.second.unwrap_or(0)
+        )
+    } else {
+        format!("{date}T00:00:00")
+    };
+    Ok((date, order))
 }
 
 fn local_date(value: &str, field: &str) -> Result<String> {
@@ -109,10 +131,12 @@ fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
                 toml::from_str(fields).context("invalid TOML front matter")?;
             for field in ["created_at", "updated_at"] {
                 if let Some(value) = values.get(field) {
-                    ensure!(
-                        matches!(value, toml::Value::Datetime(_)),
-                        "{field} must be a TOML local date (YYYY-MM-DD)"
-                    );
+                    let format = if field == "created_at" {
+                        "created_at must be a TOML local date or date-time without fractional seconds (YYYY-MM-DD, YYYY-MM-DD HH:MM, or YYYY-MM-DD HH:MM:SS)"
+                    } else {
+                        "updated_at must be a TOML local date (YYYY-MM-DD)"
+                    };
+                    ensure!(matches!(value, toml::Value::Datetime(_)), "{format}");
                 }
             }
             let body = source.get(end..).context("invalid body boundary")?;
@@ -230,12 +254,14 @@ mod tests {
     }
 
     #[test]
-    fn requires_article_creation_date_and_validates_update_date() -> Result<()> {
+    fn validates_creation_time_and_update_date() -> Result<()> {
         for source in [
             "# Missing date",
             "+++\ncreated_at = \"2026-09-17\"\n+++\n# Quoted date",
-            "+++\ncreated_at = 2026-09-17T10:00:00\n+++\n# Date and time",
+            "+++\ncreated_at = 2026-09-17T10:00:00.5\n+++\n# Fractional seconds",
+            "+++\ncreated_at = 2026-09-17T10:00:00Z\n+++\n# Offset",
             "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-16\n+++\n# Reversed",
+            "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-17T10:00:00\n+++\n# Updated time",
         ] {
             assert!(
                 parse(source, Path::new("post.md")).is_err(),
@@ -247,7 +273,20 @@ mod tests {
             Path::new("post.md"),
         )?;
         assert_eq!(article.created_at, "2026-09-17");
+        assert_eq!(article.created_at_order, "2026-09-17T00:00:00");
         assert_eq!(article.updated_at.as_deref(), Some("2026-09-22"));
+        let article = parse(
+            "+++\ncreated_at = 2026-09-17 10:30\n+++\n# Post",
+            Path::new("post.md"),
+        )?;
+        assert_eq!(article.created_at, "2026-09-17");
+        assert_eq!(article.created_at_order, "2026-09-17T10:30:00");
+        let article = parse(
+            "+++\ncreated_at = 2026-09-17T10:30:42\nupdated_at = 2026-09-17\n+++\n# Post",
+            Path::new("post.md"),
+        )?;
+        assert_eq!(article.created_at, "2026-09-17");
+        assert_eq!(article.created_at_order, "2026-09-17T10:30:42");
         Ok(())
     }
 }

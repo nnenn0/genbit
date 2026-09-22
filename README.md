@@ -44,22 +44,22 @@ my-blog/
 
 `config.toml` の必須項目はサイトの `title` です。トップページは `templates/root.html` から自動生成され、ブログタイトルと記事一覧だけを表示します。`content/root.md` は不要です。
 
-記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。`updated_at` は任意で、指定する場合は作成日以降の日付にします。日付は引用符で囲まず、TOMLのローカル日付（`YYYY-MM-DD`）として記述します。自分で記事を追加するときは執筆日を入力してください。`new` が作るサンプル記事の日付は固定の例なので、記事を使う場合は実際の日付へ書き換えてください。
+記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。時刻まで指定する場合は、引用符なしのTOMLローカル日時（`YYYY-MM-DD HH:MM`、秒を指定するなら `YYYY-MM-DD HH:MM:SS`）を使います。日付と時刻の間は `T` でも構いません。時差変換はしないため、サイトで使う現地時刻を記入してください。従来のローカル日付（`YYYY-MM-DD`）も使え、その場合は並び替え時にその日の `00:00:00` として扱います。`updated_at` は任意のローカル日付で、作成日以降を指定します。どちらも表示は日付だけです。自分で記事を追加するときは執筆日と時刻を入力してください。`new` が作るサンプル記事の日時は固定の例なので、記事を使う場合は実際の日時へ書き換えてください。
 
 ```markdown
 +++
 title = "最初の記事"
 template = "page.html"
-created_at = 2026-09-17
+created_at = 2026-09-17 09:00
 updated_at = 2026-09-22
 +++
 
 # はじめに
 ```
 
-`content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、URLは `/entries/hello-world.html` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。トップページには記事の作成日とタイトルを作成日の新しい順に並べます。同じ作成日の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。
+`content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、URLは `/entries/hello-world.html` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。トップページには記事の作成日とタイトルを作成日時の新しい順に並べます。同じ日時の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。
 
-全テンプレートで `site`（`title`）と `css` を参照できます。トップページの `root.html` には作成日順の `entries` が渡され、各要素に `title`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。
+全テンプレートで `site`（`title`）と `css` を参照できます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
 
 記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは末尾を `.html` に替えます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next.html#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
 

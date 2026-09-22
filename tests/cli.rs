@@ -234,6 +234,49 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
 }
 
 #[test]
+fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    for (name, created_at) in [
+        ("a-early", "2026-09-17 08:00"),
+        ("z-late", "2026-09-17T08:00:40"),
+        ("m-legacy", "2026-09-17"),
+    ] {
+        fs::write(
+            site.join(format!("content/entries/{name}.md")),
+            format!("+++\ncreated_at = {created_at}\n+++\n# {name}\n"),
+        )?;
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    let late = home
+        .find("/entries/z-late.html")
+        .context("late article missing")?;
+    let early = home
+        .find("/entries/a-early.html")
+        .context("early article missing")?;
+    let legacy = home
+        .find("/entries/m-legacy.html")
+        .context("legacy article missing")?;
+    assert!(late < early && early < legacy, "{home}");
+    assert!(home.contains("datetime=2026-09-17"), "{home}");
+    assert!(
+        !home.contains("08:00") && !home.contains("08:00:40"),
+        "{home}"
+    );
+    Ok(())
+}
+
+#[test]
 fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;

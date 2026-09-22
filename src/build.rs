@@ -53,8 +53,8 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     let mut articles = load_articles(&root.join("content"))?;
     articles.sort_by(|left, right| {
         right
-            .created_at
-            .cmp(&left.created_at)
+            .created_at_order
+            .cmp(&left.created_at_order)
             .then_with(|| left.url.cmp(&right.url))
     });
     let mut templates = BTreeSet::from(["root.html"]);
