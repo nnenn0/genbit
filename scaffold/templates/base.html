@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }} | {{ site.title }}</title>
+  <style>{{ css | safe }}</style>
+</head>
+<body>
+  <header><a href="/">{{ site.title }}</a></header>
+  <main>{% block main %}{% endblock main %}</main>
+</body>
+</html>

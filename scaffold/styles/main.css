@@ -1,0 +1,6 @@
+:root { font-family: system-ui, sans-serif; line-height: 1.65; color: #222; background: #fff; }
+body { max-width: 48rem; margin: auto; padding: 2rem 1rem; }
+a { color: #1557b0; }
+pre { overflow-x: auto; padding: 1rem; background: #f3f4f6; }
+code { font-family: ui-monospace, monospace; }
+img { max-width: 100%; height: auto; }
