@@ -13,10 +13,10 @@ struct FrontMatter {
 }
 
 #[derive(Serialize)]
-pub(crate) struct Page {
+pub(crate) struct Article {
     pub(crate) title: String,
     pub(crate) url: String,
-    pub(crate) created_at: Option<String>,
+    pub(crate) created_at: String,
     pub(crate) updated_at: Option<String>,
     #[serde(skip)]
     pub(crate) template: String,
@@ -28,22 +28,24 @@ pub(crate) struct Page {
     pub(crate) source: PathBuf,
 }
 
-pub(crate) fn parse(source: &str, relative: &Path) -> Result<Page> {
+pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
     let (metadata, body) = split_front_matter(source)?;
     let (url, output) = route(relative)?;
     let created_at = metadata
         .created_at
         .as_deref()
-        .map(|value| local_date(value, "created_at"))
-        .transpose()?;
+        .context("created_at is required for articles")
+        .and_then(|value| local_date(value, "created_at"))?;
     let updated_at = metadata
         .updated_at
         .as_deref()
         .map(|value| local_date(value, "updated_at"))
         .transpose()?;
-    ensure!(created_at.is_some(), "created_at is required for articles");
-    if let (Some(created), Some(updated)) = (&created_at, &updated_at) {
-        ensure!(updated >= created, "updated_at must not precede created_at");
+    if let Some(updated) = &updated_at {
+        ensure!(
+            updated >= &created_at,
+            "updated_at must not precede created_at"
+        );
     }
     let title = metadata.title.unwrap_or_else(|| {
         relative
@@ -63,7 +65,7 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Page> {
         "template must be a relative path inside templates/"
     );
     let rendered = crate::markdown::render(body);
-    Ok(Page {
+    Ok(Article {
         title,
         url,
         created_at,
@@ -158,19 +160,6 @@ fn route(relative: &Path) -> Result<(String, PathBuf)> {
     Ok((url, output))
 }
 
-pub(crate) fn home(title: &str) -> Page {
-    Page {
-        title: title.to_owned(),
-        url: "/".to_owned(),
-        created_at: None,
-        updated_at: None,
-        template: "root.html".to_owned(),
-        html: String::new(),
-        output: PathBuf::from("index.html"),
-        source: PathBuf::from("<generated home>"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,12 +242,12 @@ mod tests {
                 "accepted {source:?}"
             );
         }
-        let page = parse(
+        let article = parse(
             "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\n+++\n# Post",
             Path::new("post.md"),
         )?;
-        assert_eq!(page.created_at.as_deref(), Some("2026-09-17"));
-        assert_eq!(page.updated_at.as_deref(), Some("2026-09-22"));
+        assert_eq!(article.created_at, "2026-09-17");
+        assert_eq!(article.updated_at.as_deref(), Some("2026-09-22"));
         Ok(())
     }
 }

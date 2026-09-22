@@ -27,7 +27,7 @@
 | --- | --- |
 | `src/main.rs` | clap の `new` / `build` / `dev` エントリーポイント。`build` と `dev` はカレントディレクトリをサイトルートにする。 |
 | `src/scaffold.rs` と `scaffold/` | `new` のサイト作成処理と同梱する初期テンプレート・CSS・記事・favicon。`include_str!` でビルド時に同梱するため、初期サイトを変えるときは生成サイトの契約と統合テストも確認する。既存の利用者サイトは自動更新されない。 |
-| `src/content.rs`、`src/markdown.rs` | TOML フロントマターの検証、記事の URL/出力先決定、Markdown→HTML。記事 URL と日付形式は既存サイトとの互換性に関わる。 |
+| `src/content.rs`、`src/markdown.rs` | TOML フロントマターの検証、記事の URL/出力先決定、Markdown→HTML。記事 URL と日付形式の変更時は生成結果を確認する。 |
 | `src/build.rs` | 設定・素材の読込、記事一覧の作成、Tera 描画、CSS インライン化、HTML 圧縮、成果物の収集。利用者サイトのディレクトリを読む。 |
 | `src/output.rs` | 出力パス衝突の検査、ステージングと `dist/` の入れ替え。データ保護に関わるため、既存 `dist/` の扱いを変える前に統合テストを読む。 |
 | `src/dev.rs` | 初回ビルド、ファイル変更監視、再ビルド、静的配信、SSE リロード。`build` と同じ生成経路を使う。 |
@@ -38,11 +38,11 @@
 
 - 単一のバイナリ。API サーバーや DB 層はない。`dev` の HTTP エンドポイントは静的ファイル配信と `GET /__genbit/reload`（SSE）のみ。
 - `new <name>` は名前を ASCII 英数字・`-`・`_` に検証し、新しいディレクトリへ `config.toml` と `scaffold/` の素材を書き込む。既存のパスは上書きしない。
-- `build` はサイト直下の `config.toml`（必須の `title`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Page` に変換する。`content/index.md` は使えず、トップページは `root.html` と設定から生成する。
+- `build` はサイト直下の `config.toml`（必須の `title`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
 - 記事の TOML フロントマターには引用符なしのローカル日付 `created_at = YYYY-MM-DD` が必須。`updated_at` は任意で作成日以降。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、URL は `/entries/a.html`。パス要素は ASCII 英数字・`-`・`_` に制限される。
 - Markdown の相対 `.md` リンクはイベント処理で `.html` に変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
-- 全記事を作成日降順、同日なら URL 順で並べる。テンプレートのコンテキストは `site`、`page`、`pages`、`content`、`css`。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。HTML ごとに CSS を埋め込み圧縮する。
+- 全記事を作成日降順、同日なら URL 順で並べる。テンプレートには共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
 - `static/` の通常ファイルは出力ルートへコピーする。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。
 - `dev` は起動時にビルドし、既定の `127.0.0.1:3000` で `dist/` を配信する。`config.toml` と `content/`・`templates/`・`styles/`・`static/` の変更イベント後に再ビルドし、成功時だけ SSE を送る。開発用スクリプトは `build` の出力には入らない。
 
@@ -64,7 +64,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
-- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。現時点でユニット 10 件、結合 11 件。網羅率の計測設定はない。
+- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。現時点でユニット 11 件、結合 12 件。網羅率の計測設定はない。
 - `.github/workflows/ci.yml` は全ブランチの push と pull request で rustfmt、Clippy、テストを実行する。独立した型チェックコマンドは定義されていない。
 
 ## Environment and Configuration
@@ -75,8 +75,8 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 
 ## Agent Guidelines
 
-- 作業前に対象モジュール、呼び出し元、関連する `tests/cli.rs` と `scaffold/` を読む。変更後はドキュメント上の説明と生成サイトの互換性を照合する。
-- 入力サイトの構造、テンプレート変数、フロントマター、URL、`dist/` の保護は利用者との契約として扱う。変更時は既存サイトへの影響を明示し、エラーとデータ保護のテストを追加する。
+- 作業前に対象モジュール、呼び出し元、関連する `tests/cli.rs` と `scaffold/` を読む。変更後はドキュメント上の説明と生成結果を照合する。
+- 入力サイトの構造、テンプレート変数、フロントマター、URL、`dist/` の保護は利用者向けの仕様として扱う。変更時は README と初期素材を更新し、エラーとデータ保護のテストを追加する。
 - 必要な範囲だけ変更し、既存の `Result` とパス付きエラー、厳格な lint を維持する。新規依存は用途と既存依存で代替できない理由を確認する。
 - `scaffold/` は公開してよい初期値だけを置く。利用者サイトの実データ、秘密情報、実際の `.env` をこのリポジトリへ追加しない。`Cargo.lock` を管理し、依存更新は意図して行う。
 - Rust コード・依存・ビルド設定を変更したら、関連テストを整備して上記の fmt、Clippy、test を `--locked` で実行する。文書だけの変更なら内容と差分を確認する。実行できなかった検証はそのまま報告する。

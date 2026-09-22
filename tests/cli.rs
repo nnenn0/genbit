@@ -265,6 +265,44 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
 }
 
 #[test]
+fn inlines_common_and_template_specific_css() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    fs::write(
+        site.join("styles/common.css"),
+        "body { --common-marker: yes; }",
+    )?;
+    fs::write(
+        site.join("styles/root.css"),
+        ":root { --root-marker: yes; }",
+    )?;
+    fs::write(
+        site.join("styles/page.css"),
+        ":root { --page-marker: yes; }",
+    )?;
+    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    assert!(home.contains("--common-marker"), "{home}");
+    assert!(home.contains("--root-marker"), "{home}");
+    assert!(!home.contains("--page-marker"), "{home}");
+    assert!(article.contains("--common-marker"), "{article}");
+    assert!(article.contains("--page-marker"), "{article}");
+    assert!(!article.contains("--root-marker"), "{article}");
+    Ok(())
+}
+
+#[test]
 fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;

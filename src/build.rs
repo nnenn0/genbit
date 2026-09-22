@@ -1,11 +1,11 @@
 use crate::{
-    content::{self, Page},
+    content::{self, Article},
     output::{self, Artifact},
 };
 use anyhow::{Context as _, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
@@ -19,10 +19,16 @@ struct Config {
 }
 
 #[derive(Serialize)]
-struct View<'a> {
+struct HomeView<'a> {
     site: &'a Config,
-    page: &'a Page,
-    pages: &'a [&'a Page],
+    entries: &'a [Article],
+    css: &'a str,
+}
+
+#[derive(Serialize)]
+struct ArticleView<'a> {
+    site: &'a Config,
+    article: &'a Article,
     content: &'a str,
     css: &'a str,
 }
@@ -44,28 +50,51 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         "config.toml: title must not be empty"
     );
     let tera = load_templates(&root.join("templates"))?;
-    let mut pages = load_pages(&root.join("content"))?;
-    pages.push(content::home(&config.title));
-    let styles = load_styles(root, &pages)?;
-    let mut listing = pages
-        .iter()
-        .filter(|page| page.url != "/")
-        .collect::<Vec<_>>();
-    listing.sort_by(|left, right| {
+    let mut articles = load_articles(&root.join("content"))?;
+    articles.sort_by(|left, right| {
         right
             .created_at
             .cmp(&left.created_at)
             .then_with(|| left.url.cmp(&right.url))
     });
-    let mut artifacts = pages
-        .iter()
-        .map(|page| {
-            let css = styles
-                .get(&page.template)
-                .with_context(|| format!("missing styles for template {}", page.template))?;
-            render(&tera, &config, css, page, &listing, dev)
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let mut templates = BTreeSet::from(["root.html"]);
+    templates.extend(articles.iter().map(|article| article.template.as_str()));
+    let styles = load_styles(root, &templates)?;
+    let root_css = styles
+        .get("root.html")
+        .context("missing styles for root.html")?;
+    let mut artifacts = Vec::with_capacity(articles.len() + 1);
+    artifacts.push(render(
+        &tera,
+        "root.html",
+        &HomeView {
+            site: &config,
+            entries: &articles,
+            css: root_css,
+        },
+        PathBuf::from("index.html"),
+        "<generated home>",
+        dev,
+    )?);
+    for article in &articles {
+        let css = styles
+            .get(&article.template)
+            .with_context(|| format!("missing styles for template {}", article.template))?;
+        let source = article.source.display().to_string();
+        artifacts.push(render(
+            &tera,
+            &article.template,
+            &ArticleView {
+                site: &config,
+                article,
+                content: &article.html,
+                css,
+            },
+            article.output.clone(),
+            &source,
+            dev,
+        )?);
+    }
     let static_root = root.join("static");
     let assets = files(&static_root)?
         .into_iter()
@@ -83,50 +112,38 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         .collect::<Result<Vec<_>>>()?;
     artifacts.extend(assets);
     output::publish(root, &artifacts)?;
-    Ok(pages.len())
+    Ok(articles.len() + 1)
 }
 
-fn load_styles(root: &Path, pages: &[Page]) -> Result<BTreeMap<String, String>> {
+fn load_styles(root: &Path, templates: &BTreeSet<&str>) -> Result<BTreeMap<String, String>> {
     let styles = root.join("styles");
     let common = read_text(&styles.join("common.css"))?;
-    pages
+    templates
         .iter()
-        .map(|page| {
-            let template = Path::new(&page.template).with_extension("css");
-            let specific = styles.join(template);
+        .map(|template| {
+            let specific = styles.join(Path::new(template).with_extension("css"));
             let mut css = common.clone();
             if let Some(specific) = read_optional_text(&specific)? {
                 css.push('\n');
                 css.push_str(&specific);
             }
-            Ok((page.template.clone(), css))
+            Ok(((*template).to_owned(), css))
         })
         .collect()
 }
 
 fn render(
     tera: &Tera,
-    site: &Config,
-    css: &str,
-    page: &Page,
-    pages: &[&Page],
+    template: &str,
+    view: &impl Serialize,
+    output: PathBuf,
+    source: &str,
     dev: bool,
 ) -> Result<Artifact> {
-    let view = View {
-        site,
-        page,
-        pages,
-        content: &page.html,
-        css,
-    };
-    let context = Context::from_serialize(&view).context("cannot serialize template context")?;
-    let mut html = tera.render(&page.template, &context).with_context(|| {
-        format!(
-            "cannot render {} with template {}",
-            page.source.display(),
-            page.template
-        )
-    })?;
+    let context = Context::from_serialize(view).context("cannot serialize template context")?;
+    let mut html = tera
+        .render(template, &context)
+        .with_context(|| format!("cannot render {source} with template {template}"))?;
     if dev {
         html.push_str(crate::dev::RELOAD_SCRIPT);
     }
@@ -139,13 +156,13 @@ fn render(
         },
     );
     Ok(Artifact {
-        path: page.output.clone(),
+        path: output,
         bytes: minified,
-        source: page.source.display().to_string(),
+        source: source.to_owned(),
     })
 }
 
-fn load_pages(root: &Path) -> Result<Vec<Page>> {
+fn load_articles(root: &Path) -> Result<Vec<Article>> {
     files(root)?
         .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
@@ -235,4 +252,42 @@ fn files(root: &Path) -> Result<Vec<PathBuf>> {
     }
     result.sort();
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ArticleView, Config, HomeView};
+    use crate::content;
+    use anyhow::{Context as _, Result};
+    use std::path::Path;
+    use tera::Context;
+
+    #[test]
+    fn home_and_article_have_distinct_template_data() -> Result<()> {
+        let site = Config {
+            title: "Blog".to_owned(),
+        };
+        let articles = vec![content::parse(
+            "+++\ncreated_at = 2026-09-17\n+++\n# Post",
+            Path::new("post.md"),
+        )?];
+        let home = Context::from_serialize(&HomeView {
+            site: &site,
+            entries: &articles,
+            css: "",
+        })?;
+        assert!(home.get("entries").is_some());
+        assert!(home.get("article").is_none());
+
+        let article = articles.first().context("test article missing")?;
+        let single = Context::from_serialize(&ArticleView {
+            site: &site,
+            article,
+            content: &article.html,
+            css: "",
+        })?;
+        assert!(single.get("article").is_some());
+        assert!(single.get("entries").is_none());
+        Ok(())
+    }
 }
