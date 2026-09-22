@@ -1,66 +1,82 @@
-# genbit 開発方針
+# genbit: Agent 作業ガイド
 
-## 目的と構成
+## 最初に読むもの
 
-- genbitはRust製の汎用静的サイトジェネレーターのCLI。利用者にNode.js/npmを要求しない。
-- CLI本体のリポジトリと、利用者が編集・運用するサイトを分離する。
-- `scaffold/` は `new` が利用側へコピーする初期ファイル。CLIへの同梱は認める。
-- 生成後のサイトは独立させ、`build` と `dev` は利用側の設定・テンプレート・記事を読む。
-- 生成HTMLの容量、ブラウザー描画速度、ビルド時間を区別して評価する。一定のファイルサイズを保証しない。
+1. この `AGENTS.md` で現行の構成、入出力、検証方法を把握する。
+2. 現在認識している課題は `PROJECT_ISSUES.md` を参照する。課題は調査時点の記録なので、着手時には必ず関連する最新コードとテストで再確認する。
+3. 利用者向けの操作とサイト形式は `README.md` でも確認する。
 
-## 進め方
+## Project Overview
 
-- 最小限から段階的に実装する。各段階で変更内容・検証結果・制約を報告し、次段階は利用者の指示を待つ。
-- 新しいディレクトリ構成や大きな設計変更は、理由と案を提示して相談する。承認済み範囲の通常の修正は進める。
-- 使い捨ての実装や先回りした抽象化を避け、小さな関数と明確な責務を優先する。
-- 説明・レビューへの応答は日本語で行う。
+- genbit は Rust 製の静的サイトジェネレーター CLI（`Cargo.toml` の版は `0.1.0`）。Markdown 記事と Tera テンプレートから HTML を生成する。
+- 主な利用者は、CLI でサイトを新規作成し、自分のサイトの `config.toml`、記事、テンプレート、CSS、静的ファイルを編集・公開する人。サイト作成・ビルド・ローカルプレビューに Node.js は不要。
+- `new` がサイトの初期ファイルをコピーし、`build` が `dist/` を生成し、`dev` が再ビルド付きローカル配信を行う。生成サイトはこのリポジトリとは別ディレクトリで運用する。
+- 現状は基本的な生成・プレビュー機能がある初期段階。`README.md` は画像圧縮、コードのシンタックスハイライト、ダークモードを未実装と明記している。公開サービスや管理画面はこのリポジトリにない。
 
-## Rustと開発環境
+## Tech Stack
 
-- Rust/Cargoの実行、整形、静的解析、テストはDocker Composeの `cli` サービスで行う。ホストへRustツールチェーンをインストールしない。
-- 最新安定版Rustを優先し、更新時に検証する。開発バージョンはDockerfileで固定する。
-- `Cargo.toml` の `rust-version` は最低対応バージョンの宣言として扱い、実際のサポート方針と揃える。
-- `Cargo.lock` をコミットする。通常の検証は `--locked` で実行し、依存更新時だけ意図的に更新する。
-- 失敗し得る処理は `Result` と `?` で扱い、処理内容と対象パスをエラーへ付加する。
-- 不要な所有権取得・コピーを避け、内部APIの公開範囲を必要最小限にする。
-- 既存の厳格なLint設定を維持する。指摘を避けるだけの無効化はしない。例外が必要なら範囲を限定して理由を明記する。
-- テストは利用者から見た挙動、エラー、データ保護を検証する。一時ファイルは専用の一時ディレクトリで管理する。
+- Rust 2024 edition、`rust-version = 1.98.1`。`Dockerfile` と GitHub Actions も Rust 1.98.1 を指定。依存関係は `Cargo.toml`、解決済み版は `Cargo.lock`。
+- CLI: clap 4。エラー: anyhow。設定・データ: serde 1、toml 1、gray_matter 0.3。
+- 生成: pulldown-cmark 0.13、Tera 2、minify-html 0.18。開発サーバー: axum 0.8、Tokio 1、tower-http 0.7、notify 8、tokio-stream 0.1。出力の一時領域: tempfile 3。
+- DB、マイグレーション、フロントエンドのビルドシステムはない。ブラウザー用コードは生成 HTML と `dev` 専用の小さなリロードスクリプト。
+- 整形・静的解析・テスト: rustfmt、Clippy、Cargo test。`Cargo.toml` は Rust 警告と Clippy の `all`/`pedantic` 等を deny にしている。
 
-## SSGの設計要件
+## Repository Structure
 
-- フロントマターの不正入力はパニックにせず、診断可能なエラーとして扱う。
-- シンタックスハイライトはビルド時に完了させ、ハイライト用クライアントJSを使わない。
-- Markdown画像への属性付与はイベントストリームで行う。生成HTMLへの正規表現による事後置換は使わない。
-- CSSはビルド時に読み込み、HTMLへインライン展開する。完成したHTMLを圧縮する。
-- ダークモード初期化は描画前に行う最小限のインラインJSとする。
-- 開発時の更新通知はファイル変更イベントとSSEを使い、ポーリングは使わない。
-- 開発専用スクリプトは本番ビルドへ含めない。
-- `new` は既存のファイル・ディレクトリを上書きしない。
+| 場所 | 役割と編集上の注意 |
+| --- | --- |
+| `src/main.rs` | clap の `new` / `build` / `dev` エントリーポイント。`build` と `dev` はカレントディレクトリをサイトルートにする。 |
+| `src/scaffold.rs` と `scaffold/` | `new` のサイト作成処理と同梱する初期テンプレート・CSS・記事・favicon。`include_str!` でビルド時に同梱するため、初期サイトを変えるときは生成サイトの契約と統合テストも確認する。既存の利用者サイトは自動更新されない。 |
+| `src/content.rs`、`src/markdown.rs` | TOML フロントマターの検証、記事の URL/出力先決定、Markdown→HTML。記事 URL と日付形式は既存サイトとの互換性に関わる。 |
+| `src/build.rs` | 設定・素材の読込、記事一覧の作成、Tera 描画、CSS インライン化、HTML 圧縮、成果物の収集。利用者サイトのディレクトリを読む。 |
+| `src/output.rs` | 出力パス衝突の検査、ステージングと `dist/` の入れ替え。データ保護に関わるため、既存 `dist/` の扱いを変える前に統合テストを読む。 |
+| `src/dev.rs` | 初回ビルド、ファイル変更監視、再ビルド、静的配信、SSE リロード。`build` と同じ生成経路を使う。 |
+| `tests/cli.rs` | 一時ディレクトリで実行バイナリを起動する E2E テスト。入出力形式や保護動作を変更するときの主な確認先。 |
+| `README.md`、`.github/workflows/ci.yml`、`Dockerfile`、`compose.yaml` | 利用者向け契約、CI、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
 
-## 検証
+## Architecture and Data Flow
 
-初回またはDockerfile変更時に開発イメージをビルドする。
+- 単一のバイナリ。API サーバーや DB 層はない。`dev` の HTTP エンドポイントは静的ファイル配信と `GET /__genbit/reload`（SSE）のみ。
+- `new <name>` は名前を ASCII 英数字・`-`・`_` に検証し、新しいディレクトリへ `config.toml` と `scaffold/` の素材を書き込む。既存のパスは上書きしない。
+- `build` はサイト直下の `config.toml`（必須の `title`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Page` に変換する。`content/index.md` は使えず、トップページは `root.html` と設定から生成する。
+- 記事の TOML フロントマターには引用符なしのローカル日付 `created_at = YYYY-MM-DD` が必須。`updated_at` は任意で作成日以降。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
+- 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、URL は `/entries/a.html`。パス要素は ASCII 英数字・`-`・`_` に制限される。
+- 全記事を作成日降順、同日なら URL 順で並べる。テンプレートのコンテキストは `site`、`page`、`pages`、`content`、`css`。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。HTML ごとに CSS を埋め込み圧縮する。
+- `static/` の通常ファイルは出力ルートへコピーする。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。
+- `dev` は起動時にビルドし、既定の `127.0.0.1:3000` で `dist/` を配信する。`config.toml` と `content/`・`templates/`・`styles/`・`static/` の変更イベント後に再ビルドし、成功時だけ SSE を送る。開発用スクリプトは `build` の出力には入らない。
+
+## Development Commands
+
+Rust 関連の開発・検証は `compose.yaml` の `cli` サービスで実行する。初回または `Dockerfile` 変更後はイメージをビルドする。
 
 ```sh
 docker compose build cli
-```
-
-Rustコード・依存・ビルド設定を変更した場合は、関連するテストを整備し、次を実行する。
-
-```sh
 docker compose run --rm cli fmt --check
 docker compose run --rm cli clippy --locked --all-targets --all-features -- -D warnings
 docker compose run --rm cli test --locked --all-targets --all-features
 ```
 
-文書だけの変更では内容と差分を確認する。実行していない検証を成功として報告しない。
+CLI を試すときは、生成サイトのディレクトリで `genbit new <name>`、`genbit build`、`genbit dev [--host <IP>] [--port <番号>]` を使う。Docker から利用者サイトを動かす bind mount 例は `README.md` を参照。公開は生成された `dist/` を静的ホストへ配置する手順のみが記載され、自動デプロイ設定はない。
 
-## Gitと公開範囲
+## Coding Conventions and Testing
 
-- 内容がまとまった、レビューしやすい粒度でコミットする。
-- コミットメッセージは、変更内容が分かる日本語で書く。
-- コミット前に差分を確認し、公開して問題のない内容だけを含める。
-- 認証情報、秘密鍵、実際の `.env`、個人の絶対パス、私的なデータ、会話ログ、不要な生成物をコミットしない。
-- 設定例にはダミー値を使う。CLIと無関係な利用側サイトの実データはこのリポジトリへ追加しない。
-- pushは利用者のレビュー完了後に行う。コミットの許可をpushの許可と解釈しない。
-- この `AGENTS.md` は共有する開発方針としてGitで管理する。進捗や一時的なTODOは混ぜない。
+- Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
+- 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
+- テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
+- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。調査時点でユニット 9 件、結合 10 件。網羅率の計測設定はない。
+- `.github/workflows/ci.yml` は全ブランチの push と pull request で rustfmt、Clippy、テストを実行する。独立した型チェックコマンドは定義されていない。
+
+## Environment and Configuration
+
+- CLI 実行に必須の環境変数や外部サービスはコード上ない。`README.md` の `SITE_DIR` は Docker 実行例で使うシェル変数で、genbit の設定ではない。
+- 利用者サイトには `config.toml`、`content/`、`templates/`、`styles/common.css`、`static/` が必要。`new` がこれらを用意する。CLI の設定はサイト側から読み、リポジトリ側の `scaffold/` は初期値だけを提供する。
+- `dev` はローカル HTTP サーバー。外部公開や認証付き配信の仕組みは確認できない。生成 HTML はルート相対 URL を使うため、サブパス配信は課題ファイルを参照。
+
+## Agent Guidelines
+
+- 作業前に対象モジュール、呼び出し元、関連する `tests/cli.rs` と `scaffold/` を読む。変更後はドキュメント上の説明と生成サイトの互換性を照合する。
+- 入力サイトの構造、テンプレート変数、フロントマター、URL、`dist/` の保護は利用者との契約として扱う。変更時は既存サイトへの影響を明示し、エラーとデータ保護のテストを追加する。
+- 必要な範囲だけ変更し、既存の `Result` とパス付きエラー、厳格な lint を維持する。新規依存は用途と既存依存で代替できない理由を確認する。
+- `scaffold/` は公開してよい初期値だけを置く。利用者サイトの実データ、秘密情報、実際の `.env` をこのリポジトリへ追加しない。`Cargo.lock` を管理し、依存更新は意図して行う。
+- Rust コード・依存・ビルド設定を変更したら、関連テストを整備して上記の fmt、Clippy、test を `--locked` で実行する。文書だけの変更なら内容と差分を確認する。実行できなかった検証はそのまま報告する。
+- 課題の説明を実装の事実と混同しない。`PROJECT_ISSUES.md` にある仮説・改善案は着手時に再検証し、解決した項目は記録を更新する。
