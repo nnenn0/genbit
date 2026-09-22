@@ -1,3 +1,6 @@
+mod build;
+mod content;
+mod output;
 mod scaffold;
 
 use anyhow::{Result, bail};
@@ -17,7 +20,7 @@ enum Command {
         /// Name: ASCII letters, numbers, hyphens, underscores
         name: String,
     },
-    /// Build the current site (not implemented yet)
+    /// Build the current site into dist/
     Build,
     /// Serve the current site (not implemented yet)
     Dev,
@@ -29,10 +32,15 @@ fn main() -> Result<()> {
             scaffold::create(&name)?;
             println!("Created site: {name}");
             println!("Next: cd {name}");
-            println!("Scaffolding is ready; build and dev are not implemented yet.");
+            println!("Run genbit build to generate the site.");
             Ok(())
         }
-        Command::Build => bail!("build is not implemented yet (planned for stage 2)"),
-        Command::Dev => bail!("dev is not implemented yet (planned for stage 4)"),
+        Command::Build => {
+            let root = std::env::current_dir()?;
+            let count = build::run(&root)?;
+            println!("Built {count} pages into dist/");
+            Ok(())
+        }
+        Command::Dev => bail!("dev is not implemented yet"),
     }
 }

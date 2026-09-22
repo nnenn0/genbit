@@ -9,8 +9,12 @@ description = "A small static site generator"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 
-[dev-dependencies]
+gray_matter = { version = "0.3", default-features = false, features = ["toml"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+serde = { version = "1", features = ["derive"] }
 tempfile = "3"
+tera = "2"
+toml = "1"
 
 [lints.rust]
 unsafe_code = "forbid"
