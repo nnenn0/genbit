@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, bail, ensure};
 use gray_matter::{Matter, engine::TOML};
-use pulldown_cmark::{Parser, html};
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
@@ -45,8 +44,7 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Page> {
             && !template.contains('\\'),
         "template must be a relative path inside templates/"
     );
-    let mut rendered = String::new();
-    html::push_html(&mut rendered, Parser::new(body));
+    let rendered = crate::markdown::render(body);
     Ok(Page {
         title,
         url,

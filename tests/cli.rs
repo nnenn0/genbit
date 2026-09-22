@@ -122,13 +122,43 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("<style>"));
-    assert!(home.contains("href=\"/hello-world/\""));
-    assert!(home.contains("href=\"/posts/another/\""));
+    assert!(home.contains("/hello-world/"));
+    assert!(home.contains("/posts/another/"));
     let article = fs::read_to_string(site.join("dist/hello-world/index.html"))?;
-    assert!(article.contains("&lt;Hello &amp; world&gt;"));
+    assert!(article.contains("<h1>&lt;Hello & world></h1>"), "{article}");
     assert!(article.contains("<strong>A post</strong>"));
     assert!(site.join("dist/posts/another/index.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
+    Ok(())
+}
+
+#[test]
+fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    fs::write(site.join("styles/main.css"), "h1 { color: red; }\n")?;
+    fs::write(
+        site.join("content/index.md"),
+        "# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
+    )?;
+    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(site.join("dist/index.html"))?;
+    assert!(html.contains("<style>h1{color:red}</style>"), "{html}");
+    assert!(html.contains("src=photo.png"), "{html}");
+    assert!(html.contains("alt=\"A & B\""), "{html}");
+    assert!(html.contains("loading=lazy"), "{html}");
+    assert!(html.contains("decoding=async"), "{html}");
+    assert!(html.contains("  keep spacing"), "{html}");
+    assert!(!html.contains("\n  <header>"), "{html}");
     Ok(())
 }
 

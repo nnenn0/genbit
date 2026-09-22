@@ -83,9 +83,17 @@ fn render(tera: &Tera, site: &Config, css: &str, page: &Page, pages: &[&Page]) -
             page.template
         )
     })?;
+    let minified = minify_html::minify(
+        html.as_bytes(),
+        &minify_html::Cfg {
+            minify_css: true,
+            keep_html_and_head_opening_tags: true,
+            ..minify_html::Cfg::default()
+        },
+    );
     Ok(Artifact {
         path: page.output.clone(),
-        bytes: html.into_bytes(),
+        bytes: minified,
         source: page.source.display().to_string(),
     })
 }

@@ -10,6 +10,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 
 gray_matter = { version = "0.3", default-features = false, features = ["toml"] }
+minify-html = "0.18"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
