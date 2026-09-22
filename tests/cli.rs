@@ -59,7 +59,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "styles/common.css",
         "styles/page.css",
         "styles/root.css",
-        "static/.gitkeep",
+        "static/assets/img/favicon.svg",
         ".gitignore",
     ] {
         assert!(root.join(file).is_file(), "missing {file}");
@@ -143,6 +143,9 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("<style>"));
+    assert!(home.contains("href=/assets/img/favicon.svg"), "{home}");
+    assert!(home.contains("rel=icon"), "{home}");
+    assert!(home.contains("type=image/svg+xml"), "{home}");
     assert!(home.contains("<h1>blog</h1>"), "{home}");
     assert!(!home.contains("<strong>A post</strong>"), "{home}");
     assert!(home.contains("/entries/hello-world.html"));
@@ -152,6 +155,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(article.contains("<strong>A post</strong>"));
     assert!(site.join("dist/entries/posts/another.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
+    assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
     Ok(())
 }
 

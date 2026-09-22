@@ -34,7 +34,10 @@ const FILES: &[(&str, &str)] = &[
         "content/entries/hello-world.md",
         include_str!("../scaffold/content/entries/hello-world.md"),
     ),
-    ("static/.gitkeep", ""),
+    (
+        "static/assets/img/favicon.svg",
+        include_str!("../scaffold/static/assets/img/favicon.svg"),
+    ),
     (".gitignore", "/dist/\n"),
 ];
 
@@ -75,6 +78,8 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
         "content",
         "content/entries",
         "static",
+        "static/assets",
+        "static/assets/img",
     ] {
         let path = root.join(directory);
         fs::create_dir(&path).with_context(|| format!("cannot create {}", path.display()))?;
