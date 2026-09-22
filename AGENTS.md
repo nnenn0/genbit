@@ -41,6 +41,7 @@
 - `build` はサイト直下の `config.toml`（必須の `title`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Page` に変換する。`content/index.md` は使えず、トップページは `root.html` と設定から生成する。
 - 記事の TOML フロントマターには引用符なしのローカル日付 `created_at = YYYY-MM-DD` が必須。`updated_at` は任意で作成日以降。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、URL は `/entries/a.html`。パス要素は ASCII 英数字・`-`・`_` に制限される。
+- Markdown の相対 `.md` リンクはイベント処理で `.html` に変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
 - 全記事を作成日降順、同日なら URL 順で並べる。テンプレートのコンテキストは `site`、`page`、`pages`、`content`、`css`。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。HTML ごとに CSS を埋め込み圧縮する。
 - `static/` の通常ファイルは出力ルートへコピーする。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。
 - `dev` は起動時にビルドし、既定の `127.0.0.1:3000` で `dist/` を配信する。`config.toml` と `content/`・`templates/`・`styles/`・`static/` の変更イベント後に再ビルドし、成功時だけ SSE を送る。開発用スクリプトは `build` の出力には入らない。
@@ -63,7 +64,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
-- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。調査時点でユニット 9 件、結合 10 件。網羅率の計測設定はない。
+- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。現時点でユニット 10 件、結合 11 件。網羅率の計測設定はない。
 - `.github/workflows/ci.yml` は全ブランチの push と pull request で rustfmt、Clippy、テストを実行する。独立した型チェックコマンドは定義されていない。
 
 ## Environment and Configuration

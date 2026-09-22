@@ -10,12 +10,33 @@ pub(crate) fn render(source: &str) -> String {
             }) => Some(Event::Html(
                 image_html(&mut events, &dest_url, &title).into(),
             )),
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => Some(Event::Start(Tag::Link {
+                link_type,
+                dest_url: article_url(&dest_url).map_or(dest_url, Into::into),
+                title,
+                id,
+            })),
             other => Some(other),
         }
     });
     let mut output = String::new();
     html::push_html(&mut output, transformed);
     output
+}
+
+fn article_url(url: &str) -> Option<String> {
+    let boundary = url.find(['?', '#']).unwrap_or(url.len());
+    let (path, suffix) = url.split_at(boundary);
+    if path.starts_with('/') || path.contains(':') {
+        return None;
+    }
+    path.strip_suffix(".md")
+        .map(|stem| format!("{stem}.html{suffix}"))
 }
 
 fn image_html<'a>(
@@ -90,5 +111,31 @@ mod tests {
         assert!(html.contains("<strong>bold</strong>"), "{html}");
         assert!(html.contains("<code>code</code>"), "{html}");
         assert!(html.contains("let x = 1;"), "{html}");
+    }
+
+    #[test]
+    fn rewrites_relative_article_links_without_changing_other_urls() {
+        for (url, expected) in [
+            ("other.md", "other.html"),
+            ("../other.md#section", "../other.html#section"),
+            (
+                "posts/other.md?view=full#section",
+                "posts/other.html?view=full#section",
+            ),
+            (
+                "https://example.com/other.md",
+                "https://example.com/other.md",
+            ),
+            ("mailto:other.md", "mailto:other.md"),
+            ("/other.md", "/other.md"),
+            ("//example.com/other.md", "//example.com/other.md"),
+            ("#section", "#section"),
+            ("other.html", "other.html"),
+        ] {
+            let html = render(&format!("[article]({url})"));
+            assert!(html.contains(&format!("href=\"{expected}\"")), "{html}");
+        }
+        let image = render("![image](other.md)");
+        assert!(image.contains("src=\"other.md\""), "{image}");
     }
 }

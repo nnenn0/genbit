@@ -59,6 +59,8 @@ updated_at = 2026-09-22
 
 `content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、URLは `/entries/hello-world.html` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。トップページには記事の作成日とタイトルを作成日の新しい順に並べます。同じ作成日の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。テンプレートでは `site`、`page`、`pages`、`content`、`css` を参照でき、各 `page` と `pages` の要素には `created_at` と `updated_at` も含まれます。
 
+記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは末尾を `.html` に替えます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next.html#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
+
 既存サイトでは、`content/index.md` の内容を日付付きの記事へ移し、元のファイルを取り除いてください。`new` でコピー済みのテンプレートは自動更新されないため、サイト側で `templates/root.html` を作成し、記事一覧に `{{ entry.created_at }}` を表示します。
 
 CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。`styles/common.css` は全ページへ適用する共通CSSです。任意でテンプレートと同じ相対パス・拡張子を `.css` に替えたCSS（例: `templates/page.html` に対する `styles/page.css`）を置くと、そのテンプレートを使うページだけに追加でインライン展開されます。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮、コードのシンタックスハイライト、ダークモードは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。

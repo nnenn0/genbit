@@ -160,6 +160,39 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
 }
 
 #[test]
+fn links_to_markdown_articles_use_generated_html_paths() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
+    )?;
+    fs::write(
+        site.join("content/entries/next.md"),
+        "+++\ncreated_at = 2026-09-18\n+++\n# Next\n",
+    )?;
+
+    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    assert!(
+        html.contains("href=\"next.html?view=full#details\""),
+        "{html}"
+    );
+    assert!(html.contains("href=https://example.com/next.md"), "{html}");
+    assert!(site.join("dist/entries/next.html").is_file());
+    Ok(())
+}
+
+#[test]
 fn homepage_lists_articles_by_creation_date() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;
