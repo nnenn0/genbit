@@ -1,5 +1,6 @@
 +++
 title = "はじめての記事"
+description = "genbitで作成したサイトの最初の記事です。"
 created_at = 2026-09-17 09:00
 +++
 

@@ -1,47 +1,5 @@
 use pulldown_cmark::{Event, Parser, Tag, TagEnd, html};
 
-pub(crate) fn description(source: &str) -> Option<String> {
-    let mut paragraphs = Vec::new();
-    let mut current = String::new();
-    let mut in_paragraph = false;
-    let mut list_depth = 0;
-    let mut image_depth = 0;
-    for event in Parser::new(source) {
-        match event {
-            Event::Start(Tag::List(_)) => list_depth += 1,
-            Event::End(TagEnd::List(_)) => list_depth -= 1,
-            Event::Start(Tag::Image { .. }) => image_depth += 1,
-            Event::End(TagEnd::Image) => image_depth -= 1,
-            Event::Start(Tag::Paragraph) if list_depth == 0 => {
-                in_paragraph = true;
-                current.clear();
-            }
-            Event::End(TagEnd::Paragraph) if in_paragraph => {
-                in_paragraph = false;
-                let paragraph = current.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !paragraph.is_empty() {
-                    paragraphs.push(paragraph);
-                    if paragraphs.len() == 2
-                        || paragraphs
-                            .iter()
-                            .map(|part| part.chars().count())
-                            .sum::<usize>()
-                            >= 80
-                    {
-                        break;
-                    }
-                }
-            }
-            Event::Text(text) | Event::Code(text) if in_paragraph && image_depth == 0 => {
-                current.push_str(&text);
-            }
-            Event::SoftBreak | Event::HardBreak if in_paragraph => current.push(' '),
-            _ => {}
-        }
-    }
-    (!paragraphs.is_empty()).then(|| paragraphs.join(" "))
-}
-
 pub(crate) fn render(source: &str) -> String {
     let mut events = Parser::new(source);
     let transformed = std::iter::from_fn(move || {
@@ -135,17 +93,7 @@ fn escape_attribute(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{description, render};
-
-    #[test]
-    fn description_uses_intro_prose_without_lists_images_or_code_blocks() {
-        let markdown = "# Title\n\n## Intro\n\nShort [linked](next.md) intro.\n\n- Table of contents\n\n![Alt](image.png)\n\nMore detail with `inline code`.\n\n```rust\nignored code\n```\n\n## Next\n\nLater text.\n";
-        assert_eq!(
-            description(markdown).as_deref(),
-            Some("Short linked intro. More detail with inline code.")
-        );
-        assert_eq!(description("# Title\n\n- Item\n\n```\ncode\n```"), None);
-    }
+    use super::render;
 
     #[test]
     fn adds_image_attributes_and_escapes_alt_text() {

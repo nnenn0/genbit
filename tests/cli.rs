@@ -68,6 +68,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     assert!(article.contains("```rust"));
     assert!(article.contains("title = \"はじめての記事\""));
     assert!(article.contains("created_at = "));
+    assert!(article.contains("description = "));
     assert!(!root.join("content/index.md").exists());
     assert!(!root.join("content/root.md").exists());
     fs::write(root.join("config.toml"), "user content")?;
@@ -124,12 +125,12 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let site = workspace.0.path().join("blog");
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\n+++\n\n**A post**\n",
+        "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17\ndescription = 'A post'\nupdated_at = 2026-09-22\n+++\n\n**A post**\n",
     )?;
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/another.md"),
-        "+++\ncreated_at = 2026-09-16\n+++\n# Another\n",
+        "+++\ncreated_at = 2026-09-16\ndescription = 'Test article'\n+++\n# Another\n",
     )?;
     fs::write(site.join("static/logo.png"), [0, 1, 2, 255])?;
     let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
@@ -166,13 +167,13 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
 }
 
 #[test]
-fn descriptions_use_article_prose_and_allow_explicit_override() -> Result<()> {
+fn article_description_uses_front_matter_instead_of_body() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;
     let site = workspace.0.path().join("blog");
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Chosen summary with quotes & friends'\n+++\n# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
     )?;
     fs::write(
         site.join("content/override.md"),
@@ -191,11 +192,11 @@ fn descriptions_use_article_prose_and_allow_explicit_override() -> Result<()> {
     let article_head = article.split("<style>").next().context("missing head")?;
     assert!(article_head.contains("name=description"), "{article}");
     assert!(
-        article_head.contains("Short linked intro. More detail"),
+        article_head.contains("Chosen summary with quotes"),
         "{article}"
     );
+    assert!(!article_head.contains("Short linked intro"), "{article}");
     assert!(!article_head.contains("Skip this item"), "{article}");
-    assert!(article_head.contains("quotes"), "{article}");
     let override_html = fs::read_to_string(site.join("dist/override.html"))?;
     let override_head = override_html
         .split("<style>")
@@ -213,7 +214,7 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
     let site = workspace.0.path().join("blog");
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Heading\n\n- List only\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Heading\n\n- List only\n",
     )?;
     let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
         .arg("build")
@@ -228,7 +229,26 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(home.contains("name=description"), "{home}");
     assert!(article.contains("name=description"), "{article}");
-    assert!(article.contains("Heading"), "{article}");
+    assert!(article.contains("Test article"), "{article}");
+
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n# Heading\n",
+    )?;
+    let missing_article_description = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(!missing_article_description.status.success());
+    assert!(
+        String::from_utf8_lossy(&missing_article_description.stderr)
+            .contains("description is required")
+    );
+    assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Heading\n",
+    )?;
 
     for invalid_config in ["title = 'Blog'\n", "title = 'Blog'\ndescription = '  '\n"] {
         fs::write(site.join("config.toml"), invalid_config)?;
@@ -250,11 +270,11 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let site = workspace.0.path().join("blog");
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
     )?;
     fs::write(
         site.join("content/entries/next.md"),
-        "+++\ncreated_at = 2026-09-18\n+++\n# Next\n",
+        "+++\ncreated_at = 2026-09-18\ndescription = 'Test article'\n+++\n# Next\n",
     )?;
 
     let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
@@ -285,7 +305,9 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
-            format!("+++\ntitle = \"{name}\"\ncreated_at = {date}\n+++\n# {name}\n"),
+            format!(
+                "+++\ntitle = \"{name}\"\ncreated_at = {date}\ndescription = 'Test article'\n+++\n# {name}\n"
+            ),
         )?;
     }
     let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
@@ -326,7 +348,9 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
-            format!("+++\ncreated_at = {created_at}\n+++\n# {name}\n"),
+            format!(
+                "+++\ncreated_at = {created_at}\ndescription = 'Test article'\n+++\n# {name}\n"
+            ),
         )?;
     }
     let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
@@ -366,7 +390,7 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     fs::remove_file(site.join("styles/page.css"))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
     )?;
     let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
         .arg("build")
@@ -433,7 +457,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let site = workspace.0.path().join("blog");
     fs::write(
         site.join("content/about.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# About page\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# About page\n",
     )?;
     fs::write(site.join("static/asset.txt"), "static asset")?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -500,7 +524,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Changed in dev\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Changed in dev\n",
     )?;
     while !String::from_utf8_lossy(&data).contains("data: reload") {
         let read_count = events.read(&mut buffer)?;
@@ -570,11 +594,11 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Working again\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Working again\n",
     )?;
     fs::write(
         site.join("content/stale.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Old\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Old\n",
     )?;
     assert!(build()?.status.success());
     assert!(site.join("dist/stale.html").is_file());
@@ -599,7 +623,7 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
         site.join("content/about.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# First\n",
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# First\n",
     )?;
     fs::write(site.join("static/about.html"), "conflict")?;
     let failed = build()?;

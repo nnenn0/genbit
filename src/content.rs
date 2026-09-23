@@ -59,13 +59,13 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
             .to_owned()
     });
     ensure!(!title.trim().is_empty(), "title must not be empty");
-    let description = metadata.description.map(|value| value.trim().to_owned());
-    if let Some(value) = &description {
-        ensure!(!value.is_empty(), "description must not be empty");
-    }
-    let description = description
-        .or_else(|| crate::markdown::description(body))
-        .unwrap_or_else(|| title.clone());
+    let description = metadata
+        .description
+        .as_deref()
+        .context("description is required for articles")?
+        .trim()
+        .to_owned();
+    ensure!(!description.is_empty(), "description must not be empty");
     let template = metadata.template.unwrap_or_else(|| "page.html".to_owned());
     ensure!(
         !template.is_empty()
@@ -265,6 +265,7 @@ mod tests {
             "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-16\n+++\n# Reversed",
             "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-17T10:00:00\n+++\n# Updated time",
             "+++\ncreated_at = 2026-09-17\ndescription = '  '\n+++\n# Empty description",
+            "+++\ncreated_at = 2026-09-17\n+++\n# Missing description",
         ] {
             assert!(
                 parse(source, Path::new("post.md")).is_err(),
@@ -272,20 +273,20 @@ mod tests {
             );
         }
         let article = parse(
-            "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\n+++\n# Post",
+            "+++\ncreated_at = 2026-09-17\ndescription = 'Post description'\nupdated_at = 2026-09-22\n+++\n# Post",
             Path::new("post.md"),
         )?;
         assert_eq!(article.created_at, "2026-09-17");
         assert_eq!(article.created_at_order, "2026-09-17T00:00:00");
         assert_eq!(article.updated_at.as_deref(), Some("2026-09-22"));
         let article = parse(
-            "+++\ncreated_at = 2026-09-17 10:30\n+++\n# Post",
+            "+++\ncreated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
             Path::new("post.md"),
         )?;
         assert_eq!(article.created_at, "2026-09-17");
         assert_eq!(article.created_at_order, "2026-09-17T10:30:00");
         let article = parse(
-            "+++\ncreated_at = 2026-09-17T10:30:42\nupdated_at = 2026-09-17\n+++\n# Post",
+            "+++\ncreated_at = 2026-09-17T10:30:42\ndescription = 'Post description'\nupdated_at = 2026-09-17\n+++\n# Post",
             Path::new("post.md"),
         )?;
         assert_eq!(article.created_at, "2026-09-17");

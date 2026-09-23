@@ -278,7 +278,7 @@ mod tests {
             description: "Blog articles".to_owned(),
         };
         let articles = vec![content::parse(
-            "+++\ncreated_at = 2026-09-17\n+++\n# Post",
+            "+++\ncreated_at = 2026-09-17\ndescription = 'Post description'\n+++\n# Post",
             Path::new("post.md"),
         )?];
         let home = Context::from_serialize(&HomeView {
