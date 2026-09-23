@@ -143,6 +143,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("<style>"));
+    assert!(home.contains("prefers-color-scheme"), "{home}");
     assert!(home.contains("href=/assets/img/favicon.svg"), "{home}");
     assert!(home.contains("rel=icon"), "{home}");
     assert!(home.contains("type=image/svg+xml"), "{home}");
@@ -152,7 +153,9 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(home.contains("/entries/posts/another"));
     assert!(!home.contains("/entries/hello-world.html"));
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    assert!(article.contains("prefers-color-scheme"), "{article}");
     assert!(article.contains("<h1>&lt;Hello & world></h1>"), "{article}");
+    assert!(article.contains("2026-09-17</time>"), "{article}");
     assert!(article.contains("<strong>A post</strong>"));
     assert!(site.join("dist/entries/posts/another.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);

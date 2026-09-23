@@ -4,7 +4,7 @@
 {% block main %}
 <ul class="post-list">
   {% for entry in entries %}
-  <li><time datetime="{{ entry.created_at }}">{{ entry.created_at }}</time> <a href="{{ entry.url }}">{{ entry.title }}</a></li>
+  <li><a href="{{ entry.url }}">{{ entry.title }}</a><time datetime="{{ entry.created_at }}">{{ entry.created_at }}</time></li>
   {% endfor %}
 </ul>
 {% endblock main %}

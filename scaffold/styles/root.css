@@ -1,2 +1,2 @@
-.post-list { list-style: none; padding: 0; }
-.post-list time { font-variant-numeric: tabular-nums; }
+.post-list { margin: 0; padding: 0; list-style: none; }
+.post-list li + li { margin-top: 1rem; }

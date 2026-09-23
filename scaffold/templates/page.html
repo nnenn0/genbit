@@ -2,6 +2,7 @@
 {% block main %}
 <article>
   <h1>{{ article.title }}</h1>
+  <time datetime="{{ article.created_at }}">{{ article.created_at }}</time>
   {{ content | safe }}
 </article>
 {% endblock main %}

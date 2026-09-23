@@ -1,3 +1,7 @@
+article > time { margin-bottom: 1.5rem; }
 pre { overflow-x: auto; padding: 1rem; background: #f3f4f6; }
 code { font-family: ui-monospace, monospace; }
 img { max-width: 100%; height: auto; }
+@media (prefers-color-scheme: dark) {
+  pre { background: #292e36; }
+}
