@@ -180,7 +180,7 @@ fn route(relative: &Path) -> Result<(String, PathBuf)> {
         })
         .collect::<Result<Vec<_>>>()?;
     let output = segments.iter().collect::<PathBuf>().with_extension("html");
-    let url = format!("/{}.html", segments.join("/"));
+    let url = format!("/{}", segments.join("/"));
     Ok((url, output))
 }
 
@@ -224,18 +224,10 @@ mod tests {
     #[test]
     fn maps_clean_urls_and_rejects_unsafe_paths() -> Result<()> {
         for (source, url, output) in [
-            ("root.md", "/root.html", "root.html"),
-            ("about.md", "/about.html", "about.html"),
-            (
-                "entries/index.md",
-                "/entries/index.html",
-                "entries/index.html",
-            ),
-            (
-                "entries/hello.md",
-                "/entries/hello.html",
-                "entries/hello.html",
-            ),
+            ("root.md", "/root", "root.html"),
+            ("about.md", "/about", "about.html"),
+            ("entries/index.md", "/entries/index", "entries/index.html"),
+            ("entries/hello.md", "/entries/hello", "entries/hello.html"),
         ] {
             let actual = route(Path::new(source))?;
             assert_eq!(actual, (url.to_owned(), PathBuf::from(output)));

@@ -36,7 +36,7 @@ fn article_url(url: &str) -> Option<String> {
         return None;
     }
     path.strip_suffix(".md")
-        .map(|stem| format!("{stem}.html{suffix}"))
+        .map(|stem| format!("{stem}{suffix}"))
 }
 
 fn image_html<'a>(
@@ -116,11 +116,11 @@ mod tests {
     #[test]
     fn rewrites_relative_article_links_without_changing_other_urls() {
         for (url, expected) in [
-            ("other.md", "other.html"),
-            ("../other.md#section", "../other.html#section"),
+            ("other.md", "other"),
+            ("../other.md#section", "../other#section"),
             (
                 "posts/other.md?view=full#section",
-                "posts/other.html?view=full#section",
+                "posts/other?view=full#section",
             ),
             (
                 "https://example.com/other.md",

@@ -148,8 +148,9 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(home.contains("type=image/svg+xml"), "{home}");
     assert!(home.contains("<h1>blog</h1>"), "{home}");
     assert!(!home.contains("<strong>A post</strong>"), "{home}");
-    assert!(home.contains("/entries/hello-world.html"));
-    assert!(home.contains("/entries/posts/another.html"));
+    assert!(home.contains("/entries/hello-world"));
+    assert!(home.contains("/entries/posts/another"));
+    assert!(!home.contains("/entries/hello-world.html"));
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(article.contains("<h1>&lt;Hello & world></h1>"), "{article}");
     assert!(article.contains("<strong>A post</strong>"));
@@ -160,7 +161,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
 }
 
 #[test]
-fn links_to_markdown_articles_use_generated_html_paths() -> Result<()> {
+fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;
     let site = workspace.0.path().join("blog");
@@ -183,10 +184,7 @@ fn links_to_markdown_articles_use_generated_html_paths() -> Result<()> {
         String::from_utf8_lossy(&build.stderr)
     );
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
-    assert!(
-        html.contains("href=\"next.html?view=full#details\""),
-        "{html}"
-    );
+    assert!(html.contains("href=\"next?view=full#details\""), "{html}");
     assert!(html.contains("href=https://example.com/next.md"), "{html}");
     assert!(site.join("dist/entries/next.html").is_file());
     Ok(())
@@ -218,13 +216,13 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let newest = home
-        .find("/entries/new.html")
+        .find("/entries/new")
         .context("newest article missing")?;
     let middle = home
-        .find("/entries/middle.html")
+        .find("/entries/middle")
         .context("middle article missing")?;
     let oldest = home
-        .find("/entries/old.html")
+        .find("/entries/old")
         .context("oldest article missing")?;
     assert!(newest < middle && middle < oldest, "{home}");
     for date in ["2026-09-17", "2026-09-16", "2026-09-05"] {
@@ -259,13 +257,13 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let late = home
-        .find("/entries/z-late.html")
+        .find("/entries/z-late")
         .context("late article missing")?;
     let early = home
-        .find("/entries/a-early.html")
+        .find("/entries/a-early")
         .context("early article missing")?;
     let legacy = home
-        .find("/entries/m-legacy.html")
+        .find("/entries/m-legacy")
         .context("legacy article missing")?;
     assert!(late < early && early < legacy, "{home}");
     assert!(home.contains("datetime=2026-09-17"), "{home}");
@@ -384,7 +382,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let page = http_get(&address, "/")?;
     assert!(page.starts_with("HTTP/1.1 200"), "{page}");
     assert!(page.contains("EventSource"), "{page}");
-    assert!(http_get(&address, "/about.html")?.contains("About page"));
+    assert!(http_get(&address, "/about?view=full")?.contains("About page"));
     assert!(http_get(&address, "/asset.txt")?.contains("static asset"));
 
     let mut events = TcpStream::connect(&address)?;
@@ -426,7 +424,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         assert!(read_count > 0, "SSE connection closed before reload");
         data.extend(buffer.iter().take(read_count).copied());
     }
-    let updated = http_get(&address, "/entries/hello-world.html")?;
+    let updated = http_get(&address, "/entries/hello-world")?;
     assert!(updated.contains("Changed in dev"), "{updated}");
 
     data.clear();
@@ -439,7 +437,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         );
         data.extend(buffer.iter().take(read_count).copied());
     }
-    assert!(http_get(&address, "/about.html")?.starts_with("HTTP/1.1 404"));
+    assert!(http_get(&address, "/about")?.starts_with("HTTP/1.1 404"));
 
     let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
         .arg("build")

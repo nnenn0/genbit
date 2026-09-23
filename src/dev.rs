@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use axum::{
     Router,
-    extract::State,
+    extract::{Request, State},
+    middleware::{self, Next},
+    response::Response,
     response::sse::{Event, Sse},
     routing::get,
 };
@@ -59,10 +61,39 @@ pub(crate) async fn run(root: PathBuf, address: SocketAddr) -> Result<()> {
 }
 
 fn router(root: &Path, reload_tx: broadcast::Sender<()>) -> Router {
+    let dist = root.join("dist");
     Router::new()
         .route("/__genbit/reload", get(events))
-        .fallback_service(ServeDir::new(root.join("dist")))
+        .fallback_service(ServeDir::new(&dist))
+        .layer(middleware::from_fn_with_state(dist, serve_clean_url))
         .with_state(reload_tx)
+}
+
+async fn serve_clean_url(
+    State(dist): State<PathBuf>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    let segments = path.trim_start_matches('/');
+    let is_article_path = !segments.is_empty()
+        && !path.starts_with("/__genbit/")
+        && segments.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        });
+    if is_article_path && dist.join(format!("{segments}.html")).is_file() {
+        let suffix = request
+            .uri()
+            .query()
+            .map_or_else(String::new, |query| format!("?{query}"));
+        if let Ok(uri) = format!("{path}.html{suffix}").parse() {
+            *request.uri_mut() = uri;
+        }
+    }
+    next.run(request).await
 }
 
 async fn events(

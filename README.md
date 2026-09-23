@@ -57,11 +57,11 @@ updated_at = 2026-09-22
 # はじめに
 ```
 
-`content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、URLは `/entries/hello-world.html` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。トップページには記事の作成日とタイトルを作成日時の新しい順に並べます。同じ日時の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。
+`content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、記事URLは `/entries/hello-world` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。拡張子なしのURLで配信するには、ホスティングサービス側が `.html` ファイルを対応づける必要があります。`genbit dev` では拡張子なしのURLを配信します。トップページには記事の作成日とタイトルを作成日時の新しい順に並べます。同じ日時の記事はURL順です。`static/` のファイルはそのままコピーされます。生成サイトのテンプレートとCSSは自由に編集できます。
 
 全テンプレートで `site`（`title`）と `css` を参照できます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
 
-記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは末尾を `.html` に替えます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next.html#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
+記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは `.md` を取り除きます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
 
 CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。`styles/common.css` は全ページへ適用する共通CSSです。任意でテンプレートと同じ相対パス・拡張子を `.css` に替えたCSS（例: `templates/page.html` に対する `styles/page.css`）を置くと、そのテンプレートを使うページだけに追加でインライン展開されます。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮、コードのシンタックスハイライト、ダークモードは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。
 
