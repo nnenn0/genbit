@@ -3,6 +3,7 @@ use crate::{
     output::{self, Artifact},
 };
 use anyhow::{Context as _, Result, ensure};
+use axum::http::Uri;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -17,12 +18,14 @@ use tera::{Context, Tera};
 struct Config {
     title: String,
     description: String,
+    site_url: String,
 }
 
 #[derive(Serialize)]
 struct HomeView<'a> {
     site: &'a Config,
     description: &'a str,
+    canonical_url: &'a str,
     entries: &'a [Article],
     css: &'a str,
 }
@@ -31,6 +34,7 @@ struct HomeView<'a> {
 struct ArticleView<'a> {
     site: &'a Config,
     description: &'a str,
+    canonical_url: &'a str,
     article: &'a Article,
     content: &'a str,
     css: &'a str,
@@ -46,7 +50,7 @@ pub(crate) fn run_dev(root: &Path) -> Result<usize> {
 
 fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     let config_path = root.join("config.toml");
-    let config: Config = toml::from_str(&read_text(&config_path)?)
+    let mut config: Config = toml::from_str(&read_text(&config_path)?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
     ensure!(
         !config.title.trim().is_empty(),
@@ -56,6 +60,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         !config.description.trim().is_empty(),
         "config.toml: description must not be empty"
     );
+    config.site_url = validate_site_url(&config.site_url)?;
     let tera = load_templates(&root.join("templates"))?;
     let mut articles = load_articles(&root.join("content"))?;
     articles.sort_by(|left, right| {
@@ -70,13 +75,15 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     let root_css = styles
         .get("root.html")
         .context("missing styles for root.html")?;
-    let mut artifacts = Vec::with_capacity(articles.len() + 1);
+    let mut artifacts = Vec::with_capacity(articles.len() + 2);
+    let home_url = config.site_url.as_str();
     artifacts.push(render(
         &tera,
         "root.html",
         &HomeView {
             site: &config,
             description: &config.description,
+            canonical_url: home_url,
             entries: &articles,
             css: root_css,
         },
@@ -89,12 +96,14 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
             .get(&article.template)
             .with_context(|| format!("missing styles for template {}", article.template))?;
         let source = article.source.display().to_string();
+        let canonical_url = format!("{}{url}", home_url.trim_end_matches('/'), url = article.url);
         artifacts.push(render(
             &tera,
             &article.template,
             &ArticleView {
                 site: &config,
                 description: &article.description,
+                canonical_url: &canonical_url,
                 article,
                 content: &article.html,
                 css,
@@ -104,6 +113,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
             dev,
         )?);
     }
+    artifacts.push(sitemap(home_url, &articles)?);
     let static_root = root.join("static");
     let assets = files(&static_root)?
         .into_iter()
@@ -122,6 +132,65 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     artifacts.extend(assets);
     output::publish(root, &artifacts)?;
     Ok(articles.len() + 1)
+}
+
+fn validate_site_url(value: &str) -> Result<String> {
+    ensure!(
+        !value.contains('#'),
+        "config.toml: site_url must not contain a fragment"
+    );
+    let uri: Uri = value
+        .parse()
+        .context("config.toml: site_url must be an absolute HTTP(S) URL")?;
+    let scheme = uri
+        .scheme_str()
+        .context("config.toml: site_url must have a scheme")?;
+    ensure!(
+        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"),
+        "config.toml: site_url must use http or https"
+    );
+    let authority = uri
+        .authority()
+        .context("config.toml: site_url must have a host")?;
+    ensure!(
+        !authority.host().is_empty() && !authority.as_str().contains('@'),
+        "config.toml: site_url must have a host without credentials"
+    );
+    ensure!(
+        uri.path_and_query().is_none_or(|part| part.as_str() == "/"),
+        "config.toml: site_url must point to the site root without a path or query"
+    );
+    Ok(format!("{}://{authority}/", scheme.to_ascii_lowercase()))
+}
+
+fn sitemap(base: &str, articles: &[Article]) -> Result<Artifact> {
+    ensure!(
+        articles.len() < 50_000,
+        "sitemap.xml supports at most 50,000 URLs including the home page"
+    );
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
+    let escaped_base = base.replace('&', "&amp;").replace('<', "&lt;");
+    xml.push_str("  <url><loc>");
+    xml.push_str(&escaped_base);
+    xml.push_str("</loc></url>\n");
+    for article in articles {
+        xml.push_str("  <url><loc>");
+        xml.push_str(escaped_base.trim_end_matches('/'));
+        xml.push_str(&article.url);
+        xml.push_str("</loc></url>\n");
+    }
+    xml.push_str("</urlset>\n");
+    ensure!(
+        xml.len() <= 50 * 1024 * 1024,
+        "sitemap.xml exceeds the 50 MB uncompressed limit"
+    );
+    Ok(Artifact {
+        path: PathBuf::from("sitemap.xml"),
+        bytes: xml.into_bytes(),
+        source: "<generated sitemap>".to_owned(),
+    })
 }
 
 fn load_styles(root: &Path, templates: &BTreeSet<&str>) -> Result<BTreeMap<String, String>> {
@@ -276,6 +345,7 @@ mod tests {
         let site = Config {
             title: "Blog".to_owned(),
             description: "Blog articles".to_owned(),
+            site_url: "http://127.0.0.1:3000/".to_owned(),
         };
         let articles = vec![content::parse(
             "+++\ncreated_at = 2026-09-17\ndescription = 'Post description'\n+++\n# Post",
@@ -284,6 +354,7 @@ mod tests {
         let home = Context::from_serialize(&HomeView {
             site: &site,
             description: &site.description,
+            canonical_url: &site.site_url,
             entries: &articles,
             css: "",
         })?;
@@ -294,6 +365,7 @@ mod tests {
         let single = Context::from_serialize(&ArticleView {
             site: &site,
             description: &article.description,
+            canonical_url: "http://127.0.0.1:3000/post",
             article,
             content: &article.html,
             css: "",

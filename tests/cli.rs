@@ -69,6 +69,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     assert!(article.contains("title = \"はじめての記事\""));
     assert!(article.contains("created_at = "));
     assert!(article.contains("description = "));
+    assert!(fs::read_to_string(root.join("config.toml"))?.contains("site_url = "));
     assert!(!root.join("content/index.md").exists());
     assert!(!root.join("content/root.md").exists());
     fs::write(root.join("config.toml"), "user content")?;
@@ -250,7 +251,10 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
         "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Heading\n",
     )?;
 
-    for invalid_config in ["title = 'Blog'\n", "title = 'Blog'\ndescription = '  '\n"] {
+    for invalid_config in [
+        "title = 'Blog'\nsite_url = 'https://example.com/'\n",
+        "title = 'Blog'\ndescription = '  '\nsite_url = 'https://example.com/'\n",
+    ] {
         fs::write(site.join("config.toml"), invalid_config)?;
         let invalid = Command::new(env!("CARGO_BIN_EXE_genbit"))
             .arg("build")
@@ -260,6 +264,121 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
         assert!(String::from_utf8_lossy(&invalid.stderr).contains("description"));
         assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
     }
+    Ok(())
+}
+
+#[test]
+fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    let build = || -> Result<Output> {
+        Ok(Command::new(env!("CARGO_BIN_EXE_genbit"))
+            .arg("build")
+            .current_dir(&site)
+            .output()?)
+    };
+    assert!(build()?.status.success());
+    assert!(site.join("dist/sitemap.xml").exists());
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    assert!(home.contains("rel=canonical"), "{home}");
+    assert!(home.contains("http://127.0.0.1:3000/"), "{home}");
+
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\n",
+    )?;
+    fs::create_dir(site.join("content/entries/posts"))?;
+    fs::write(
+        site.join("content/entries/posts/another.md"),
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Another article'\n+++\nAnother article.\n",
+    )?;
+    let output = build()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for (file, canonical) in [
+        ("dist/index.html", "https://example.com/"),
+        (
+            "dist/entries/hello-world.html",
+            "https://example.com/entries/hello-world",
+        ),
+        (
+            "dist/entries/posts/another.html",
+            "https://example.com/entries/posts/another",
+        ),
+    ] {
+        let html = fs::read_to_string(site.join(file))?;
+        assert!(html.contains("rel=canonical"), "{file}: {html}");
+        assert!(html.contains(canonical), "{file}: {html}");
+    }
+    let sitemap = fs::read_to_string(site.join("dist/sitemap.xml"))?;
+    assert!(sitemap.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+    for url in [
+        "https://example.com/",
+        "https://example.com/entries/hello-world",
+        "https://example.com/entries/posts/another",
+    ] {
+        assert!(sitemap.contains(&format!("<loc>{url}</loc>")), "{sitemap}");
+    }
+    assert_eq!(sitemap.matches("<url>").count(), 3);
+    assert!(!sitemap.contains(".html"), "{sitemap}");
+    Ok(())
+}
+
+#[test]
+fn invalid_site_url_and_sitemap_collision_preserve_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    let build = || -> Result<Output> {
+        Ok(Command::new(env!("CARGO_BIN_EXE_genbit"))
+            .arg("build")
+            .current_dir(&site)
+            .output()?)
+    };
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\n",
+    )?;
+    assert!(build()?.status.success());
+    let original = fs::read_to_string(site.join("dist/sitemap.xml"))?;
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Blog articles'\n",
+    )?;
+    let missing = build()?;
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("site_url"));
+    assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
+    for invalid_url in [
+        "example.com",
+        "ftp://example.com/",
+        "https://user@example.com/",
+        "https://example.com/blog/",
+        "https://example.com/?q=1",
+        "https://example.com/#fragment",
+    ] {
+        fs::write(
+            site.join("config.toml"),
+            format!("title = 'Blog'\ndescription = 'Blog articles'\nsite_url = '{invalid_url}'\n"),
+        )?;
+        let output = build()?;
+        assert!(!output.status.success(), "accepted {invalid_url}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("site_url"));
+        assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
+    }
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\n",
+    )?;
+    fs::write(site.join("static/sitemap.xml"), "conflict")?;
+    let output = build()?;
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("output collision"));
+    assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     Ok(())
 }
 

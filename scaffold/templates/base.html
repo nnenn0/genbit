@@ -6,6 +6,7 @@
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
   <title>{% block title %}{{ article.title }} | {{ site.title }}{% endblock title %}</title>
   <meta name="description" content="{{ description }}">
+  <link rel="canonical" href="{{ canonical_url }}">
   <style>{{ css | safe }}</style>
 </head>
 <body>
