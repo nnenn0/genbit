@@ -85,7 +85,8 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
         fs::create_dir(&path).with_context(|| format!("cannot create {}", path.display()))?;
     }
     // The validated name contains only TOML-safe ASCII.
-    let config = format!("title = \"{name}\"\n");
+    let config =
+        format!("title = \"{name}\"\ndescription = \"{name} で公開している記事の一覧です。\"\n");
     write_new(&root.join("config.toml"), &config)?;
     for &(relative, content) in FILES {
         write_new(&root.join(relative), content)?;

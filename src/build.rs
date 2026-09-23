@@ -16,11 +16,13 @@ use tera::{Context, Tera};
 #[serde(deny_unknown_fields)]
 struct Config {
     title: String,
+    description: String,
 }
 
 #[derive(Serialize)]
 struct HomeView<'a> {
     site: &'a Config,
+    description: &'a str,
     entries: &'a [Article],
     css: &'a str,
 }
@@ -28,6 +30,7 @@ struct HomeView<'a> {
 #[derive(Serialize)]
 struct ArticleView<'a> {
     site: &'a Config,
+    description: &'a str,
     article: &'a Article,
     content: &'a str,
     css: &'a str,
@@ -49,6 +52,10 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         !config.title.trim().is_empty(),
         "config.toml: title must not be empty"
     );
+    ensure!(
+        !config.description.trim().is_empty(),
+        "config.toml: description must not be empty"
+    );
     let tera = load_templates(&root.join("templates"))?;
     let mut articles = load_articles(&root.join("content"))?;
     articles.sort_by(|left, right| {
@@ -69,6 +76,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         "root.html",
         &HomeView {
             site: &config,
+            description: &config.description,
             entries: &articles,
             css: root_css,
         },
@@ -86,6 +94,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
             &article.template,
             &ArticleView {
                 site: &config,
+                description: &article.description,
                 article,
                 content: &article.html,
                 css,
@@ -266,6 +275,7 @@ mod tests {
     fn home_and_article_have_distinct_template_data() -> Result<()> {
         let site = Config {
             title: "Blog".to_owned(),
+            description: "Blog articles".to_owned(),
         };
         let articles = vec![content::parse(
             "+++\ncreated_at = 2026-09-17\n+++\n# Post",
@@ -273,6 +283,7 @@ mod tests {
         )?];
         let home = Context::from_serialize(&HomeView {
             site: &site,
+            description: &site.description,
             entries: &articles,
             css: "",
         })?;
@@ -282,6 +293,7 @@ mod tests {
         let article = articles.first().context("test article missing")?;
         let single = Context::from_serialize(&ArticleView {
             site: &site,
+            description: &article.description,
             article,
             content: &article.html,
             css: "",

@@ -148,6 +148,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(home.contains("rel=icon"), "{home}");
     assert!(home.contains("type=image/svg+xml"), "{home}");
     assert!(home.contains("<h1>blog</h1>"), "{home}");
+    assert!(home.contains("name=description"), "{home}");
     assert!(!home.contains("<strong>A post</strong>"), "{home}");
     assert!(home.contains("/entries/hello-world"));
     assert!(home.contains("/entries/posts/another"));
@@ -157,9 +158,88 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(article.contains("<h1>&lt;Hello & world></h1>"), "{article}");
     assert!(article.contains("2026-09-17</time>"), "{article}");
     assert!(article.contains("<strong>A post</strong>"));
+    assert!(article.contains("content=\"A post\""), "{article}");
     assert!(site.join("dist/entries/posts/another.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
     assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
+    Ok(())
+}
+
+#[test]
+fn descriptions_use_article_prose_and_allow_explicit_override() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
+    )?;
+    fs::write(
+        site.join("content/override.md"),
+        "+++\ncreated_at = 2026-09-18\ndescription = 'Chosen summary'\n+++\nBody text.\n",
+    )?;
+    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    let article_head = article.split("<style>").next().context("missing head")?;
+    assert!(article_head.contains("name=description"), "{article}");
+    assert!(
+        article_head.contains("Short linked intro. More detail"),
+        "{article}"
+    );
+    assert!(!article_head.contains("Skip this item"), "{article}");
+    assert!(article_head.contains("quotes"), "{article}");
+    let override_html = fs::read_to_string(site.join("dist/override.html"))?;
+    let override_head = override_html
+        .split("<style>")
+        .next()
+        .context("missing head")?;
+    assert!(override_head.contains("Chosen summary"), "{override_html}");
+    assert!(!override_head.contains("Body text"), "{override_html}");
+    Ok(())
+}
+
+#[test]
+fn descriptions_are_always_present_and_site_description_is_required() -> Result<()> {
+    let workspace = Workspace::new()?;
+    workspace.run(&["new", "blog"], true)?;
+    let site = workspace.0.path().join("blog");
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        "+++\ncreated_at = 2026-09-17\n+++\n# Heading\n\n- List only\n",
+    )?;
+    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .arg("build")
+        .current_dir(&site)
+        .output()?;
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    assert!(home.contains("name=description"), "{home}");
+    assert!(article.contains("name=description"), "{article}");
+    assert!(article.contains("Heading"), "{article}");
+
+    for invalid_config in ["title = 'Blog'\n", "title = 'Blog'\ndescription = '  '\n"] {
+        fs::write(site.join("config.toml"), invalid_config)?;
+        let invalid = Command::new(env!("CARGO_BIN_EXE_genbit"))
+            .arg("build")
+            .current_dir(&site)
+            .output()?;
+        assert!(!invalid.status.success());
+        assert!(String::from_utf8_lossy(&invalid.stderr).contains("description"));
+        assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
+    }
     Ok(())
 }
 
