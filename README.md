@@ -41,6 +41,7 @@ my-blog/
 │   └── root.css
 └── static/
     └── assets/img/
+        ├── favicon.png
         ├── favicon.svg
         └── ogp.png
 ```
@@ -50,6 +51,8 @@ my-blog/
 `site_url` も必須です。`new` はローカルプレビュー用の `http://127.0.0.1:3000/` を設定するため、公開前に正式なサイトURL（例: `https://example.com/`）へ変更してください。サイトをドメインのルートに置くHTTP(S)のURLだけを受け付けます。トップページと全記事に絶対URLの canonical リンクを出し、同じURLを列挙した `dist/sitemap.xml` と、その Sitemap を案内する `dist/robots.txt` を生成します。記事URLは拡張子なしの `/entries/hello-world` を使うため、公開先もそのURLを配信する必要があります。サブパス配信にはまだ対応していません。
 
 `og_image` にはトップページと全記事で共通して使うOGP画像を指定します。`new` は1200×630ピクセルの `static/assets/img/ogp.png` と、それを指すルート相対URL `/assets/img/ogp.png` を用意します。ルート相対URLはビルド時に `site_url` と結合されます。外部サービスに置いた画像を使う場合は、HTTP(S)の絶対URLも指定できます。生成ページにはOpen Graphメタデータを出力し、トップページには `WebSite`、記事ページには `BlogPosting` のJSON-LD構造化データを出力します。記事単位のOGP画像と著者情報には対応していません。作成済みのサイトは自動更新されないため、`config.toml` への `og_image` 追加とテンプレートへのメタデータ追加が必要です。
+
+`new` はfaviconとして96×96ピクセルのPNGとSVGを用意します。初期テンプレートではPNGを先に指定し、SVG対応ブラウザー向けの候補も併記します。作成済みのサイトは自動更新されないため、必要に応じてPNGの追加と `templates/base.html` の変更を行ってください。
 
 記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。時刻まで指定する場合は、引用符なしのTOMLローカル日時（`YYYY-MM-DD HH:MM`、秒を指定するなら `YYYY-MM-DD HH:MM:SS`）を使います。日付と時刻の間は `T` でも構いません。時差変換はしないため、サイトで使う現地時刻を記入してください。従来のローカル日付（`YYYY-MM-DD`）も使え、その場合は並び替え時にその日の `00:00:00` として扱います。`updated_at` は任意のローカル日付で、作成日以降を指定します。どちらも表示は日付だけです。自分で記事を追加するときは執筆日と時刻を入力してください。`new` が作るサンプル記事の日時は固定の例なので、記事を使う場合は実際の日時へ書き換えてください。
 

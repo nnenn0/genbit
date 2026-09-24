@@ -124,6 +124,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "styles/page.css",
         "styles/root.css",
         "static/assets/img/favicon.svg",
+        "static/assets/img/favicon.png",
         "static/assets/img/ogp.png",
         ".gitignore",
     ] {
@@ -143,6 +144,12 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     let height = og_image.get(20..24).context("missing PNG height")?;
     assert_eq!(u32::from_be_bytes(width.try_into()?), 1200);
     assert_eq!(u32::from_be_bytes(height.try_into()?), 630);
+    let favicon = fs::read(root.join("static/assets/img/favicon.png"))?;
+    assert!(favicon.starts_with(b"\x89PNG\r\n\x1a\n"));
+    let width = favicon.get(16..20).context("missing favicon PNG width")?;
+    let height = favicon.get(20..24).context("missing favicon PNG height")?;
+    assert_eq!(u32::from_be_bytes(width.try_into()?), 96);
+    assert_eq!(u32::from_be_bytes(height.try_into()?), 96);
     assert!(!root.join("content/index.md").exists());
     assert!(!root.join("content/root.md").exists());
     fs::write(root.join("config.toml"), "user content")?;
@@ -215,6 +222,9 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("<style>"));
     assert!(home.contains("prefers-color-scheme"), "{home}");
+    assert!(home.contains("href=/assets/img/favicon.png"), "{home}");
+    assert!(home.contains("sizes=96x96"), "{home}");
+    assert!(home.contains("type=image/png"), "{home}");
     assert!(home.contains("href=/assets/img/favicon.svg"), "{home}");
     assert!(home.contains("rel=icon"), "{home}");
     assert!(home.contains("type=image/svg+xml"), "{home}");
@@ -259,6 +269,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(site.join("dist/entries/posts/another.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
     assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
+    assert!(site.join("dist/assets/img/favicon.png").is_file());
     assert!(site.join("dist/assets/img/ogp.png").is_file());
     Ok(())
 }

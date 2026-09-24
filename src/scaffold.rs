@@ -96,6 +96,10 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
         &root.join("static/assets/img/ogp.png"),
         include_bytes!("../scaffold/static/assets/img/ogp.png"),
     )?;
+    write_new_bytes(
+        &root.join("static/assets/img/favicon.png"),
+        include_bytes!("../scaffold/static/assets/img/favicon.png"),
+    )?;
     Ok(())
 }
 
