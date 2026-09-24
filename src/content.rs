@@ -257,19 +257,46 @@ mod tests {
 
     #[test]
     fn validates_creation_time_and_update_date() -> Result<()> {
-        for source in [
-            "# Missing date",
-            "+++\ncreated_at = \"2026-09-17\"\n+++\n# Quoted date",
-            "+++\ncreated_at = 2026-09-17T10:00:00.5\n+++\n# Fractional seconds",
-            "+++\ncreated_at = 2026-09-17T10:00:00Z\n+++\n# Offset",
-            "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-16\n+++\n# Reversed",
-            "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-17T10:00:00\n+++\n# Updated time",
-            "+++\ncreated_at = 2026-09-17\ndescription = '  '\n+++\n# Empty description",
-            "+++\ncreated_at = 2026-09-17\n+++\n# Missing description",
+        for (source, reason) in [
+            (
+                "+++\ndescription = 'Post description'\n+++\n# Missing date",
+                "created_at is required",
+            ),
+            (
+                "+++\ncreated_at = \"2026-09-17\"\ndescription = 'Post description'\n+++\n# Quoted date",
+                "created_at must be a TOML local date",
+            ),
+            (
+                "+++\ncreated_at = 2026-09-17T10:00:00.5\ndescription = 'Post description'\n+++\n# Fractional seconds",
+                "created_at must be a TOML local date",
+            ),
+            (
+                "+++\ncreated_at = 2026-09-17T10:00:00Z\ndescription = 'Post description'\n+++\n# Offset",
+                "created_at must be a TOML local date",
+            ),
+            (
+                "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-16\ndescription = 'Post description'\n+++\n# Reversed",
+                "updated_at must not precede created_at",
+            ),
+            (
+                "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-17T10:00:00\ndescription = 'Post description'\n+++\n# Updated time",
+                "updated_at must be a TOML local date",
+            ),
+            (
+                "+++\ncreated_at = 2026-09-17\ndescription = '  '\n+++\n# Empty description",
+                "description must not be empty",
+            ),
+            (
+                "+++\ncreated_at = 2026-09-17\n+++\n# Missing description",
+                "description is required",
+            ),
         ] {
+            let error = parse(source, Path::new("post.md"))
+                .err()
+                .context(format!("accepted {source:?}"))?;
             assert!(
-                parse(source, Path::new("post.md")).is_err(),
-                "accepted {source:?}"
+                error.to_string().contains(reason),
+                "{source:?}: expected {reason:?}, got {error:#}"
             );
         }
         let article = parse(

@@ -3,6 +3,7 @@ use std::{
     fs,
     io::{ErrorKind, Read, Write},
     net::{TcpListener, TcpStream},
+    path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     thread,
     time::Duration,
@@ -11,13 +12,76 @@ use tempfile::TempDir;
 
 struct Workspace(TempDir);
 
-struct DevProcess(Child);
+struct DevProcess {
+    child: Child,
+    log: PathBuf,
+}
+
+impl DevProcess {
+    fn start(site: &Path, port: u16) -> Result<Self> {
+        let log = site.join("dev.log");
+        let log_file =
+            fs::File::create(&log).with_context(|| format!("cannot create {}", log.display()))?;
+        let child = Command::new(env!("CARGO_BIN_EXE_genbit"))
+            .args(["dev", "--port", &port.to_string()])
+            .current_dir(site)
+            .stdout(Stdio::from(log_file.try_clone()?))
+            .stderr(Stdio::from(log_file))
+            .spawn()
+            .with_context(|| format!("cannot start dev in {}", site.display()))?;
+        Ok(Self { child, log })
+    }
+
+    fn logs(&self) -> String {
+        fs::read_to_string(&self.log)
+            .unwrap_or_else(|error| format!("cannot read {}: {error}", self.log.display()))
+    }
+}
 
 impl Drop for DevProcess {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
+}
+
+fn run_genbit(root: &Path, args: &[&str]) -> Result<Output> {
+    Command::new(env!("CARGO_BIN_EXE_genbit"))
+        .args(args)
+        .current_dir(root)
+        .output()
+        .with_context(|| format!("cannot execute genbit {args:?} in {}", root.display()))
+}
+
+fn build_site(site: &Path) -> Result<Output> {
+    run_genbit(site, &["build"])
+}
+
+fn read_sse_until(
+    stream: &mut TcpStream,
+    data: &mut Vec<u8>,
+    marker: &[u8],
+    server: &DevProcess,
+) -> Result<()> {
+    let mut buffer = [0; 4096];
+    while !data.windows(marker.len()).any(|bytes| bytes == marker) {
+        let read_count = stream.read(&mut buffer).with_context(|| {
+            format!(
+                "SSE marker {:?} did not arrive:\n{}",
+                String::from_utf8_lossy(marker),
+                server.logs()
+            )
+        })?;
+        if read_count == 0 {
+            bail!("SSE closed before marker:\n{}", server.logs());
+        }
+        data.extend_from_slice(
+            buffer
+                .get(..read_count)
+                .context("invalid SSE read length")?,
+        );
+    }
+    Ok(())
 }
 
 impl Workspace {
@@ -28,11 +92,7 @@ impl Workspace {
     }
 
     fn run(&self, args: &[&str], expected_success: bool) -> Result<Output> {
-        let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .args(args)
-            .current_dir(self.0.path())
-            .output()
-            .with_context(|| format!("cannot execute genbit {args:?}"))?;
+        let output = run_genbit(self.0.path(), args)?;
         assert_eq!(
             output.status.success(),
             expected_success,
@@ -43,13 +103,17 @@ impl Workspace {
         );
         Ok(output)
     }
+
+    fn new_site(&self, name: &str) -> Result<PathBuf> {
+        self.run(&["new", name], true)?;
+        Ok(self.0.path().join(name))
+    }
 }
 
 #[test]
 fn creates_site_and_refuses_overwrite() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "test-blog"], true)?;
-    let root = workspace.0.path().join("test-blog");
+    let root = workspace.new_site("test-blog")?;
     for file in [
         "config.toml",
         "content/entries/hello-world.md",
@@ -131,8 +195,7 @@ fn help_is_available() -> Result<()> {
 #[test]
 fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17\ndescription = 'A post'\nupdated_at = 2026-09-22\n+++\n\n**A post**\n",
@@ -143,10 +206,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
         "+++\ncreated_at = 2026-09-16\ndescription = 'Test article'\n+++\n# Another\n",
     )?;
     fs::write(site.join("static/logo.png"), [0, 1, 2, 255])?;
-    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let output = build_site(&site)?;
     assert!(
         output.status.success(),
         "{}",
@@ -206,8 +266,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
 #[test]
 fn article_description_uses_front_matter_instead_of_body() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\ndescription = 'Chosen summary with quotes & friends'\n+++\n# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
@@ -216,10 +275,7 @@ fn article_description_uses_front_matter_instead_of_body() -> Result<()> {
         site.join("content/override.md"),
         "+++\ncreated_at = 2026-09-18\ndescription = 'Chosen summary'\n+++\nBody text.\n",
     )?;
-    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let output = build_site(&site)?;
     assert!(
         output.status.success(),
         "{}",
@@ -247,16 +303,12 @@ fn article_description_uses_front_matter_instead_of_body() -> Result<()> {
 #[test]
 fn descriptions_are_always_present_and_site_description_is_required() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Heading\n\n- List only\n",
     )?;
-    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let build = build_site(&site)?;
     assert!(
         build.status.success(),
         "{}",
@@ -272,10 +324,7 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
         site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\n+++\n# Heading\n",
     )?;
-    let missing_article_description = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let missing_article_description = build_site(&site)?;
     assert!(!missing_article_description.status.success());
     assert!(
         String::from_utf8_lossy(&missing_article_description.stderr)
@@ -292,10 +341,7 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
         "title = 'Blog'\ndescription = '  '\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
     ] {
         fs::write(site.join("config.toml"), invalid_config)?;
-        let invalid = Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .arg("build")
-            .current_dir(&site)
-            .output()?;
+        let invalid = build_site(&site)?;
         assert!(!invalid.status.success());
         assert!(String::from_utf8_lossy(&invalid.stderr).contains("description"));
         assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
@@ -306,14 +352,8 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
 #[test]
 fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
-    let build = || -> Result<Output> {
-        Ok(Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .arg("build")
-            .current_dir(&site)
-            .output()?)
-    };
+    let site = workspace.new_site("blog")?;
+    let build = || build_site(&site);
     assert!(build()?.status.success());
     assert!(site.join("dist/sitemap.xml").exists());
     let home = fs::read_to_string(site.join("dist/index.html"))?;
@@ -376,14 +416,8 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
 #[test]
 fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
-    let build = || -> Result<Output> {
-        Ok(Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .arg("build")
-            .current_dir(&site)
-            .output()?)
-    };
+    let site = workspace.new_site("blog")?;
+    let build = || build_site(&site);
     fs::write(
         site.join("config.toml"),
         "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
@@ -465,8 +499,7 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
 #[test]
 fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
@@ -476,10 +509,7 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
         "+++\ncreated_at = 2026-09-18\ndescription = 'Test article'\n+++\n# Next\n",
     )?;
 
-    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let build = build_site(&site)?;
     assert!(
         build.status.success(),
         "{}",
@@ -495,8 +525,7 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
 #[test]
 fn homepage_lists_articles_by_creation_date() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     for (name, date) in [
         ("old", "2026-09-05"),
         ("new", "2026-09-17"),
@@ -509,10 +538,7 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
             ),
         )?;
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let output = build_site(&site)?;
     assert!(
         output.status.success(),
         "{}",
@@ -538,10 +564,10 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
 #[test]
 fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     for (name, created_at) in [
         ("a-early", "2026-09-17 08:00"),
+        ("b-same", "2026-09-17T08:00:40"),
         ("z-late", "2026-09-17T08:00:40"),
         ("m-legacy", "2026-09-17"),
     ] {
@@ -552,16 +578,16 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
             ),
         )?;
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let output = build_site(&site)?;
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
+    let same = home
+        .find("/entries/b-same")
+        .context("same-time article missing")?;
     let late = home
         .find("/entries/z-late")
         .context("late article missing")?;
@@ -571,7 +597,7 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
     let legacy = home
         .find("/entries/m-legacy")
         .context("legacy article missing")?;
-    assert!(late < early && early < legacy, "{home}");
+    assert!(same < late && late < early && early < legacy, "{home}");
     assert!(home.contains("datetime=2026-09-17"), "{home}");
     assert!(
         !home.contains("08:00") && !home.contains("08:00:40"),
@@ -583,18 +609,14 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
 #[test]
 fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     fs::write(site.join("styles/common.css"), "h1 { color: red; }\n")?;
     fs::remove_file(site.join("styles/page.css"))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
     )?;
-    let output = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let output = build_site(&site)?;
     assert!(
         output.status.success(),
         "{}",
@@ -614,8 +636,7 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
 #[test]
 fn inlines_common_and_template_specific_css() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     fs::write(
         site.join("styles/common.css"),
         "body { --common-marker: yes; }",
@@ -628,10 +649,7 @@ fn inlines_common_and_template_specific_css() -> Result<()> {
         site.join("styles/page.css"),
         ":root { --page-marker: yes; }",
     )?;
-    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let build = build_site(&site)?;
     assert!(
         build.status.success(),
         "{}",
@@ -652,8 +670,7 @@ fn inlines_common_and_template_specific_css() -> Result<()> {
 #[test]
 fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
+    let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/about.md"),
         "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# About page\n",
@@ -662,14 +679,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
     drop(listener);
-    let mut server = DevProcess(
-        Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .args(["dev", "--port", &port.to_string()])
-            .current_dir(&site)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?,
-    );
+    let mut server = DevProcess::start(&site, port)?;
     let address = format!("127.0.0.1:{port}");
     let mut ready = false;
     for _ in 0..50 {
@@ -678,12 +688,13 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
             break;
         }
         assert!(
-            server.0.try_wait()?.is_none(),
-            "dev exited before listening"
+            server.child.try_wait()?.is_none(),
+            "dev exited before listening:\n{}",
+            server.logs()
         );
         thread::sleep(Duration::from_millis(100));
     }
-    assert!(ready, "dev did not start");
+    assert!(ready, "dev did not start:\n{}", server.logs());
 
     let page = http_get(&address, "/")?;
     assert!(page.starts_with("HTTP/1.1 200"), "{page}");
@@ -698,12 +709,12 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     )?;
     let mut data = Vec::new();
     let mut buffer = [0; 4096];
-    while !data.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
-        let read_count = events.read(&mut buffer)?;
-        assert!(read_count > 0, "SSE connection closed before headers");
-        data.extend(buffer.iter().take(read_count).copied());
-    }
-    assert!(String::from_utf8_lossy(&data).contains("text/event-stream"));
+    read_sse_until(&mut events, &mut data, b"\r\n\r\n", &server)?;
+    assert!(
+        String::from_utf8_lossy(&data).contains("text/event-stream"),
+        "missing SSE content type:\n{}",
+        server.logs()
+    );
 
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
@@ -718,6 +729,19 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         error.kind(),
         ErrorKind::TimedOut | ErrorKind::WouldBlock
     ));
+    let mut failure_logged = false;
+    for _ in 0..50 {
+        if server.logs().contains("Rebuild failed") {
+            failure_logged = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        failure_logged,
+        "missing build failure in dev logs:\n{}",
+        server.logs()
+    );
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
 
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
@@ -725,30 +749,16 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         site.join("content/entries/hello-world.md"),
         "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Changed in dev\n",
     )?;
-    while !String::from_utf8_lossy(&data).contains("data: reload") {
-        let read_count = events.read(&mut buffer)?;
-        assert!(read_count > 0, "SSE connection closed before reload");
-        data.extend(buffer.iter().take(read_count).copied());
-    }
+    read_sse_until(&mut events, &mut data, b"data: reload", &server)?;
     let updated = http_get(&address, "/entries/hello-world")?;
     assert!(updated.contains("Changed in dev"), "{updated}");
 
     data.clear();
     fs::remove_file(site.join("content/about.md"))?;
-    while !String::from_utf8_lossy(&data).contains("data: reload") {
-        let read_count = events.read(&mut buffer)?;
-        assert!(
-            read_count > 0,
-            "SSE connection closed before removal reload"
-        );
-        data.extend(buffer.iter().take(read_count).copied());
-    }
+    read_sse_until(&mut events, &mut data, b"data: reload", &server)?;
     assert!(http_get(&address, "/about")?.starts_with("HTTP/1.1 404"));
 
-    let build = Command::new(env!("CARGO_BIN_EXE_genbit"))
-        .arg("build")
-        .current_dir(&site)
-        .output()?;
+    let build = build_site(&site)?;
     assert!(
         build.status.success(),
         "{}",
@@ -773,14 +783,8 @@ fn http_get(address: &str, path: &str) -> Result<String> {
 #[test]
 fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
-    let build = || -> Result<Output> {
-        Ok(Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .arg("build")
-            .current_dir(&site)
-            .output()?)
-    };
+    let site = workspace.new_site("blog")?;
+    let build = || build_site(&site);
     assert!(build()?.status.success());
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
@@ -810,14 +814,8 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
 #[test]
 fn rejects_output_collisions_without_touching_dist() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
-    let build = || -> Result<Output> {
-        Ok(Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .arg("build")
-            .current_dir(&site)
-            .output()?)
-    };
+    let site = workspace.new_site("blog")?;
+    let build = || build_site(&site);
     assert!(build()?.status.success());
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
@@ -835,14 +833,8 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
 #[test]
 fn protects_unrecognized_dist_and_detects_static_file_conflicts() -> Result<()> {
     let workspace = Workspace::new()?;
-    workspace.run(&["new", "blog"], true)?;
-    let site = workspace.0.path().join("blog");
-    let build = || -> Result<Output> {
-        Ok(Command::new(env!("CARGO_BIN_EXE_genbit"))
-            .arg("build")
-            .current_dir(&site)
-            .output()?)
-    };
+    let site = workspace.new_site("blog")?;
+    let build = || build_site(&site);
 
     fs::create_dir(site.join("dist"))?;
     fs::write(site.join("dist/keep.txt"), "user file")?;
