@@ -60,6 +60,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "styles/page.css",
         "styles/root.css",
         "static/assets/img/favicon.svg",
+        "static/assets/img/ogp.png",
         ".gitignore",
     ] {
         assert!(root.join(file).is_file(), "missing {file}");
@@ -69,7 +70,15 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     assert!(article.contains("title = \"はじめての記事\""));
     assert!(article.contains("created_at = "));
     assert!(article.contains("description = "));
-    assert!(fs::read_to_string(root.join("config.toml"))?.contains("site_url = "));
+    let config = fs::read_to_string(root.join("config.toml"))?;
+    assert!(config.contains("site_url = "));
+    assert!(config.contains("og_image = \"/assets/img/ogp.png\""));
+    let og_image = fs::read(root.join("static/assets/img/ogp.png"))?;
+    assert!(og_image.starts_with(b"\x89PNG\r\n\x1a\n"));
+    let width = og_image.get(16..20).context("missing PNG width")?;
+    let height = og_image.get(20..24).context("missing PNG height")?;
+    assert_eq!(u32::from_be_bytes(width.try_into()?), 1200);
+    assert_eq!(u32::from_be_bytes(height.try_into()?), 630);
     assert!(!root.join("content/index.md").exists());
     assert!(!root.join("content/root.md").exists());
     fs::write(root.join("config.toml"), "user content")?;
@@ -151,6 +160,15 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(home.contains("type=image/svg+xml"), "{home}");
     assert!(home.contains("<h1>blog</h1>"), "{home}");
     assert!(home.contains("name=description"), "{home}");
+    assert!(home.contains("property=og:title"), "{home}");
+    assert!(home.contains("content=website property=og:type"), "{home}");
+    assert!(home.contains("property=og:image"), "{home}");
+    assert!(home.contains("property=og:image:alt"), "{home}");
+    assert!(
+        home.contains("http://127.0.0.1:3000/assets/img/ogp.png"),
+        "{home}"
+    );
+    assert!(home.contains("\"@type\":\"WebSite\""), "{home}");
     assert!(!home.contains("<strong>A post</strong>"), "{home}");
     assert!(home.contains("/entries/hello-world"));
     assert!(home.contains("/entries/posts/another"));
@@ -161,9 +179,27 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(article.contains("2026-09-17</time>"), "{article}");
     assert!(article.contains("<strong>A post</strong>"));
     assert!(article.contains("content=\"A post\""), "{article}");
+    assert!(
+        article.contains("content=article property=og:type"),
+        "{article}"
+    );
+    assert!(article.contains("\"@type\":\"BlogPosting\""), "{article}");
+    assert!(
+        article.contains("\"datePublished\":\"2026-09-17\""),
+        "{article}"
+    );
+    assert!(
+        article.contains("\"dateModified\":\"2026-09-22\""),
+        "{article}"
+    );
+    assert!(
+        article.contains("\\u003cHello \\u0026 world\\u003e"),
+        "{article}"
+    );
     assert!(site.join("dist/entries/posts/another.html").is_file());
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
     assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
+    assert!(site.join("dist/assets/img/ogp.png").is_file());
     Ok(())
 }
 
@@ -252,8 +288,8 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
     )?;
 
     for invalid_config in [
-        "title = 'Blog'\nsite_url = 'https://example.com/'\n",
-        "title = 'Blog'\ndescription = '  '\nsite_url = 'https://example.com/'\n",
+        "title = 'Blog'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
+        "title = 'Blog'\ndescription = '  '\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
     ] {
         fs::write(site.join("config.toml"), invalid_config)?;
         let invalid = Command::new(env!("CARGO_BIN_EXE_genbit"))
@@ -286,7 +322,7 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
 
     fs::write(
         site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\n",
+        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
     )?;
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
@@ -313,6 +349,10 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
         let html = fs::read_to_string(site.join(file))?;
         assert!(html.contains("rel=canonical"), "{file}: {html}");
         assert!(html.contains(canonical), "{file}: {html}");
+        assert!(
+            html.contains("https://example.com/assets/img/ogp.png"),
+            "{file}: {html}"
+        );
     }
     let sitemap = fs::read_to_string(site.join("dist/sitemap.xml"))?;
     assert!(sitemap.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
@@ -329,7 +369,7 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
 }
 
 #[test]
-fn invalid_site_url_and_sitemap_collision_preserve_dist() -> Result<()> {
+fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     workspace.run(&["new", "blog"], true)?;
     let site = workspace.0.path().join("blog");
@@ -341,13 +381,13 @@ fn invalid_site_url_and_sitemap_collision_preserve_dist() -> Result<()> {
     };
     fs::write(
         site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\n",
+        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
     )?;
     assert!(build()?.status.success());
     let original = fs::read_to_string(site.join("dist/sitemap.xml"))?;
     fs::write(
         site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\n",
+        "title = 'Blog'\ndescription = 'Blog articles'\nog_image = '/assets/img/ogp.png'\n",
     )?;
     let missing = build()?;
     assert!(!missing.status.success());
@@ -363,7 +403,9 @@ fn invalid_site_url_and_sitemap_collision_preserve_dist() -> Result<()> {
     ] {
         fs::write(
             site.join("config.toml"),
-            format!("title = 'Blog'\ndescription = 'Blog articles'\nsite_url = '{invalid_url}'\n"),
+            format!(
+                "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = '{invalid_url}'\nog_image = '/assets/img/ogp.png'\n"
+            ),
         )?;
         let output = build()?;
         assert!(!output.status.success(), "accepted {invalid_url}");
@@ -373,6 +415,39 @@ fn invalid_site_url_and_sitemap_collision_preserve_dist() -> Result<()> {
     fs::write(
         site.join("config.toml"),
         "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\n",
+    )?;
+    let missing_og_image = build()?;
+    assert!(!missing_og_image.status.success());
+    assert!(String::from_utf8_lossy(&missing_og_image.stderr).contains("og_image"));
+    assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
+    for invalid_og_image in [
+        "assets/img/ogp.png",
+        "//example.com/ogp.png",
+        "ftp://example.com/ogp.png",
+        "https://user@example.com/ogp.png",
+        "/assets/img/ogp.png#fragment",
+    ] {
+        fs::write(
+            site.join("config.toml"),
+            format!(
+                "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '{invalid_og_image}'\n"
+            ),
+        )?;
+        let output = build()?;
+        assert!(!output.status.success(), "accepted {invalid_og_image}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("og_image"));
+        assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
+    }
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = 'https://cdn.example.com/social/card.png'\n",
+    )?;
+    assert!(build()?.status.success());
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    assert!(home.contains("https://cdn.example.com/social/card.png"));
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
     )?;
     fs::write(site.join("static/sitemap.xml"), "conflict")?;
     let output = build()?;

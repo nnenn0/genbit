@@ -86,13 +86,27 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
     }
     // The validated name contains only TOML-safe ASCII.
     let config = format!(
-        "title = \"{name}\"\ndescription = \"{name} で公開している記事の一覧です。\"\nsite_url = \"http://127.0.0.1:3000/\"\n"
+        "title = \"{name}\"\ndescription = \"{name} で公開している記事の一覧です。\"\nsite_url = \"http://127.0.0.1:3000/\"\nog_image = \"/assets/img/ogp.png\"\n"
     );
     write_new(&root.join("config.toml"), &config)?;
     for &(relative, content) in FILES {
         write_new(&root.join(relative), content)?;
     }
+    write_new_bytes(
+        &root.join("static/assets/img/ogp.png"),
+        include_bytes!("../scaffold/static/assets/img/ogp.png"),
+    )?;
     Ok(())
+}
+
+fn write_new_bytes(path: &Path, content: &[u8]) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("cannot create {}", path.display()))?;
+    file.write_all(content)
+        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 fn write_new(path: &Path, content: &str) -> Result<()> {

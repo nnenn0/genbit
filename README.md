@@ -40,11 +40,16 @@ my-blog/
 │   ├── page.css
 │   └── root.css
 └── static/
+    └── assets/img/
+        ├── favicon.svg
+        └── ogp.png
 ```
 
-`config.toml` の必須項目はサイトの `title`、`description`、`site_url` です。`description` にはトップページの説明文を指定します。`new` が入れる説明文は仮の文章なので、公開前にサイトの内容に合わせて書き換えてください。トップページは `templates/root.html` から自動生成され、ブログタイトルと記事一覧だけを表示します。`content/root.md` は不要です。
+`config.toml` の必須項目はサイトの `title`、`description`、`site_url`、`og_image` です。`description` にはトップページの説明文を指定します。`new` が入れる説明文は仮の文章なので、公開前にサイトの内容に合わせて書き換えてください。トップページは `templates/root.html` から自動生成され、ブログタイトルと記事一覧だけを表示します。`content/root.md` は不要です。
 
 `site_url` も必須です。`new` はローカルプレビュー用の `http://127.0.0.1:3000/` を設定するため、公開前に正式なサイトURL（例: `https://example.com/`）へ変更してください。サイトをドメインのルートに置くHTTP(S)のURLだけを受け付けます。トップページと全記事に絶対URLの canonical リンクを出し、同じURLを列挙した `dist/sitemap.xml` を生成します。記事URLは拡張子なしの `/entries/hello-world` を使うため、公開先もそのURLを配信する必要があります。サブパス配信にはまだ対応していません。
+
+`og_image` にはトップページと全記事で共通して使うOGP画像を指定します。`new` は1200×630ピクセルの `static/assets/img/ogp.png` と、それを指すルート相対URL `/assets/img/ogp.png` を用意します。ルート相対URLはビルド時に `site_url` と結合されます。外部サービスに置いた画像を使う場合は、HTTP(S)の絶対URLも指定できます。生成ページにはOpen Graphメタデータを出力し、トップページには `WebSite`、記事ページには `BlogPosting` のJSON-LD構造化データを出力します。記事単位のOGP画像と著者情報には対応していません。作成済みのサイトは自動更新されないため、`config.toml` への `og_image` 追加とテンプレートへのメタデータ追加が必要です。
 
 記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。時刻まで指定する場合は、引用符なしのTOMLローカル日時（`YYYY-MM-DD HH:MM`、秒を指定するなら `YYYY-MM-DD HH:MM:SS`）を使います。日付と時刻の間は `T` でも構いません。時差変換はしないため、サイトで使う現地時刻を記入してください。従来のローカル日付（`YYYY-MM-DD`）も使え、その場合は並び替え時にその日の `00:00:00` として扱います。`updated_at` は任意のローカル日付で、作成日以降を指定します。どちらも表示は日付だけです。自分で記事を追加するときは執筆日と時刻を入力してください。`new` が作るサンプル記事の日時は固定の例なので、記事を使う場合は実際の日時へ書き換えてください。
 
@@ -64,7 +69,7 @@ description = "記事で扱う内容を簡潔に説明します。"
 
 `content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、記事URLは `/entries/hello-world` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。拡張子なしのURLで配信するには、ホスティングサービス側が `.html` ファイルを対応づける必要があります。`genbit dev` では拡張子なしのURLを配信します。トップページには記事の作成日とタイトルを作成日時の新しい順に並べます。同じ日時の記事はURL順です。`static/` のファイルはそのままコピーされます。初期テンプレートは記事ページにも作成日を表示します。生成サイトのテンプレートとCSSは自由に編集できます。
 
-全テンプレートで `site`（`title`、`description`）、ページ固有の `description` と `css` を参照できます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
+全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）、ページ固有の `description`、`canonical_url`、`json_ld`、`css` を参照できます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
 
 記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは `.md` を取り除きます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
 

@@ -604,6 +604,7 @@ dependencies = [
  "notify",
  "pulldown-cmark",
  "serde",
+ "serde_json",
  "tempfile",
  "tera",
  "tokio",

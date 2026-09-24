@@ -19,6 +19,7 @@ struct Config {
     title: String,
     description: String,
     site_url: String,
+    og_image: String,
 }
 
 #[derive(Serialize)]
@@ -26,6 +27,7 @@ struct HomeView<'a> {
     site: &'a Config,
     description: &'a str,
     canonical_url: &'a str,
+    json_ld: &'a str,
     entries: &'a [Article],
     css: &'a str,
 }
@@ -35,6 +37,7 @@ struct ArticleView<'a> {
     site: &'a Config,
     description: &'a str,
     canonical_url: &'a str,
+    json_ld: &'a str,
     article: &'a Article,
     content: &'a str,
     css: &'a str,
@@ -61,6 +64,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         "config.toml: description must not be empty"
     );
     config.site_url = validate_site_url(&config.site_url)?;
+    config.og_image = validate_og_image(&config.og_image, &config.site_url)?;
     let tera = load_templates(&root.join("templates"))?;
     let mut articles = load_articles(&root.join("content"))?;
     articles.sort_by(|left, right| {
@@ -77,6 +81,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         .context("missing styles for root.html")?;
     let mut artifacts = Vec::with_capacity(articles.len() + 2);
     let home_url = config.site_url.as_str();
+    let home_json_ld = website_json_ld(&config)?;
     artifacts.push(render(
         &tera,
         "root.html",
@@ -84,6 +89,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
             site: &config,
             description: &config.description,
             canonical_url: home_url,
+            json_ld: &home_json_ld,
             entries: &articles,
             css: root_css,
         },
@@ -97,6 +103,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
             .with_context(|| format!("missing styles for template {}", article.template))?;
         let source = article.source.display().to_string();
         let canonical_url = format!("{}{url}", home_url.trim_end_matches('/'), url = article.url);
+        let article_json_ld = article_json_ld(&config, article, &canonical_url)?;
         artifacts.push(render(
             &tera,
             &article.template,
@@ -104,6 +111,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
                 site: &config,
                 description: &article.description,
                 canonical_url: &canonical_url,
+                json_ld: &article_json_ld,
                 article,
                 content: &article.html,
                 css,
@@ -132,6 +140,109 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     artifacts.extend(assets);
     output::publish(root, &artifacts)?;
     Ok(articles.len() + 1)
+}
+
+#[derive(Serialize)]
+struct WebsiteStructuredData<'a> {
+    #[serde(rename = "@context")]
+    context: &'a str,
+    #[serde(rename = "@type")]
+    kind: &'a str,
+    name: &'a str,
+    url: &'a str,
+    description: &'a str,
+    image: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArticleStructuredData<'a> {
+    #[serde(rename = "@context")]
+    context: &'a str,
+    #[serde(rename = "@type")]
+    kind: &'a str,
+    headline: &'a str,
+    description: &'a str,
+    url: &'a str,
+    image: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    date_published: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    date_modified: Option<&'a str>,
+}
+
+fn website_json_ld(config: &Config) -> Result<String> {
+    json_ld(&WebsiteStructuredData {
+        context: "https://schema.org",
+        kind: "WebSite",
+        name: &config.title,
+        url: &config.site_url,
+        description: &config.description,
+        image: &config.og_image,
+    })
+}
+
+fn article_json_ld(config: &Config, article: &Article, url: &str) -> Result<String> {
+    json_ld(&ArticleStructuredData {
+        context: "https://schema.org",
+        kind: "BlogPosting",
+        headline: &article.title,
+        description: &article.description,
+        url,
+        image: &config.og_image,
+        date_published: Some(&article.created_at),
+        date_modified: article.updated_at.as_deref(),
+    })
+}
+
+fn json_ld(value: &impl Serialize) -> Result<String> {
+    let serialized = serde_json::to_string(value).context("cannot serialize structured data")?;
+    // Prevent user-provided text from closing the surrounding script element.
+    Ok(serialized
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026"))
+}
+
+fn validate_og_image(value: &str, site_url: &str) -> Result<String> {
+    ensure!(
+        !value.contains('#'),
+        "config.toml: og_image must not contain a fragment"
+    );
+    if value.starts_with('/') {
+        ensure!(
+            !value.starts_with("//"),
+            "config.toml: og_image must be a root-relative path or absolute HTTP(S) URL"
+        );
+        let uri: Uri = value
+            .parse()
+            .context("config.toml: og_image must be a valid root-relative path")?;
+        ensure!(
+            uri.authority().is_none() && uri.scheme().is_none(),
+            "config.toml: og_image must be a root-relative path or absolute HTTP(S) URL"
+        );
+        let base = site_url.trim_end_matches('/');
+        return Ok(format!("{base}{uri}"));
+    }
+
+    let uri: Uri = value
+        .parse()
+        .context("config.toml: og_image must be a root-relative path or absolute HTTP(S) URL")?;
+    let scheme = uri
+        .scheme_str()
+        .context("config.toml: og_image must be an absolute HTTP(S) URL")?;
+    ensure!(
+        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"),
+        "config.toml: og_image must use http or https"
+    );
+    let authority = uri
+        .authority()
+        .context("config.toml: og_image must have a host")?;
+    ensure!(
+        !authority.host().is_empty() && !authority.as_str().contains('@'),
+        "config.toml: og_image must have a host without credentials"
+    );
+    Ok(value.to_owned())
 }
 
 fn validate_site_url(value: &str) -> Result<String> {
@@ -346,6 +457,7 @@ mod tests {
             title: "Blog".to_owned(),
             description: "Blog articles".to_owned(),
             site_url: "http://127.0.0.1:3000/".to_owned(),
+            og_image: "http://127.0.0.1:3000/assets/img/ogp.png".to_owned(),
         };
         let articles = vec![content::parse(
             "+++\ncreated_at = 2026-09-17\ndescription = 'Post description'\n+++\n# Post",
@@ -355,6 +467,7 @@ mod tests {
             site: &site,
             description: &site.description,
             canonical_url: &site.site_url,
+            json_ld: "{}",
             entries: &articles,
             css: "",
         })?;
@@ -366,6 +479,7 @@ mod tests {
             site: &site,
             description: &article.description,
             canonical_url: "http://127.0.0.1:3000/post",
+            json_ld: "{}",
             article,
             content: &article.html,
             css: "",
