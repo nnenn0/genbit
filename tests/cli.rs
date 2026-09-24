@@ -677,6 +677,11 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         site.join("content/about.md"),
         "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# About page\n",
     )?;
+    fs::create_dir_all(site.join("content/entries/posts"))?;
+    fs::write(
+        site.join("content/entries/posts/nested.md"),
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Nested article'\n+++\n# Nested page\n",
+    )?;
     fs::write(site.join("static/asset.txt"), "static asset")?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
@@ -702,6 +707,9 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     assert!(page.starts_with("HTTP/1.1 200"), "{page}");
     assert!(page.contains("EventSource"), "{page}");
     assert!(http_get(&address, "/about?view=full")?.contains("About page"));
+    assert!(http_get(&address, "/about.html")?.contains("About page"));
+    assert!(http_get(&address, "/entries/posts/nested?view=full")?.contains("Nested page"));
+    assert!(http_get(&address, "/entries/posts/nested.html")?.contains("Nested page"));
     assert!(http_get(&address, "/asset.txt")?.contains("static asset"));
 
     let mut events = TcpStream::connect(&address)?;

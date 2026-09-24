@@ -1,3 +1,4 @@
+use crate::route::Route;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::path::{Component, Path, PathBuf};
@@ -97,7 +98,8 @@ where
 pub(crate) struct Article {
     pub(crate) title: String,
     pub(crate) description: String,
-    pub(crate) url: String,
+    #[serde(rename = "url")]
+    pub(crate) route: Route,
     #[serde(serialize_with = "serialize_created_date")]
     pub(crate) created_at: CreatedAt,
     #[serde(serialize_with = "serialize_updated_date")]
@@ -107,14 +109,12 @@ pub(crate) struct Article {
     #[serde(skip)]
     pub(crate) html: String,
     #[serde(skip)]
-    pub(crate) output: PathBuf,
-    #[serde(skip)]
     pub(crate) source: PathBuf,
 }
 
 pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
     let (metadata, body) = split_front_matter(source)?;
-    let (url, output) = route(relative)?;
+    let route = Route::from_content_path(relative)?;
     let created_at = metadata
         .created_at
         .context("created_at is required for articles")
@@ -154,12 +154,11 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
     Ok(Article {
         title,
         description,
-        url,
+        route,
         created_at,
         updated_at,
         template,
         html: rendered,
-        output,
         source: relative.to_path_buf(),
     })
 }
@@ -187,38 +186,6 @@ fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
         }
     }
     bail!("front matter is missing closing +++ delimiter")
-}
-
-fn route(relative: &Path) -> Result<(String, PathBuf)> {
-    ensure!(
-        relative.extension().is_some_and(|ext| ext == "md"),
-        "expected a .md file"
-    );
-    ensure!(
-        relative != Path::new("index.md"),
-        "content/index.md is not supported; the home page is generated from config.toml and templates/root.html"
-    );
-    let stem = relative.with_extension("");
-    let segments = stem
-        .components()
-        .map(|part| {
-            let Component::Normal(segment) = part else {
-                bail!("invalid content path");
-            };
-            let segment = segment.to_str().context("content path must be UTF-8")?;
-            ensure!(
-                !segment.is_empty()
-                    && segment
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
-                "content paths must use ASCII letters, numbers, hyphens or underscores"
-            );
-            Ok(segment.to_owned())
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let output = segments.iter().collect::<PathBuf>().with_extension("html");
-    let url = format!("/{}", segments.join("/"));
-    Ok((url, output))
 }
 
 #[cfg(test)]
@@ -256,30 +223,6 @@ mod tests {
         ] {
             assert!(split_front_matter(source).is_err(), "accepted {source:?}");
         }
-    }
-
-    #[test]
-    fn maps_clean_urls_and_rejects_unsafe_paths() -> Result<()> {
-        for (source, url, output) in [
-            ("root.md", "/root", "root.html"),
-            ("about.md", "/about", "about.html"),
-            ("entries/index.md", "/entries/index", "entries/index.html"),
-            ("entries/hello.md", "/entries/hello", "entries/hello.html"),
-        ] {
-            let actual = route(Path::new(source))?;
-            assert_eq!(actual, (url.to_owned(), PathBuf::from(output)));
-        }
-        for path in [
-            "../escape.md",
-            "/absolute.md",
-            "a?b.md",
-            "a\\b.md",
-            ".md",
-            "index.md",
-        ] {
-            assert!(route(Path::new(path)).is_err(), "accepted {path}");
-        }
-        Ok(())
     }
 
     #[test]

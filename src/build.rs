@@ -52,7 +52,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         right
             .created_at
             .cmp(&left.created_at)
-            .then_with(|| left.url.cmp(&right.url))
+            .then_with(|| left.route.url().cmp(right.route.url()))
     });
     let mut templates = BTreeSet::from(["root.html"]);
     templates.extend(articles.iter().map(|article| article.template.as_str()));
@@ -83,7 +83,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
             .get(&article.template)
             .with_context(|| format!("missing styles for template {}", article.template))?;
         let source = article.source.display().to_string();
-        let canonical_url = config.site_url.join_root_path(&article.url);
+        let canonical_url = config.site_url.join_root_path(article.route.url());
         let article_json_ld = article_json_ld(&config, article, &canonical_url)?;
         artifacts.push(render(
             &tera,
@@ -97,7 +97,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
                 content: &article.html,
                 css,
             },
-            article.output.clone(),
+            article.route.output().to_path_buf(),
             &source,
             dev,
         )?);
@@ -205,7 +205,7 @@ fn sitemap(base: &SiteUrl, articles: &[Article]) -> Result<Artifact> {
         xml.push_str("  <url><loc>");
         xml.push_str(
             &base
-                .join_root_path(&article.url)
+                .join_root_path(article.route.url())
                 .replace('&', "&amp;")
                 .replace('<', "&lt;"),
         );

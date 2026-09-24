@@ -27,7 +27,8 @@
 | --- | --- |
 | `src/main.rs` | clap の `new` / `build` / `dev` エントリーポイント。`build` と `dev` はカレントディレクトリをサイトルートにする。 |
 | `src/scaffold.rs` と `scaffold/` | `new` のサイト作成処理と同梱する初期テンプレート・CSS・記事・favicon。`include_str!` でビルド時に同梱するため、初期サイトを変えるときは生成サイトの契約と統合テストも確認する。既存の利用者サイトは自動更新されない。 |
-| `src/content.rs`、`src/markdown.rs` | TOML フロントマターの検証、記事の URL/出力先決定、Markdown→HTML。記事 URL と日付形式の変更時は生成結果を確認する。 |
+| `src/content.rs`、`src/markdown.rs` | TOML フロントマターの検証、Markdown→HTML。記事の日付形式の変更時は生成結果を確認する。 |
+| `src/route.rs` | 記事のURLと出力先の対応、開発サーバーの拡張子なしURL判定。URL形式の変更時は生成結果と配信を確認する。 |
 | `src/config.rs` | `config.toml` の読み込み後の検証とサイトURL・OGP画像URLの正規化。公開URLの組み立てを担う。 |
 | `src/build.rs` | 素材の読込、記事一覧の作成、Tera 描画、CSS インライン化、HTML 圧縮、成果物の収集。利用者サイトのディレクトリを読む。 |
 | `src/output.rs` | 出力パス衝突の検査、ステージングと `dist/` の入れ替え。データ保護に関わるため、既存 `dist/` の扱いを変える前に統合テストを読む。 |
@@ -41,7 +42,7 @@
 - `new <name>` は名前を ASCII 英数字・`-`・`_` に検証し、新しいディレクトリへ `config.toml` と `scaffold/` の素材を書き込む。既存のパスは上書きしない。
 - `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
 - 記事の TOML フロントマターには引用符なしのローカル日付またはローカル日時 `created_at = YYYY-MM-DD HH:MM`（秒も任意で指定可）が必須。日付と時刻の区切りは `T` も可。時差変換はせず、日付のみは `00:00:00` として並べる。`updated_at` は任意のローカル日付で作成日以降。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
-- 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。
+- 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
 - 全記事を作成日時降順、同時刻なら URL 順で並べる。テンプレートに渡す `created_at` は日付だけ。テンプレートには共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
 - `static/` の通常ファイルは出力ルートへコピーする。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。

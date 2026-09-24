@@ -1,3 +1,4 @@
+use crate::route::Route;
 use anyhow::{Context, Result};
 use axum::{
     Router,
@@ -75,21 +76,15 @@ async fn serve_clean_url(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
-    let segments = path.trim_start_matches('/');
-    let is_article_path = !segments.is_empty()
-        && !path.starts_with("/__genbit/")
-        && segments.split('/').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-        });
-    if is_article_path && dist.join(format!("{segments}.html")).is_file() {
+    if !path.starts_with("/__genbit/")
+        && let Some(route) = Route::from_request_path(path)
+        && dist.join(route.output()).is_file()
+    {
         let suffix = request
             .uri()
             .query()
             .map_or_else(String::new, |query| format!("?{query}"));
-        if let Ok(uri) = format!("{path}.html{suffix}").parse() {
+        if let Ok(uri) = format!("{}.html{suffix}", route.url()).parse() {
             *request.uri_mut() = uri;
         }
     }

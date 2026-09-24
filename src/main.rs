@@ -5,6 +5,7 @@ mod dev;
 mod input;
 mod markdown;
 mod output;
+mod route;
 mod scaffold;
 
 use anyhow::{Context, Result};
