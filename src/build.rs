@@ -122,6 +122,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         )?);
     }
     artifacts.push(sitemap(home_url, &articles)?);
+    artifacts.push(robots(home_url));
     let static_root = root.join("static");
     let assets = files(&static_root)?
         .into_iter()
@@ -302,6 +303,14 @@ fn sitemap(base: &str, articles: &[Article]) -> Result<Artifact> {
         bytes: xml.into_bytes(),
         source: "<generated sitemap>".to_owned(),
     })
+}
+
+fn robots(base: &str) -> Artifact {
+    Artifact {
+        path: PathBuf::from("robots.txt"),
+        bytes: format!("User-agent: *\nAllow: /\n\nSitemap: {base}sitemap.xml\n").into_bytes(),
+        source: "<generated robots.txt>".to_owned(),
+    }
 }
 
 fn load_styles(root: &Path, templates: &BTreeSet<&str>) -> Result<BTreeMap<String, String>> {

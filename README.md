@@ -47,7 +47,7 @@ my-blog/
 
 `config.toml` の必須項目はサイトの `title`、`description`、`site_url`、`og_image` です。`description` にはトップページの説明文を指定します。`new` が入れる説明文は仮の文章なので、公開前にサイトの内容に合わせて書き換えてください。トップページは `templates/root.html` から自動生成され、ブログタイトルと記事一覧だけを表示します。`content/root.md` は不要です。
 
-`site_url` も必須です。`new` はローカルプレビュー用の `http://127.0.0.1:3000/` を設定するため、公開前に正式なサイトURL（例: `https://example.com/`）へ変更してください。サイトをドメインのルートに置くHTTP(S)のURLだけを受け付けます。トップページと全記事に絶対URLの canonical リンクを出し、同じURLを列挙した `dist/sitemap.xml` を生成します。記事URLは拡張子なしの `/entries/hello-world` を使うため、公開先もそのURLを配信する必要があります。サブパス配信にはまだ対応していません。
+`site_url` も必須です。`new` はローカルプレビュー用の `http://127.0.0.1:3000/` を設定するため、公開前に正式なサイトURL（例: `https://example.com/`）へ変更してください。サイトをドメインのルートに置くHTTP(S)のURLだけを受け付けます。トップページと全記事に絶対URLの canonical リンクを出し、同じURLを列挙した `dist/sitemap.xml` と、その Sitemap を案内する `dist/robots.txt` を生成します。記事URLは拡張子なしの `/entries/hello-world` を使うため、公開先もそのURLを配信する必要があります。サブパス配信にはまだ対応していません。
 
 `og_image` にはトップページと全記事で共通して使うOGP画像を指定します。`new` は1200×630ピクセルの `static/assets/img/ogp.png` と、それを指すルート相対URL `/assets/img/ogp.png` を用意します。ルート相対URLはビルド時に `site_url` と結合されます。外部サービスに置いた画像を使う場合は、HTTP(S)の絶対URLも指定できます。生成ページにはOpen Graphメタデータを出力し、トップページには `WebSite`、記事ページには `BlogPosting` のJSON-LD構造化データを出力します。記事単位のOGP画像と著者情報には対応していません。作成済みのサイトは自動更新されないため、`config.toml` への `og_image` 追加とテンプレートへのメタデータ追加が必要です。
 

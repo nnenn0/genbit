@@ -355,6 +355,11 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
         );
     }
     let sitemap = fs::read_to_string(site.join("dist/sitemap.xml"))?;
+    let robots = fs::read_to_string(site.join("dist/robots.txt"))?;
+    assert_eq!(
+        robots,
+        "User-agent: *\nAllow: /\n\nSitemap: https://example.com/sitemap.xml\n"
+    );
     assert!(sitemap.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
     for url in [
         "https://example.com/",
