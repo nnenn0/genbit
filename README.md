@@ -75,6 +75,8 @@ description = "記事で扱う内容を簡潔に説明します。"
 
 CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。`styles/common.css` は全ページへ適用する共通CSSです。任意でテンプレートと同じ相対パス・拡張子を `.css` に替えたCSS（例: `templates/page.html` に対する `styles/page.css`）を置くと、そのテンプレートを使うページだけに追加でインライン展開されます。初期CSSは落ち着いた淡色の背景、狭めの本文幅、広めの行間を使い、OSのダークモード設定には `prefers-color-scheme` で追従します。手動切り替え用のJavaScriptはありません。`new` で作成済みのサイトのCSSやテンプレートは自動更新されません。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮とコードのシンタックスハイライトは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。
 
+`config.toml` と `content/`・`templates/`・`styles/`・`static/` 以下の入力ファイルにはシンボリックリンクを使えません。CSSファイル自体だけでなく、その親ディレクトリがシンボリックリンクの場合もビルドを拒否します。テンプレート別の任意CSSがない場合は、そのままビルドできます。
+
 ## Dockerでの開発
 
 genbitの開発・検証はDocker Compose内で行えます。ホストにRustツールチェーンを入れる必要はありません。

@@ -853,3 +853,110 @@ fn protects_unrecognized_dist_and_detects_static_file_conflicts() -> Result<()> 
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn rejects_symlinks_in_site_inputs_without_touching_dist() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let built = build_site(&site)?;
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let before = fs::read_to_string(site.join("dist/index.html"))?;
+    let original_css = fs::read_to_string(site.join("styles/common.css"))?;
+
+    for relative in ["config.toml", "content", "templates", "styles", "static"] {
+        let input = site.join(relative);
+        let outside = workspace.0.path().join(format!("outside-{relative}"));
+        fs::rename(&input, &outside)?;
+        symlink(&outside, &input)?;
+
+        let failed = build_site(&site)?;
+        let stderr = String::from_utf8_lossy(&failed.stderr);
+        assert!(!failed.status.success(), "accepted {relative}");
+        assert!(
+            stderr.contains("symlinks are not supported"),
+            "{relative}: {stderr}"
+        );
+        assert!(stderr.contains(relative), "{relative}: {stderr}");
+        assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
+
+        fs::remove_file(&input)?;
+        fs::rename(&outside, &input)?;
+    }
+    assert_eq!(
+        fs::read_to_string(site.join("styles/common.css"))?,
+        original_css
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::create_dir_all(site.join("templates/deep"))?;
+    fs::write(
+        site.join("templates/deep/page.html"),
+        "{% extends \"base.html\" %}{% block main %}Nested template{% endblock main %}",
+    )?;
+    fs::create_dir_all(site.join("styles/deep"))?;
+    fs::write(
+        site.join("styles/deep/page.css"),
+        "body { --nested-css: yes; }",
+    )?;
+    fs::write(
+        site.join("content/deep.md"),
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Nested article'\ntemplate = 'deep/page.html'\n+++\n# Deep\n",
+    )?;
+
+    let built = build_site(&site)?;
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let before = fs::read_to_string(site.join("dist/deep.html"))?;
+    assert!(before.contains("Nested template") && before.contains("--nested-css"));
+
+    let parent = site.join("styles/deep");
+    let outside_dir = workspace.0.path().join("outside-deep");
+    fs::rename(&parent, &outside_dir)?;
+    symlink(&outside_dir, &parent)?;
+    let failed = build_site(&site)?;
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(
+        !failed.status.success() && stderr.contains("symlinks are not supported"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("styles/deep"), "{stderr}");
+    assert_eq!(fs::read_to_string(site.join("dist/deep.html"))?, before);
+    fs::remove_file(&parent)?;
+    fs::rename(&outside_dir, &parent)?;
+
+    let css = parent.join("page.css");
+    let outside_css = workspace.0.path().join("outside-page.css");
+    fs::rename(&css, &outside_css)?;
+    symlink(&outside_css, &css)?;
+    let failed = build_site(&site)?;
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(
+        !failed.status.success() && stderr.contains("symlinks are not supported"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("page.css"), "{stderr}");
+    assert_eq!(fs::read_to_string(site.join("dist/deep.html"))?, before);
+    assert_eq!(
+        fs::read_to_string(&outside_css)?,
+        "body { --nested-css: yes; }"
+    );
+    Ok(())
+}

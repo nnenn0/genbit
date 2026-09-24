@@ -1,5 +1,6 @@
 use crate::{
     content::{self, Article},
+    input::SiteInput,
     output::{self, Artifact},
 };
 use anyhow::{Context as _, Result, ensure};
@@ -7,8 +8,6 @@ use axum::http::Uri;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
-    io::ErrorKind,
     path::{Path, PathBuf},
 };
 use tera::{Context, Tera};
@@ -52,8 +51,9 @@ pub(crate) fn run_dev(root: &Path) -> Result<usize> {
 }
 
 fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
+    let input = SiteInput::new(root);
     let config_path = root.join("config.toml");
-    let mut config: Config = toml::from_str(&read_text(&config_path)?)
+    let mut config: Config = toml::from_str(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
     ensure!(
         !config.title.trim().is_empty(),
@@ -65,8 +65,8 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     );
     config.site_url = validate_site_url(&config.site_url)?;
     config.og_image = validate_og_image(&config.og_image, &config.site_url)?;
-    let tera = load_templates(&root.join("templates"))?;
-    let mut articles = load_articles(&root.join("content"))?;
+    let tera = load_templates(&input)?;
+    let mut articles = load_articles(&input)?;
     articles.sort_by(|left, right| {
         right
             .created_at_order
@@ -75,7 +75,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     });
     let mut templates = BTreeSet::from(["root.html"]);
     templates.extend(articles.iter().map(|article| article.template.as_str()));
-    let styles = load_styles(root, &templates)?;
+    let styles = load_styles(&input, &templates)?;
     let root_css = styles
         .get("root.html")
         .context("missing styles for root.html")?;
@@ -124,13 +124,14 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     artifacts.push(sitemap(home_url, &articles)?);
     artifacts.push(robots(home_url));
     let static_root = root.join("static");
-    let assets = files(&static_root)?
+    let assets = input
+        .files(Path::new("static"))?
         .into_iter()
         .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
         .map(|path| {
             let relative = path.strip_prefix(&static_root)?.to_path_buf();
-            let bytes =
-                fs::read(&path).with_context(|| format!("cannot read {}", path.display()))?;
+            let site_relative = path.strip_prefix(root)?;
+            let bytes = input.read_bytes(site_relative)?;
             Ok(Artifact {
                 path: relative,
                 bytes,
@@ -313,15 +314,17 @@ fn robots(base: &str) -> Artifact {
     }
 }
 
-fn load_styles(root: &Path, templates: &BTreeSet<&str>) -> Result<BTreeMap<String, String>> {
-    let styles = root.join("styles");
-    let common = read_text(&styles.join("common.css"))?;
+fn load_styles(
+    input: &SiteInput<'_>,
+    templates: &BTreeSet<&str>,
+) -> Result<BTreeMap<String, String>> {
+    let common = input.read_text(Path::new("styles/common.css"))?;
     templates
         .iter()
         .map(|template| {
-            let specific = styles.join(Path::new(template).with_extension("css"));
+            let specific = Path::new("styles").join(Path::new(template).with_extension("css"));
             let mut css = common.clone();
-            if let Some(specific) = read_optional_text(&specific)? {
+            if let Some(specific) = input.read_optional_text(&specific)? {
                 css.push('\n');
                 css.push_str(&specific);
             }
@@ -360,96 +363,41 @@ fn render(
     })
 }
 
-fn load_articles(root: &Path) -> Result<Vec<Article>> {
-    files(root)?
+fn load_articles(input: &SiteInput<'_>) -> Result<Vec<Article>> {
+    let content_root = input.root().join("content");
+    input
+        .files(Path::new("content"))?
         .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
         .map(|path| {
-            let relative = path.strip_prefix(root)?;
-            content::parse(&read_text(&path)?, relative)
+            let relative = path.strip_prefix(&content_root)?;
+            let site_relative = path.strip_prefix(input.root())?;
+            content::parse(&input.read_text(site_relative)?, relative)
                 .with_context(|| format!("cannot parse {}", path.display()))
         })
         .collect()
 }
 
-fn load_templates(root: &Path) -> Result<Tera> {
-    let templates = files(root)?
+fn load_templates(input: &SiteInput<'_>) -> Result<Tera> {
+    let template_root = input.root().join("templates");
+    let templates = input
+        .files(Path::new("templates"))?
         .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "html"))
         .map(|path| {
             let name = path
-                .strip_prefix(root)?
+                .strip_prefix(&template_root)?
                 .to_str()
                 .context("template path must be UTF-8")?
                 .replace('\\', "/");
-            Ok((name, read_text(&path)?))
+            let site_relative = path.strip_prefix(input.root())?;
+            Ok((name, input.read_text(site_relative)?))
         })
         .collect::<Result<Vec<_>>>()?;
     let mut tera = Tera::default();
     tera.add_raw_templates(templates)
-        .with_context(|| format!("cannot load templates in {}", root.display()))?;
+        .with_context(|| format!("cannot load templates in {}", template_root.display()))?;
     Ok(tera)
-}
-
-fn read_text(path: &Path) -> Result<String> {
-    ensure!(
-        fs::symlink_metadata(path)
-            .with_context(|| format!("cannot inspect {}", path.display()))?
-            .is_file(),
-        "expected a regular file: {}",
-        path.display()
-    );
-    fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))
-}
-
-fn read_optional_text(path: &Path) -> Result<Option<String>> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            ensure!(
-                metadata.is_file() && !metadata.file_type().is_symlink(),
-                "expected a regular file: {}",
-                path.display()
-            );
-            fs::read_to_string(path)
-                .map(Some)
-                .with_context(|| format!("cannot read {}", path.display()))
-        }
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("cannot inspect {}", path.display())),
-    }
-}
-
-fn files(root: &Path) -> Result<Vec<PathBuf>> {
-    let metadata =
-        fs::symlink_metadata(root).with_context(|| format!("cannot inspect {}", root.display()))?;
-    ensure!(
-        metadata.is_dir() && !metadata.file_type().is_symlink(),
-        "expected a real directory: {}",
-        root.display()
-    );
-    let mut result = Vec::new();
-    for entry in fs::read_dir(root).with_context(|| format!("cannot read {}", root.display()))? {
-        let entry = entry.with_context(|| format!("cannot read entry in {}", root.display()))?;
-        let path = entry.path();
-        let kind = entry.file_type()?;
-        ensure!(
-            !kind.is_symlink(),
-            "symlinks are not supported: {}",
-            path.display()
-        );
-        if kind.is_dir() {
-            result.extend(files(&path)?);
-        } else {
-            ensure!(
-                kind.is_file(),
-                "expected a regular file: {}",
-                path.display()
-            );
-            result.push(path);
-        }
-    }
-    result.sort();
-    Ok(result)
 }
 
 #[cfg(test)]

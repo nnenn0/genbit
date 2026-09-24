@@ -1,6 +1,7 @@
 mod build;
 mod content;
 mod dev;
+mod input;
 mod markdown;
 mod output;
 mod scaffold;
