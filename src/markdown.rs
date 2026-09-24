@@ -2,6 +2,7 @@ use pulldown_cmark::{Event, Parser, Tag, TagEnd, html};
 
 pub(crate) fn render(source: &str) -> String {
     let mut events = Parser::new(source);
+    let mut external_link = false;
     let transformed = std::iter::from_fn(move || {
         let event = events.next()?;
         match event {
@@ -15,12 +16,36 @@ pub(crate) fn render(source: &str) -> String {
                 dest_url,
                 title,
                 id,
-            }) => Some(Event::Start(Tag::Link {
-                link_type,
-                dest_url: article_url(&dest_url).map_or(dest_url, Into::into),
-                title,
-                id,
-            })),
+            }) => {
+                if dest_url.starts_with("https://")
+                    || dest_url.starts_with("http://")
+                    || dest_url.starts_with("//")
+                {
+                    external_link = true;
+                    let mut anchor = format!(
+                        "<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\"",
+                        escape_attribute(&dest_url)
+                    );
+                    if !title.is_empty() {
+                        anchor.push_str(" title=\"");
+                        anchor.push_str(&escape_attribute(&title));
+                        anchor.push('"');
+                    }
+                    anchor.push('>');
+                    Some(Event::Html(anchor.into()))
+                } else {
+                    Some(Event::Start(Tag::Link {
+                        link_type,
+                        dest_url: article_url(&dest_url).map_or(dest_url, Into::into),
+                        title,
+                        id,
+                    }))
+                }
+            }
+            Event::End(TagEnd::Link) if external_link => {
+                external_link = false;
+                Some(Event::Html("</a>".into()))
+            }
             other => Some(other),
         }
     });
@@ -137,5 +162,22 @@ mod tests {
         }
         let image = render("![image](other.md)");
         assert!(image.contains("src=\"other.md\""), "{image}");
+    }
+
+    #[test]
+    fn opens_external_links_in_new_tabs() {
+        let html = render(
+            "[web](https://example.com/?a=1&b=2 \"A & B\") [cdn](//cdn.example.com) [local](next.md) [section](#top)",
+        );
+        assert!(html.contains("href=\"https://example.com/?a=1&amp;b=2\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"A &amp; B\""), "{html}");
+        assert!(
+            html.contains(
+                "href=\"//cdn.example.com\" target=\"_blank\" rel=\"noopener noreferrer\""
+            ),
+            "{html}"
+        );
+        assert!(html.contains("href=\"next\""), "{html}");
+        assert!(html.contains("href=\"#top\""), "{html}");
+        assert_eq!(html.matches("target=\"_blank\"").count(), 2, "{html}");
     }
 }

@@ -518,6 +518,8 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("href=\"next?view=full#details\""), "{html}");
     assert!(html.contains("href=https://example.com/next.md"), "{html}");
+    assert!(html.contains("target=_blank"), "{html}");
+    assert!(html.contains("rel=\"noopener noreferrer\""), "{html}");
     assert!(site.join("dist/entries/next.html").is_file());
     Ok(())
 }
