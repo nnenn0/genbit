@@ -825,6 +825,28 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn dev_port_conflict_does_not_build_or_replace_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let occupied = TcpListener::bind("127.0.0.1:0")?;
+    let port = occupied.local_addr()?.port();
+    let args = ["dev", "--port", &port.to_string()];
+    let failed = run_genbit(&site, &args)?;
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("cannot bind"));
+    assert!(!site.join("dist").exists());
+
+    assert!(build_site(&site)?.status.success());
+    let previous = fs::read(site.join("dist/index.html"))?;
+    fs::write(site.join("content/entries/hello-world.md"), "invalid")?;
+    let failed = run_genbit(&site, &args)?;
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("cannot bind"));
+    assert_eq!(fs::read(site.join("dist/index.html"))?, previous);
+    Ok(())
+}
+
 fn http_get(address: &str, path: &str) -> Result<String> {
     let mut stream = TcpStream::connect(address)?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
