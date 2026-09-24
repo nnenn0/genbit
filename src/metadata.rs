@@ -98,23 +98,23 @@ pub(crate) fn sitemap(base: &SiteUrl, articles: &[Article]) -> Result<Artifact> 
         xml.len() <= 50 * 1024 * 1024,
         "sitemap.xml exceeds the 50 MB uncompressed limit"
     );
-    Ok(Artifact {
-        path: PathBuf::from("sitemap.xml"),
-        bytes: xml.into_bytes(),
-        source: "<generated sitemap>".to_owned(),
-    })
+    Ok(Artifact::generated(
+        PathBuf::from("sitemap.xml"),
+        xml.into_bytes(),
+        "<generated sitemap>",
+    ))
 }
 
 pub(crate) fn robots(base: &SiteUrl) -> Artifact {
-    Artifact {
-        path: PathBuf::from("robots.txt"),
-        bytes: format!(
+    Artifact::generated(
+        PathBuf::from("robots.txt"),
+        format!(
             "User-agent: *\nAllow: /\n\nSitemap: {}\n",
             base.join_root_path("/sitemap.xml")
         )
         .into_bytes(),
-        source: "<generated robots.txt>".to_owned(),
-    }
+        "<generated robots.txt>",
+    )
 }
 
 #[cfg(test)]

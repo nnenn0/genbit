@@ -1,3 +1,4 @@
+use crate::input::SiteInput;
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     collections::BTreeMap,
@@ -10,12 +11,107 @@ const MARKER: &str = ".genbit-output";
 const MARKER_CONTENT: &str = "genbit output v1\n";
 
 pub(crate) struct Artifact {
-    pub(crate) path: PathBuf,
-    pub(crate) bytes: Vec<u8>,
-    pub(crate) source: String,
+    path: PathBuf,
+    content: ArtifactContent,
+    source: String,
 }
 
-pub(crate) fn validate(artifacts: &[Artifact]) -> Result<()> {
+enum ArtifactContent {
+    Generated(Vec<u8>),
+    CopyFrom(PathBuf),
+}
+
+pub(crate) struct OutputPlan {
+    artifacts: Vec<Artifact>,
+}
+
+struct StagedOutput {
+    directory: tempfile::TempDir,
+}
+
+impl Artifact {
+    pub(crate) fn generated(path: PathBuf, bytes: Vec<u8>, source: &str) -> Self {
+        Self {
+            path,
+            content: ArtifactContent::Generated(bytes),
+            source: source.to_owned(),
+        }
+    }
+
+    pub(crate) fn copy_from(path: PathBuf, source: PathBuf) -> Self {
+        let description = source.display().to_string();
+        Self {
+            path,
+            content: ArtifactContent::CopyFrom(source),
+            source: description,
+        }
+    }
+}
+
+impl OutputPlan {
+    pub(crate) fn new(artifacts: Vec<Artifact>) -> Result<Self> {
+        validate(&artifacts)?;
+        Ok(Self { artifacts })
+    }
+
+    pub(crate) fn publish(self, input: &SiteInput<'_>) -> Result<()> {
+        let dist = input.root().join("dist");
+        let exists = check_destination(&dist)?;
+        let staged = self.stage(input)?;
+        staged.publish(input.root(), exists)
+    }
+
+    fn stage(self, input: &SiteInput<'_>) -> Result<StagedOutput> {
+        let directory = tempfile::Builder::new()
+            .prefix(".genbit-build-")
+            .tempdir_in(input.root())
+            .with_context(|| format!("cannot stage build in {}", input.root().display()))?;
+        for artifact in self.artifacts {
+            let target = directory.path().join(&artifact.path);
+            let parent = target.parent().context("output file has no parent")?;
+            fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create {}", parent.display()))?;
+            match artifact.content {
+                ArtifactContent::Generated(bytes) => {
+                    fs::write(&target, bytes).with_context(|| {
+                        format!("cannot write {} from {}", target.display(), artifact.source)
+                    })?;
+                }
+                ArtifactContent::CopyFrom(source) => input.copy_file(&source, &target)?,
+            }
+        }
+        fs::write(directory.path().join(MARKER), MARKER_CONTENT)
+            .context("cannot mark generated output")?;
+        Ok(StagedOutput { directory })
+    }
+}
+
+impl StagedOutput {
+    fn publish(self, root: &Path, exists: bool) -> Result<()> {
+        let dist = root.join("dist");
+        // Keep old output until all new files have been written. The two renames are not a single atomic swap.
+        let backup = tempfile::Builder::new()
+            .prefix(".genbit-backup-")
+            .tempdir_in(root)?;
+        let old = backup.path().join("dist");
+        if exists {
+            fs::rename(&dist, &old).context("cannot preserve previous dist")?;
+        }
+        if let Err(error) = fs::rename(self.directory.path(), &dist) {
+            if exists && let Err(restore) = fs::rename(&old, &dist) {
+                let retained = backup.keep();
+                bail!(
+                    "cannot publish dist: {error}; restore failed: {restore}; previous output retained at {}",
+                    retained.display()
+                );
+            }
+            return Err(error).context("cannot publish dist");
+        }
+        Ok(())
+    }
+}
+
+fn validate(artifacts: &[Artifact]) -> Result<()> {
     let mut paths = BTreeMap::new();
     for artifact in artifacts {
         ensure!(
@@ -65,45 +161,6 @@ pub(crate) fn validate(artifacts: &[Artifact]) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn publish(root: &Path, artifacts: &[Artifact]) -> Result<()> {
-    validate(artifacts)?;
-    let dist = root.join("dist");
-    let exists = check_destination(&dist)?;
-    let staging = tempfile::Builder::new()
-        .prefix(".genbit-build-")
-        .tempdir_in(root)
-        .with_context(|| format!("cannot stage build in {}", root.display()))?;
-    for artifact in artifacts {
-        let target = staging.path().join(&artifact.path);
-        let parent = target.parent().context("output file has no parent")?;
-        fs::create_dir_all(parent)
-            .with_context(|| format!("cannot create {}", parent.display()))?;
-        fs::write(&target, &artifact.bytes)
-            .with_context(|| format!("cannot write {}", target.display()))?;
-    }
-    fs::write(staging.path().join(MARKER), MARKER_CONTENT)
-        .context("cannot mark generated output")?;
-    // Keep old output until all new files have been written. The two renames are not a single atomic swap.
-    let backup = tempfile::Builder::new()
-        .prefix(".genbit-backup-")
-        .tempdir_in(root)?;
-    let old = backup.path().join("dist");
-    if exists {
-        fs::rename(&dist, &old).context("cannot preserve previous dist")?;
-    }
-    if let Err(error) = fs::rename(staging.path(), &dist) {
-        if exists && let Err(restore) = fs::rename(&old, &dist) {
-            let retained = backup.keep();
-            bail!(
-                "cannot publish dist: {error}; restore failed: {restore}; previous output retained at {}",
-                retained.display()
-            );
-        }
-        return Err(error).context("cannot publish dist");
-    }
-    Ok(())
-}
-
 fn check_destination(dist: &Path) -> Result<bool> {
     match fs::symlink_metadata(dist) {
         Ok(metadata) => {
@@ -123,5 +180,94 @@ fn check_destination(dist: &Path) -> Result<bool> {
         }
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error).with_context(|| format!("cannot inspect {}", dist.display())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Artifact, OutputPlan};
+    use crate::input::SiteInput;
+    use anyhow::{Context, Result};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
+    #[test]
+    fn missing_static_file_after_listing_preserves_previous_dist() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let root = workspace.path();
+        let input = SiteInput::new(root);
+        OutputPlan::new(vec![Artifact::generated(
+            PathBuf::from("index.html"),
+            b"old output".to_vec(),
+            "home",
+        )])?
+        .publish(&input)?;
+
+        fs::create_dir(root.join("static"))?;
+        fs::write(root.join("static/asset.bin"), [0, 1, 2, 255])?;
+        let listed = input.files(Path::new("static"))?;
+        assert_eq!(listed.len(), 1);
+        let plan = OutputPlan::new(vec![
+            Artifact::generated(PathBuf::from("index.html"), b"new output".to_vec(), "home"),
+            Artifact::copy_from(
+                PathBuf::from("asset.bin"),
+                PathBuf::from("static/asset.bin"),
+            ),
+        ])?;
+        fs::remove_file(root.join("static/asset.bin"))?;
+
+        let error = plan
+            .publish(&input)
+            .err()
+            .context("accepted vanished input")?;
+        assert!(
+            format!("{error:#}").contains("static/asset.bin"),
+            "{error:#}"
+        );
+        assert_eq!(fs::read(root.join("dist/index.html"))?, b"old output");
+        assert!(!root.join("dist/asset.bin").exists());
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_replacing_static_file_before_copy_preserves_previous_dist() -> Result<()> {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::tempdir()?;
+        let root = workspace.path();
+        let input = SiteInput::new(root);
+        OutputPlan::new(vec![Artifact::generated(
+            PathBuf::from("index.html"),
+            b"old output".to_vec(),
+            "home",
+        )])?
+        .publish(&input)?;
+
+        fs::create_dir(root.join("static"))?;
+        fs::write(root.join("static/asset.bin"), [0, 1, 2, 255])?;
+        assert_eq!(input.files(Path::new("static"))?.len(), 1);
+        let plan = OutputPlan::new(vec![Artifact::copy_from(
+            PathBuf::from("asset.bin"),
+            PathBuf::from("static/asset.bin"),
+        )])?;
+        fs::remove_file(root.join("static/asset.bin"))?;
+        let outside = root.join("outside.bin");
+        fs::write(&outside, b"outside")?;
+        symlink(&outside, root.join("static/asset.bin"))?;
+
+        let error = plan
+            .publish(&input)
+            .err()
+            .context("accepted symlink input")?;
+        assert!(
+            format!("{error:#}").contains("symlinks are not supported"),
+            "{error:#}"
+        );
+        assert_eq!(fs::read(root.join("dist/index.html"))?, b"old output");
+        assert_eq!(fs::read(outside)?, b"outside");
+        Ok(())
     }
 }

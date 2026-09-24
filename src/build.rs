@@ -3,7 +3,7 @@ use crate::{
     content::{self, Article},
     input::SiteInput,
     metadata,
-    output::{self, Artifact},
+    output::{Artifact, OutputPlan},
     render::Renderer,
 };
 use anyhow::{Context as _, Result};
@@ -48,16 +48,11 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>) -> Result<usize> {
         .map(|path| {
             let relative = path.strip_prefix(&static_root)?.to_path_buf();
             let site_relative = path.strip_prefix(root)?;
-            let bytes = input.read_bytes(site_relative)?;
-            Ok(Artifact {
-                path: relative,
-                bytes,
-                source: path.display().to_string(),
-            })
+            Ok(Artifact::copy_from(relative, site_relative.to_path_buf()))
         })
         .collect::<Result<Vec<_>>>()?;
     artifacts.extend(assets);
-    output::publish(root, &artifacts)?;
+    OutputPlan::new(artifacts)?.publish(&input)?;
     Ok(articles.len() + 1)
 }
 

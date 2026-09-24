@@ -149,11 +149,7 @@ impl<'a> Renderer<'a> {
                 ..minify_html::Cfg::default()
             },
         );
-        Ok(Artifact {
-            path: output,
-            bytes: minified,
-            source: source.to_owned(),
-        })
+        Ok(Artifact::generated(output, minified, source))
     }
 }
 

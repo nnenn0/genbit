@@ -31,9 +31,11 @@ impl<'a> SiteInput<'a> {
             .transpose()
     }
 
-    pub(crate) fn read_bytes(&self, relative: &Path) -> Result<Vec<u8>> {
+    pub(crate) fn copy_file(&self, relative: &Path, target: &Path) -> Result<()> {
         let path = self.required_file(relative)?;
-        fs::read(&path).with_context(|| format!("cannot read {}", path.display()))
+        fs::copy(&path, target)
+            .with_context(|| format!("cannot copy {} to {}", path.display(), target.display()))?;
+        Ok(())
     }
 
     pub(crate) fn files(&self, relative: &Path) -> Result<Vec<PathBuf>> {
