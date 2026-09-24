@@ -599,6 +599,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "http",
  "minify-html",
  "notify",
  "pulldown-cmark",

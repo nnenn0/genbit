@@ -9,6 +9,7 @@ description = "A small static site generator"
 anyhow = "1"
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
+http = "1"
 
 minify-html = "0.18"
 notify = "8"

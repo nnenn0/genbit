@@ -1,4 +1,5 @@
 mod build;
+mod config;
 mod content;
 mod dev;
 mod input;
