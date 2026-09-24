@@ -228,6 +228,14 @@ mod tests {
         );
         assert_eq!(fs::read(root.join("dist/index.html"))?, b"old output");
         assert!(!root.join("dist/asset.bin").exists());
+        for entry in fs::read_dir(root)? {
+            let name = entry?.file_name();
+            assert!(
+                !name.to_string_lossy().starts_with(".genbit-build-"),
+                "staging directory remains: {}",
+                name.to_string_lossy()
+            );
+        }
         Ok(())
     }
 

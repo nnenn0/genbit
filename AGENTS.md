@@ -69,7 +69,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
-- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。R08完了時点でユニット20件、結合22件。網羅率の計測設定はない。
+- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。R09完了時点でユニット20件、結合22件。網羅率の計測設定はない。
 - `.github/workflows/ci.yml` は全ブランチの push と pull request で rustfmt、Clippy、テストを実行する。独立した型チェックコマンドは定義されていない。
 
 ## Environment and Configuration

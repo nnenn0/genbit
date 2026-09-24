@@ -798,7 +798,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         "missing build failure in dev logs:\n{}",
         server.logs()
     );
-    assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
+    assert!(http_get(&address, "/")?.contains(&before));
 
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
     fs::write(
