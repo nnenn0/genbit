@@ -681,6 +681,41 @@ fn inlines_common_and_template_specific_css() -> Result<()> {
 }
 
 #[test]
+fn custom_article_template_receives_documented_fields() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(
+        site.join("templates/custom.html"),
+        "<html><head><style>{{ css | safe }}</style><script type=\"application/ld+json\">{{ json_ld | safe }}</script></head><body><p>{{ site.title }}</p><p>{{ canonical_url }}</p><p>{{ article.title }}|{{ article.description }}|{{ article.url }}|{{ article.created_at }}|{{ article.updated_at }}</p>{{ content | safe }}</body></html>",
+    )?;
+    fs::write(
+        site.join("styles/custom.css"),
+        "body { --custom-marker: yes; }",
+    )?;
+    fs::write(
+        site.join("content/custom.md"),
+        "+++\ntitle = 'Custom Post'\ndescription = 'Custom summary'\ntemplate = 'custom.html'\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-22\n+++\n**Custom body**\n",
+    )?;
+    let built = build_site(&site)?;
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let html = fs::read_to_string(site.join("dist/custom.html"))?;
+    assert!(html.contains("--custom-marker"), "{html}");
+    assert!(html.contains("http://127.0.0.1:3000/custom"), "{html}");
+    assert!(
+        html.contains("Custom Post|Custom summary|/custom|2026-09-17|2026-09-22"),
+        "{html}"
+    );
+    assert!(html.contains("<strong>Custom body</strong>"), "{html}");
+    assert!(html.contains("\"datePublished\":\"2026-09-17\""), "{html}");
+    assert!(!html.contains("EventSource"), "{html}");
+    Ok(())
+}
+
+#[test]
 fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

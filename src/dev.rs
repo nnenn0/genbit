@@ -23,7 +23,7 @@ pub(crate) const RELOAD_SCRIPT: &str =
     "<script>new EventSource('/__genbit/reload').onmessage=()=>location.reload()</script>";
 
 pub(crate) async fn run(root: PathBuf, address: SocketAddr) -> Result<()> {
-    let count = crate::build::run_dev(&root)?;
+    let count = crate::build::run_dev(&root, RELOAD_SCRIPT)?;
     println!("Built {count} pages into dist/");
 
     let (change_tx, change_rx) = mpsc::unbounded_channel();
@@ -118,7 +118,8 @@ async fn rebuild_on_changes(
         tokio::time::sleep(Duration::from_millis(100)).await;
         while change_rx.try_recv().is_ok() {}
         let site = root.clone();
-        match tokio::task::spawn_blocking(move || crate::build::run_dev(&site)).await {
+        match tokio::task::spawn_blocking(move || crate::build::run_dev(&site, RELOAD_SCRIPT)).await
+        {
             Ok(Ok(count)) => {
                 println!("Rebuilt {count} pages");
                 let _ = reload_tx.send(());

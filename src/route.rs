@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, bail, ensure};
-use serde::{Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
@@ -69,15 +68,6 @@ fn valid_segment(segment: &str) -> bool {
         && segment
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-}
-
-impl Serialize for Route {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.url())
-    }
 }
 
 pub(crate) fn validate_served_urls<'a>(

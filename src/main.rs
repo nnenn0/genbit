@@ -4,7 +4,9 @@ mod content;
 mod dev;
 mod input;
 mod markdown;
+mod metadata;
 mod output;
+mod render;
 mod route;
 mod scaffold;
 

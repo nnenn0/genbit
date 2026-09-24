@@ -1,6 +1,6 @@
 use crate::route::Route;
 use anyhow::{Context, Result, bail, ensure};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+use serde::{Deserialize, Deserializer, de::Error as _};
 use std::path::{Component, Path, PathBuf};
 use toml::value::{Date, Datetime};
 
@@ -68,47 +68,14 @@ where
         .map_err(|_| D::Error::custom(UPDATED_AT_FORMAT))
 }
 
-// Serde's serialize_with callback requires a reference to the field.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn serialize_created_date<S>(
-    created_at: &CreatedAt,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&created_at.date_string())
-}
-
-// Serde's serialize_with callback requires a reference to the field.
-#[allow(clippy::ref_option, clippy::trivially_copy_pass_by_ref)]
-fn serialize_updated_date<S>(
-    updated_at: &Option<Date>,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    updated_at
-        .map(|date| date.to_string())
-        .serialize(serializer)
-}
-
-#[derive(Serialize)]
 pub(crate) struct Article {
     pub(crate) title: String,
     pub(crate) description: String,
-    #[serde(rename = "url")]
     pub(crate) route: Route,
-    #[serde(serialize_with = "serialize_created_date")]
     pub(crate) created_at: CreatedAt,
-    #[serde(serialize_with = "serialize_updated_date")]
     pub(crate) updated_at: Option<Date>,
-    #[serde(skip)]
     pub(crate) template: String,
-    #[serde(skip)]
     pub(crate) html: String,
-    #[serde(skip)]
     pub(crate) source: PathBuf,
 }
 
