@@ -1,4 +1,4 @@
-use crate::route::Route;
+use crate::route::{Route, is_reserved_url};
 use anyhow::{Context, Result};
 use axum::{
     Router,
@@ -76,7 +76,7 @@ async fn serve_clean_url(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
-    if !path.starts_with("/__genbit/")
+    if !is_reserved_url(path)
         && let Some(route) = Route::from_request_path(path)
         && dist.join(route.output()).is_file()
     {

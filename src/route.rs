@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Serialize, Serializer};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 pub(crate) struct Route {
@@ -79,10 +80,52 @@ impl Serialize for Route {
     }
 }
 
+pub(crate) fn validate_served_urls<'a>(
+    files: impl IntoIterator<Item = (&'a Path, &'a str)>,
+) -> Result<()> {
+    let mut claimed = BTreeMap::new();
+    for (path, source) in files {
+        for url in served_urls(path)? {
+            let key = url.to_ascii_lowercase();
+            ensure!(!is_reserved_url(&url), "reserved URL {url} from {source}");
+            if let Some(previous) = claimed.insert(key, source) {
+                bail!("URL collision at {url}: {previous} and {source}");
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn is_reserved_url(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower == "/__genbit" || lower.starts_with("/__genbit/")
+}
+
+fn served_urls(path: &Path) -> Result<Vec<String>> {
+    let path = path
+        .to_str()
+        .context("output path must be UTF-8")?
+        .replace('\\', "/");
+    let mut urls = vec![format!("/{path}")];
+    if let Some(stem) = path.strip_suffix(".html") {
+        let clean = format!("/{stem}");
+        if Route::from_request_path(&clean).is_some() {
+            urls.push(clean);
+        }
+    }
+    if path == "index.html" {
+        urls.push("/".to_owned());
+    } else if let Some(directory) = path.strip_suffix("/index.html") {
+        urls.push(format!("/{directory}"));
+        urls.push(format!("/{directory}/"));
+    }
+    Ok(urls)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Route;
-    use anyhow::Result;
+    use super::{Route, is_reserved_url, served_urls, validate_served_urls};
+    use anyhow::{Context, Result};
     use std::path::Path;
 
     #[test]
@@ -124,5 +167,57 @@ mod tests {
         ] {
             assert!(Route::from_request_path(path).is_none(), "accepted {path}");
         }
+    }
+
+    #[test]
+    fn records_direct_clean_and_directory_index_urls() -> Result<()> {
+        assert_eq!(
+            served_urls(Path::new("index.html"))?,
+            ["/index.html", "/index", "/"]
+        );
+        assert_eq!(
+            served_urls(Path::new("posts/index.html"))?,
+            ["/posts/index.html", "/posts/index", "/posts", "/posts/"]
+        );
+        assert_eq!(
+            served_urls(Path::new("posts/file.txt"))?,
+            ["/posts/file.txt"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn detects_served_url_collisions_and_reserved_paths() -> Result<()> {
+        for (left, right, url) in [
+            ("foo.html", "foo", "/foo"),
+            ("foo.html", "foo/index.html", "/foo"),
+            ("foo/index.html", "foo", "/foo"),
+            ("index.html", "index", "/index"),
+        ] {
+            let error =
+                validate_served_urls([(Path::new(left), "first"), (Path::new(right), "second")])
+                    .err()
+                    .context("accepted URL collision")?;
+            assert!(error.to_string().contains(url), "{error:#}");
+        }
+        for path in [
+            "__genbit",
+            "__genbit/reload.html",
+            "__genbit.html",
+            "__genbit/asset.txt",
+        ] {
+            let error = validate_served_urls([(Path::new(path), "source")])
+                .err()
+                .context("accepted reserved URL")?;
+            assert!(error.to_string().contains("reserved URL"), "{error:#}");
+        }
+        assert!(is_reserved_url("/__genbit"));
+        assert!(is_reserved_url("/__GENBIT/reload"));
+        assert!(!is_reserved_url("/__genbit-other"));
+        validate_served_urls([
+            (Path::new("foo.html"), "article"),
+            (Path::new("foo/bar.html"), "nested article"),
+        ])?;
+        Ok(())
     }
 }

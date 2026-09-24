@@ -82,7 +82,7 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
         let css = styles
             .get(&article.template)
             .with_context(|| format!("missing styles for template {}", article.template))?;
-        let source = article.source.display().to_string();
+        let source = format!("content/{}", article.source.display());
         let canonical_url = config.site_url.join_root_path(article.route.url());
         let article_json_ld = article_json_ld(&config, article, &canonical_url)?;
         artifacts.push(render(

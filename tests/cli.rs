@@ -883,6 +883,76 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
 }
 
 #[test]
+fn rejects_served_url_collisions_and_reserved_paths_without_touching_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    assert!(build_site(&site)?.status.success());
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    let post = "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Post\n";
+
+    for (files, reason) in [
+        (
+            &["content/foo.md", "static/foo"][..],
+            "URL collision at /foo",
+        ),
+        (
+            &["content/foo.md", "static/foo/index.html"][..],
+            "URL collision at /foo",
+        ),
+        (
+            &["static/entries/hello-world"][..],
+            "URL collision at /entries/hello-world",
+        ),
+        (&["static/index"][..], "URL collision at /index"),
+        (&["content/__genbit/reload.md"][..], "reserved URL"),
+        (&["static/__genbit/asset.txt"][..], "reserved URL"),
+    ] {
+        for relative in files {
+            let path = site.join(relative);
+            fs::create_dir_all(path.parent().context("test input has no parent")?)?;
+            fs::write(
+                &path,
+                if Path::new(relative)
+                    .extension()
+                    .is_some_and(|ext| ext == "md")
+                {
+                    post
+                } else {
+                    "asset"
+                },
+            )?;
+        }
+        let failed = build_site(&site)?;
+        let stderr = String::from_utf8_lossy(&failed.stderr);
+        assert!(!failed.status.success(), "accepted {files:?}: {stderr}");
+        assert!(stderr.contains(reason), "{files:?}: {stderr}");
+        for relative in files {
+            assert!(stderr.contains(relative), "{files:?}: {stderr}");
+            fs::remove_file(site.join(relative))?;
+        }
+        assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
+        assert_eq!(
+            fs::read_to_string(site.join("dist/entries/hello-world.html"))?,
+            article
+        );
+    }
+
+    fs::create_dir_all(site.join("content/foo"))?;
+    fs::write(site.join("content/foo.md"), post)?;
+    fs::write(site.join("content/foo/bar.md"), post)?;
+    let built = build_site(&site)?;
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    assert!(site.join("dist/foo.html").is_file());
+    assert!(site.join("dist/foo/bar.html").is_file());
+    Ok(())
+}
+
+#[test]
 fn protects_unrecognized_dist_and_detects_static_file_conflicts() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

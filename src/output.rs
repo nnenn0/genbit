@@ -57,6 +57,11 @@ pub(crate) fn validate(artifacts: &[Artifact]) -> Result<()> {
             }
         }
     }
+    crate::route::validate_served_urls(
+        artifacts
+            .iter()
+            .map(|artifact| (artifact.path.as_path(), artifact.source.as_str())),
+    )?;
     Ok(())
 }
 
