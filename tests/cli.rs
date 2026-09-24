@@ -814,6 +814,48 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
 }
 
 #[test]
+fn invalid_article_dates_report_source_and_preserve_previous_output() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    assert!(build_site(&site)?.status.success());
+    let before = fs::read_to_string(site.join("dist/index.html"))?;
+    let article = site.join("content/entries/hello-world.md");
+    for (dates, reason) in [
+        (
+            "created_at = \"2026-09-17\"",
+            "created_at must be a TOML local date",
+        ),
+        (
+            "created_at = 2026-09-17T10:00:00Z",
+            "created_at must be a TOML local date",
+        ),
+        (
+            "created_at = 2026-09-17T10:00:00.5",
+            "created_at must be a TOML local date",
+        ),
+        (
+            "created_at = 2026-09-17\nupdated_at = 2026-09-16",
+            "updated_at must not precede created_at",
+        ),
+    ] {
+        fs::write(
+            &article,
+            format!("+++\n{dates}\ndescription = 'Test article'\n+++\n# Post\n"),
+        )?;
+        let failed = build_site(&site)?;
+        assert!(!failed.status.success(), "accepted {dates}");
+        let stderr = String::from_utf8_lossy(&failed.stderr);
+        assert!(
+            stderr.contains("content/entries/hello-world.md"),
+            "{stderr}"
+        );
+        assert!(stderr.contains(reason), "{stderr}");
+        assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
+    }
+    Ok(())
+}
+
+#[test]
 fn rejects_output_collisions_without_touching_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

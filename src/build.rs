@@ -69,8 +69,8 @@ fn run_with_mode(root: &Path, dev: bool) -> Result<usize> {
     let mut articles = load_articles(&input)?;
     articles.sort_by(|left, right| {
         right
-            .created_at_order
-            .cmp(&left.created_at_order)
+            .created_at
+            .cmp(&left.created_at)
             .then_with(|| left.url.cmp(&right.url))
     });
     let mut templates = BTreeSet::from(["root.html"]);
@@ -185,6 +185,8 @@ fn website_json_ld(config: &Config) -> Result<String> {
 }
 
 fn article_json_ld(config: &Config, article: &Article, url: &str) -> Result<String> {
+    let published = article.created_at.date_string();
+    let modified = article.updated_at.map(|date| date.to_string());
     json_ld(&ArticleStructuredData {
         context: "https://schema.org",
         kind: "BlogPosting",
@@ -192,8 +194,8 @@ fn article_json_ld(config: &Config, article: &Article, url: &str) -> Result<Stri
         description: &article.description,
         url,
         image: &config.og_image,
-        date_published: Some(&article.created_at),
-        date_modified: article.updated_at.as_deref(),
+        date_published: Some(&published),
+        date_modified: modified.as_deref(),
     })
 }
 
