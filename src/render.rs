@@ -55,6 +55,12 @@ struct ArticleView<'a, 'b> {
     css: &'a str,
 }
 
+#[derive(Serialize)]
+struct NotFoundView<'a> {
+    site: &'a Config,
+    css: &'a str,
+}
+
 impl<'a> Renderer<'a> {
     pub(crate) fn load(
         input: &SiteInput<'_>,
@@ -62,7 +68,7 @@ impl<'a> Renderer<'a> {
         reload_script: Option<&'a str>,
     ) -> Result<Self> {
         let tera = load_templates(input)?;
-        let mut templates = BTreeSet::from(["root.html"]);
+        let mut templates = BTreeSet::from(["root.html", "404.html"]);
         templates.extend(articles.iter().map(|article| article.template.as_str()));
         let styles = load_styles(input, &templates)?;
         Ok(Self {
@@ -123,6 +129,19 @@ impl<'a> Renderer<'a> {
             },
             article.route.output().to_path_buf(),
             &format!("content/{}", article.source.display()),
+        )
+    }
+
+    pub(crate) fn not_found(&self, config: &Config) -> Result<Artifact> {
+        let css = self
+            .styles
+            .get("404.html")
+            .context("missing styles for 404.html")?;
+        self.render(
+            "404.html",
+            &NotFoundView { site: config, css },
+            PathBuf::from("404.html"),
+            "templates/404.html",
         )
     }
 

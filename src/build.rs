@@ -30,9 +30,10 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>) -> Result<usize> {
             .then_with(|| left.route.url().cmp(right.route.url()))
     });
     let renderer = Renderer::load(&input, &articles, reload_script)?;
-    let mut artifacts = Vec::with_capacity(articles.len() + 3);
+    let mut artifacts = Vec::with_capacity(articles.len() + 4);
     let home_json_ld = metadata::website_json_ld(&config)?;
     artifacts.push(renderer.home(&config, &articles, &home_json_ld)?);
+    artifacts.push(renderer.not_found(&config)?);
     for article in &articles {
         let canonical_url = config.site_url.join_root_path(article.route.url());
         let json_ld = metadata::article_json_ld(&config, article, &canonical_url)?;

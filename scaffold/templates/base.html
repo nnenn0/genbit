@@ -6,6 +6,7 @@
   <link rel="icon" href="/assets/img/favicon.png" type="image/png" sizes="96x96">
   <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
   <title>{% block title %}{{ article.title }} | {{ site.title }}{% endblock title %}</title>
+  {% block metadata %}
   <meta name="description" content="{{ description }}">
   <link rel="canonical" href="{{ canonical_url }}">
   <meta property="og:title" content="{% block og_title %}{{ article.title }} | {{ site.title }}{% endblock og_title %}">
@@ -16,6 +17,7 @@
   <meta property="og:image" content="{{ site.og_image }}">
   <meta property="og:image:alt" content="{{ site.title }}">
   <script type="application/ld+json">{{ json_ld | safe }}</script>
+  {% endblock metadata %}
   <style>{{ css | safe }}</style>
 </head>
 <body>

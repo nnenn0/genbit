@@ -19,7 +19,7 @@ use std::{
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::Instant;
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 
 pub(crate) const RELOAD_SCRIPT: &str =
     "<script>new EventSource('/__genbit/reload').onmessage=()=>location.reload()</script>";
@@ -76,7 +76,9 @@ fn router(root: &Path, reload_tx: broadcast::Sender<()>) -> Router {
     let dist = root.join("dist");
     Router::new()
         .route("/__genbit/reload", get(events))
-        .fallback_service(ServeDir::new(&dist))
+        .fallback_service(
+            ServeDir::new(&dist).not_found_service(ServeFile::new(dist.join("404.html"))),
+        )
         .layer(middleware::from_fn_with_state(dist, serve_clean_url))
         .with_state(reload_tx)
 }

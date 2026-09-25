@@ -16,6 +16,7 @@ genbit dev
 ```
 
 `dev` は起動時にビルドし、既定では `http://127.0.0.1:3000` で配信します。ポートが使用中ならビルドせずに終了します。`content/`、`templates/`、`styles/`、`static/`、`config.toml` の変更を検知すると再ビルドし、成功時だけSSEでブラウザーを再読み込みします。再ビルドに失敗しても最後に成功したサイトを配信します。成功した再ビルドで `dist/` を切り替える瞬間には、独立したHTTPリクエストが一時的に404になる場合があります。アドレスとポートは `genbit dev --host 127.0.0.1 --port 3000` で変更できます。
+`templates/404.html` は必須です。`dist/404.html` を生成し、`dev` は存在しないURLにこのページをHTTP 404で返します。`new` は404用テンプレートを用意します。公開先で同じ動作をさせるには、ホスティング側にも `404.html` をHTTP 404で配信する設定が必要です。
 
 公開用ファイルはサイトのルートで生成します。
 
@@ -76,7 +77,7 @@ description = "記事で扱う内容を簡潔に説明します。"
 
 記事と静的ファイルが同じ配信URLを使う構成はビルド時に拒否します。たとえば `content/foo.md` と `static/foo` はどちらも `/foo` を使い、`static/foo/index.html` も `/foo` からのディレクトリアクセスと競合します。`.html` の直接URLと、開発サーバーで使う拡張子なしURLも検査します。`/__genbit` とその配下は開発サーバー用の予約URLなので、記事や静的ファイルには使えません。衝突時は旧 `dist/` を更新しません。
 
-全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）、ページ固有の `description`、`canonical_url`、`json_ld`、`css` を参照できます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
+全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）と `css` を参照できます。トップページと記事のテンプレートには `description`、`canonical_url`、`json_ld` も渡されます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。404用テンプレートには `site` と `css` だけを渡します。初期テンプレートは `base.html` の `metadata` ブロックを上書きして `noindex` を指定し、canonical・OGP・JSON-LDを出しません。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
 
 記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは `.md` を取り除きます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
 

@@ -120,6 +120,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "templates/base.html",
         "templates/page.html",
         "templates/root.html",
+        "templates/404.html",
         "styles/common.css",
         "styles/page.css",
         "styles/root.css",
@@ -220,6 +221,16 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
         String::from_utf8_lossy(&output.stderr)
     );
     let home = fs::read_to_string(site.join("dist/index.html"))?;
+    let not_found = fs::read_to_string(site.join("dist/404.html"))?;
+    assert!(not_found.contains("<h1>404</h1>"), "{not_found}");
+    assert!(
+        not_found.contains("ページが見つかりませんでした。"),
+        "{not_found}"
+    );
+    assert!(not_found.contains("name=robots"), "{not_found}");
+    assert!(not_found.contains("content=noindex"), "{not_found}");
+    assert!(!not_found.contains("rel=canonical"), "{not_found}");
+    assert!(!not_found.contains("application/ld+json"), "{not_found}");
     assert!(home.contains("<style>"));
     assert!(home.contains("prefers-color-scheme"), "{home}");
     assert!(home.contains("href=/assets/img/favicon.png"), "{home}");
@@ -271,6 +282,24 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
     assert!(site.join("dist/assets/img/favicon.png").is_file());
     assert!(site.join("dist/assets/img/ogp.png").is_file());
+    Ok(())
+}
+
+#[test]
+fn missing_404_template_fails_without_replacing_output() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    assert!(build_site(&site)?.status.success());
+    let previous = fs::read(site.join("dist/404.html"))?;
+    fs::remove_file(site.join("templates/404.html"))?;
+    let output = build_site(&site)?;
+    assert!(
+        !output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("404.html"));
+    assert_eq!(fs::read(site.join("dist/404.html"))?, previous);
     Ok(())
 }
 
@@ -753,10 +782,10 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     assert!(page.starts_with("HTTP/1.1 200"), "{page}");
     assert!(page.contains("EventSource"), "{page}");
     assert!(http_get(&address, "/about?view=full")?.contains("About page"));
-    assert!(http_get(&address, "/about.html")?.contains("About page"));
     assert!(http_get(&address, "/entries/posts/nested?view=full")?.contains("Nested page"));
     assert!(http_get(&address, "/entries/posts/nested.html")?.contains("Nested page"));
     assert!(http_get(&address, "/asset.txt")?.contains("static asset"));
+    assert_not_found_page(&address, "/missing/path")?;
 
     let mut events = TcpStream::connect(&address)?;
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
@@ -812,7 +841,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     data.clear();
     fs::remove_file(site.join("content/about.md"))?;
     read_sse_until(&mut events, &mut data, b"data: reload", &server)?;
-    assert!(http_get(&address, "/about")?.starts_with("HTTP/1.1 404"));
+    assert_not_found_page(&address, "/about")?;
 
     let build = build_site(&site)?;
     assert!(
@@ -844,6 +873,17 @@ fn dev_port_conflict_does_not_build_or_replace_dist() -> Result<()> {
     assert!(!failed.status.success());
     assert!(String::from_utf8_lossy(&failed.stderr).contains("cannot bind"));
     assert_eq!(fs::read(site.join("dist/index.html"))?, previous);
+    Ok(())
+}
+
+fn assert_not_found_page(address: &str, path: &str) -> Result<()> {
+    let response = http_get(address, path)?;
+    assert!(response.starts_with("HTTP/1.1 404"), "{response}");
+    assert!(
+        response.contains("ページが見つかりませんでした。"),
+        "{response}"
+    );
+    assert!(response.contains("EventSource"), "{response}");
     Ok(())
 }
 
