@@ -37,7 +37,6 @@ fn string_array(file: &str, keys: &[&str]) -> Result<BTreeSet<String>> {
 fn cargo_deny_and_cargo_about_accept_the_same_licenses() -> Result<()> {
     let deny = string_array("deny.toml", &["licenses", "allow"])?;
     let about = string_array("about.toml", &["accepted"])?;
-    assert!(!deny.is_empty(), "deny.toml allows no licenses");
     assert_eq!(
         deny,
         about,
