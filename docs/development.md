@@ -9,7 +9,7 @@ docker compose run --rm cli clippy --locked --all-targets --all-features -- -D w
 docker compose run --rm cli test --locked --all-targets --all-features
 ```
 
-CIはUbuntuでfmt・Clippy・テストを、macOSでテストを実行します。
+CIはpull requestと `main` へのpushで動き、Ubuntuでfmt・Clippy・テストを、macOSでテストを実行します。PRを作っていないブランチへのpushではCIは動きません。依存のビルド結果は `main` の実行でキャッシュし、PRはそのキャッシュを使います。
 
 Rustの版は `rust-toolchain.toml` で固定しています。版を上げるときは、`rust-toolchain.toml` の `channel`、`Cargo.toml` の `rust-version`、`Dockerfile` の `FROM rust:<版>-bookworm` を同時に変更してください。3か所が一致しないとCIが失敗します。Dependabotは `Dockerfile` だけを更新するため、その更新PRはCIで止まります。
 
