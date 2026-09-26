@@ -18,17 +18,17 @@
 </p>
 
 > [!NOTE]
-> genbitは作者が自分の[blog](https://memo.nnenn0.com/)のために作っている個人用のツールです。ソースとビルド済みバイナリは公開していますが、作者のblogに必要な変更を優先して、これからも仕様を大きく変えていきます。設定・フロントマター・テンプレート変数・URL・生成物の構成は、どの版の更新でも互換性なく変わる可能性があります。移行手順の提供、サポート、機能要望への対応は約束しません。使う場合はバージョンを固定し、更新時は変更内容を確認してください。
+> genbitは作者が自分の[ブログ](https://memo.nnenn0.com/)のために作っている個人用のツールです。設定・フロントマター・テンプレート変数・URL・生成物の構成は、どの版でも互換性なく変わる可能性があります。移行手順の提供やサポート、機能要望への対応はしません。使う場合はバージョンを固定してください。
 
 ## 特徴
 
 - **バイナリ1つ** — サイトの作成・ビルド・プレビューを1つのCLIで行います。
 - **Markdown + Tera** — 記事はTOMLフロントマター付きのMarkdownで書き、ページは[Tera](https://keats.github.io/tera/)テンプレートで組み立てます。
 - **ライブリロード** — `genbit dev` は保存のたびに再ビルドし、SSEでブラウザーを再読み込みします。再ビルドに失敗しても、最後に成功したサイトを配信し続けます。
-- **軽いページ** — CSSはテンプレートごとにインライン展開し、全ページを圧縮します。初期テーマはJavaScriptなしでOSのライト/ダーク設定に追従します。
-- **SEOとフィードを標準装備** — canonicalリンク、`sitemap.xml`、`robots.txt`、Open Graph、JSON-LD、RSS 2.0フィードを生成します。
+- **CSSのインライン化とHTML圧縮** — CSSはテンプレートごとにインライン展開し、全ページを圧縮します。初期テーマはJavaScriptなしでOSのライト/ダーク設定に追従します。
+- **メタデータとRSSの生成** — canonicalリンク、`sitemap.xml`、`robots.txt`、Open Graph、JSON-LD、RSS 2.0フィードを生成します。
 - **タグ・見出しリンク・拡張子なしURL** — タグページ、リンク付きの見出し、コードブロックの言語ラベル、拡張子なしの記事URLに対応します。
-- **安全な出力** — ビルドは一時領域で行い、成功したときだけ `dist/` を入れ替えます。URLの衝突やシンボリックリンクの入力は拒否します。
+- **失敗しても `dist/` を壊さないビルド** — ビルドは一時領域で行い、成功したときだけ `dist/` を入れ替えます。URLの衝突やシンボリックリンクの入力は拒否します。
 
 ## インストール
 
@@ -52,15 +52,15 @@ install "genbit-$VERSION-$TARGET/genbit" ~/.local/bin/
 `~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。
 
 <details>
-<summary>ビルド来歴の検証、macOSのGatekeeper、ソースからのビルド</summary>
+<summary>Artifact Attestationsの検証、macOSのGatekeeper、ソースからのビルド</summary>
 
-各アーカイブにはGitHub Actionsのビルド来歴を付けています。GitHub CLIがあれば、このリポジトリのワークフローがビルドしたことを確認できます。
+各アーカイブには[GitHub Artifact Attestations](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations)を付けています。GitHub CLIがあれば、このリポジトリのワークフローでビルドされたことを確認できます。
 
 ```sh
 gh attestation verify "genbit-$VERSION-$TARGET.tar.gz" --repo nnenn0/genbit
 ```
 
-macOSのバイナリは署名・公証していません。ブラウザーでダウンロードして実行を拒否された場合は、隔離属性を外してください。
+macOSのバイナリは署名・公証していません。ブラウザーでダウンロードして実行を拒否された場合は、`com.apple.quarantine` 属性を外してください。
 
 ```sh
 xattr -d com.apple.quarantine genbit
@@ -124,7 +124,7 @@ tags = ["rust", "web"]
 
 ## ドキュメント
 
-| トピック | |
+| ドキュメント | 内容 |
 | --- | --- |
 | [設定](docs/configuration.md) | `config.toml` の項目とURLの規則 |
 | [コンテンツ](docs/content.md) | フロントマター、タグ、記事URL、Markdownの処理 |
@@ -144,4 +144,4 @@ tags = ["rust", "web"]
 
 ## ライセンス
 
-[MIT](LICENSE)です。genbitのコードと、同梱する初期テンプレート・CSS・サンプル記事・favicon・OGP画像に適用します。`genbit new` でサイトへコピーされた初期素材を再配布するときも、著作権表示とライセンス文を残してください。利用者が自分で書いた記事や追加した素材には、このライセンスを適用しません。外部のRust依存関係には、それぞれのライセンスが適用されます。
+ライセンスは[MIT License](LICENSE)です。genbitのコードと、同梱する初期テンプレート・CSS・サンプル記事・favicon・OGP画像に適用します。`genbit new` でサイトへコピーされた初期素材を再配布するときも、著作権表示とライセンス文を残してください。利用者が自分で書いた記事や追加した素材には、このライセンスを適用しません。外部のRust依存関係には、それぞれのライセンスが適用されます。
