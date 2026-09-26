@@ -35,7 +35,6 @@ jobs:
       - name: Run tests
         run: cargo test --locked --all-targets --all-features
 
-  # 依存クレートの著作権表示とソースの入手先を、配布アーカイブに同梱する。
   # about.toml で配布ターゲットを指定しているため、生成結果は実行する OS によらない。
   licenses:
     runs-on: ubuntu-24.04
