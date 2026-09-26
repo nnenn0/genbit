@@ -2,11 +2,12 @@ use crate::{
     config::{Config, SiteUrl},
     content::Article,
     output::Artifact,
-    route::{FEED_URL, TAGS_INDEX_URL, UNTAGGED_TAG, tag_url},
+    route::{FEED_URL, TAGS_INDEX_URL},
+    tags::TagIndex,
 };
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::path::PathBuf;
 
 const FEED_ITEM_LIMIT: usize = 20;
 
@@ -77,37 +78,38 @@ fn json_ld(value: &impl Serialize) -> Result<String> {
 pub(crate) fn sitemap(
     base: &SiteUrl,
     articles: &[Article],
-    tags: &BTreeMap<String, Vec<&Article>>,
-    has_untagged: bool,
+    tags: &TagIndex<'_>,
 ) -> Result<Artifact> {
+    let mut urls = vec![(base.as_str().to_owned(), None)];
+    urls.extend(articles.iter().map(|article| {
+        (
+            base.join_root_path(article.route.url()),
+            Some(article.updated_at.date_string()),
+        )
+    }));
+    urls.push((base.join_root_path(TAGS_INDEX_URL), None));
+    urls.extend(
+        tags.groups()
+            .iter()
+            .map(|group| (base.join_root_path(&group.url()), None)),
+    );
     ensure!(
-        articles.len() + tags.len() + usize::from(has_untagged) + 1 < 50_000,
+        urls.len() <= 50_000,
         "sitemap.xml supports at most 50,000 URLs including generated pages"
     );
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
     );
-    xml.push_str("  <url><loc>");
-    xml.push_str(&xml_escape(base.as_str()));
-    xml.push_str("</loc></url>\n");
-    for article in articles {
+    for (url, lastmod) in urls {
         xml.push_str("  <url><loc>");
-        xml.push_str(&xml_escape(&base.join_root_path(article.route.url())));
-        xml.push_str("</loc><lastmod>");
-        xml.push_str(&article.updated_at.date_string());
-        xml.push_str("</lastmod></url>\n");
-    }
-    for path in
-        std::iter::once(TAGS_INDEX_URL.to_owned()).chain(tags.keys().map(|tag| tag_url(tag)))
-    {
-        xml.push_str("  <url><loc>");
-        xml.push_str(&xml_escape(&base.join_root_path(&path)));
-        xml.push_str("</loc></url>\n");
-    }
-    if has_untagged {
-        xml.push_str("  <url><loc>");
-        xml.push_str(&xml_escape(&base.join_root_path(&tag_url(UNTAGGED_TAG))));
-        xml.push_str("</loc></url>\n");
+        xml.push_str(&xml_escape(&url));
+        xml.push_str("</loc>");
+        if let Some(lastmod) = lastmod {
+            xml.push_str("<lastmod>");
+            xml.push_str(&lastmod);
+            xml.push_str("</lastmod>");
+        }
+        xml.push_str("</url>\n");
     }
     xml.push_str("</urlset>\n");
     ensure!(

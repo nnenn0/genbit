@@ -9,6 +9,7 @@ mod output;
 mod render;
 mod route;
 mod scaffold;
+mod tags;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};

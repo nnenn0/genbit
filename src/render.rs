@@ -3,7 +3,8 @@ use crate::{
     content::Article,
     input::SiteInput,
     output::Artifact,
-    route::{TAGS_INDEX_URL, UNTAGGED_TAG, tag_url},
+    route::TAGS_INDEX_URL,
+    tags::{TagGroup, TagIndex, article_tags},
 };
 use anyhow::{Context as _, Result, ensure};
 use serde::Serialize;
@@ -37,11 +38,7 @@ impl<'a> From<&'a Article> for PublicArticle<'a> {
             url: article.route.url(),
             created_at: article.created_at.date_string(),
             updated_at: article.updated_at.date_string(),
-            tags: if article.tags.is_empty() {
-                vec![UNTAGGED_TAG]
-            } else {
-                article.tags.iter().map(String::as_str).collect()
-            },
+            tags: article_tags(article),
         }
     }
 }
@@ -126,29 +123,22 @@ impl<'a> Renderer<'a> {
     pub(crate) fn tags_index(
         &self,
         config: &Config,
-        tags: &BTreeMap<String, Vec<&Article>>,
-        untagged_count: usize,
+        tags: &TagIndex<'_>,
         json_ld: &str,
     ) -> Result<Artifact> {
         let css = self
             .styles
             .get("tags.html")
             .context("missing styles for tags.html")?;
-        let mut public_tags: Vec<PublicTag<'_>> = tags
+        let public_tags = tags
+            .groups()
             .iter()
-            .map(|(name, articles)| PublicTag {
-                name,
-                url: tag_url(name),
-                count: articles.len(),
+            .map(|group| PublicTag {
+                name: group.name,
+                url: group.url(),
+                count: group.articles.len(),
             })
             .collect();
-        if untagged_count > 0 {
-            public_tags.push(PublicTag {
-                name: UNTAGGED_TAG,
-                url: tag_url(UNTAGGED_TAG),
-                count: untagged_count,
-            });
-        }
         self.render(
             "tags.html",
             &TagsView {
@@ -167,34 +157,16 @@ impl<'a> Renderer<'a> {
     pub(crate) fn tag(
         &self,
         config: &Config,
-        tag: &str,
-        articles: &[&Article],
+        group: &TagGroup<'_>,
         json_ld: &str,
     ) -> Result<Artifact> {
-        self.tag_page(config, tag, articles, json_ld)
-    }
-
-    pub(crate) fn untagged(
-        &self,
-        config: &Config,
-        articles: &[&Article],
-        json_ld: &str,
-    ) -> Result<Artifact> {
-        self.tag_page(config, UNTAGGED_TAG, articles, json_ld)
-    }
-
-    fn tag_page(
-        &self,
-        config: &Config,
-        tag: &str,
-        articles: &[&Article],
-        json_ld: &str,
-    ) -> Result<Artifact> {
+        let tag = group.name;
         let css = self
             .styles
             .get("tag.html")
             .context("missing styles for tag.html")?;
-        let entries = articles
+        let entries = group
+            .articles
             .iter()
             .map(|article| PublicArticle::from(*article))
             .collect();
@@ -203,7 +175,7 @@ impl<'a> Renderer<'a> {
             &TagView {
                 site: config,
                 description: format!("{tag} の記事一覧"),
-                canonical_url: config.site_url.join_root_path(&tag_url(tag)),
+                canonical_url: config.site_url.join_root_path(&group.url()),
                 json_ld,
                 tag,
                 entries,
