@@ -17,13 +17,21 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ジョブ名は必須チェックの名前になるため、matrix の検査項目から作らず固定の名前を付ける。
+  # 勧告は依存を変えなくても後から出るため、無関係な PR を止めないよう deny-advisories は
+  # 必須チェックにしない。依存の方針に関わる deny-policy だけを必須にする。
   cargo-deny:
+    name: deny-${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        checks: [advisories, bans licenses sources]
+        include:
+          - name: advisories
+            checks: advisories
+          - name: policy
+            checks: bans licenses sources
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
