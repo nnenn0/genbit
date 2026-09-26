@@ -1,6 +1,6 @@
 use crate::{
     config::{Config, SiteUrl},
-    content::Article,
+    content::{Article, LocalDateTime},
     output::Artifact,
     route::{TAGS_INDEX_URL, UNTAGGED_TAG, tag_url},
 };
@@ -50,7 +50,7 @@ pub(crate) fn website_json_ld(config: &Config) -> Result<String> {
 
 pub(crate) fn article_json_ld(config: &Config, article: &Article, url: &str) -> Result<String> {
     let published = article.created_at.date_string();
-    let modified = article.updated_at.map(|date| date.to_string());
+    let modified = article.updated_at.map(LocalDateTime::date_string);
     json_ld(&ArticleStructuredData {
         context: "https://schema.org",
         kind: "BlogPosting",
@@ -98,11 +98,10 @@ pub(crate) fn sitemap(
                 .replace('<', "&lt;"),
         );
         xml.push_str("</loc><lastmod>");
-        xml.push_str(
-            &article
-                .updated_at
-                .map_or_else(|| article.created_at.date_string(), |date| date.to_string()),
-        );
+        xml.push_str(&article.updated_at.map_or_else(
+            || article.created_at.date_string(),
+            LocalDateTime::date_string,
+        ));
         xml.push_str("</lastmod></url>\n");
     }
     for path in

@@ -210,12 +210,12 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17\ndescription = 'A post'\nupdated_at = 2026-09-22\n+++\n\n**A post**\n",
+        "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17 00:00\ndescription = 'A post'\nupdated_at = 2026-09-22 00:00\n+++\n\n**A post**\n",
     )?;
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/another.md"),
-        "+++\ncreated_at = 2026-09-16\ndescription = 'Test article'\n+++\n# Another\n",
+        "+++\ncreated_at = 2026-09-16 00:00\ndescription = 'Test article'\n+++\n# Another\n",
     )?;
     fs::write(site.join("static/logo.png"), [0, 1, 2, 255])?;
     let output = build_site(&site)?;
@@ -321,11 +321,11 @@ fn article_description_uses_front_matter_instead_of_body() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Chosen summary with quotes & friends'\n+++\n# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Chosen summary with quotes & friends'\n+++\n# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
     )?;
     fs::write(
         site.join("content/override.md"),
-        "+++\ncreated_at = 2026-09-18\ndescription = 'Chosen summary'\n+++\nBody text.\n",
+        "+++\ncreated_at = 2026-09-18 00:00\ndescription = 'Chosen summary'\n+++\nBody text.\n",
     )?;
     let output = build_site(&site)?;
     assert!(
@@ -358,7 +358,7 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Heading\n\n- List only\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Heading\n\n- List only\n",
     )?;
     let build = build_site(&site)?;
     assert!(
@@ -374,7 +374,7 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
 
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\n+++\n# Heading\n",
+        "+++\ncreated_at = 2026-09-17 00:00\n+++\n# Heading\n",
     )?;
     let missing_article_description = build_site(&site)?;
     assert!(!missing_article_description.status.success());
@@ -385,7 +385,7 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Heading\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Heading\n",
     )?;
 
     for invalid_config in [
@@ -419,7 +419,7 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/another.md"),
-        "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\ndescription = 'Another article'\n+++\nAnother article.\n",
+        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-22 00:00\ndescription = 'Another article'\n+++\nAnother article.\n",
     )?;
     let output = build()?;
     assert!(
@@ -568,11 +568,11 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
     )?;
     fs::write(
         site.join("content/entries/next.md"),
-        "+++\ncreated_at = 2026-09-18\ndescription = 'Test article'\n+++\n# Next\n",
+        "+++\ncreated_at = 2026-09-18 00:00\ndescription = 'Test article'\n+++\n# Next\n",
     )?;
 
     let build = build_site(&site)?;
@@ -595,9 +595,9 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     for (name, date) in [
-        ("old", "2026-09-05"),
-        ("new", "2026-09-17"),
-        ("middle", "2026-09-16"),
+        ("old", "2026-09-05 00:00"),
+        ("new", "2026-09-17 00:00"),
+        ("middle", "2026-09-16 00:00"),
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
@@ -634,9 +634,9 @@ fn generates_tag_pages_with_sorted_articles_and_sitemap_entries() -> Result<()> 
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     for (name, date, tags) in [
-        ("older", "2026-09-17", "['rust', 'web-security']"),
-        ("newer", "2026-09-19", "['rust']"),
-        ("untagged", "2026-09-20", "[]"),
+        ("older", "2026-09-17 00:00", "['rust', 'web-security']"),
+        ("newer", "2026-09-19 00:00", "['rust']"),
+        ("untagged", "2026-09-20 00:00", "[]"),
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
@@ -712,7 +712,7 @@ fn invalid_tags_and_generated_tag_url_collisions_preserve_dist() -> Result<()> {
         fs::write(
             &article_path,
             format!(
-                "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\ntags = {tags}\n+++\nBody"
+                "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\ntags = {tags}\n+++\nBody"
             ),
         )?;
         let output = build_site(&site)?;
@@ -725,7 +725,7 @@ fn invalid_tags_and_generated_tag_url_collisions_preserve_dist() -> Result<()> {
     fs::remove_file(&article_path)?;
     fs::write(
         site.join("content/tags.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\nBody",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\nBody",
     )?;
     let output = build_site(&site)?;
     assert!(!output.status.success());
@@ -742,9 +742,9 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
     let site = workspace.new_site("blog")?;
     for (name, created_at) in [
         ("a-early", "2026-09-17 08:00"),
-        ("b-same", "2026-09-17T08:00:40"),
-        ("z-late", "2026-09-17T08:00:40"),
-        ("m-legacy", "2026-09-17"),
+        ("b-same", "2026-09-17T08:01"),
+        ("z-late", "2026-09-17T08:01"),
+        ("m-midnight", "2026-09-17 00:00"),
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
@@ -769,15 +769,12 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
     let early = home
         .find("/entries/a-early")
         .context("early article missing")?;
-    let legacy = home
-        .find("/entries/m-legacy")
-        .context("legacy article missing")?;
-    assert!(same < late && late < early && early < legacy, "{home}");
+    let midnight = home
+        .find("/entries/m-midnight")
+        .context("midnight article missing")?;
+    assert!(same < late && late < early && early < midnight, "{home}");
     assert!(home.contains("datetime=2026-09-17"), "{home}");
-    assert!(
-        !home.contains("08:00") && !home.contains("08:00:40"),
-        "{home}"
-    );
+    assert!(!home.contains("08:00") && !home.contains("08:01"), "{home}");
     Ok(())
 }
 
@@ -789,7 +786,7 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     fs::remove_file(site.join("styles/page.css"))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
     )?;
     let output = build_site(&site)?;
     assert!(
@@ -856,7 +853,7 @@ fn custom_article_template_receives_documented_fields() -> Result<()> {
     )?;
     fs::write(
         site.join("content/custom.md"),
-        "+++\ntitle = 'Custom Post'\ndescription = 'Custom summary'\ntemplate = 'custom.html'\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-22\n+++\n**Custom body**\n",
+        "+++\ntitle = 'Custom Post'\ndescription = 'Custom summary'\ntemplate = 'custom.html'\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-22 00:00\n+++\n**Custom body**\n",
     )?;
     let built = build_site(&site)?;
     assert!(
@@ -883,12 +880,12 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/about.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# About page\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# About page\n",
     )?;
     fs::create_dir_all(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/nested.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Nested article'\n+++\n# Nested page\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Nested article'\n+++\n# Nested page\n",
     )?;
     fs::write(site.join("static/asset.txt"), "static asset")?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -965,7 +962,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Changed in dev\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Changed in dev\n",
     )?;
     read_sse_until(&mut events, &mut data, b"data: reload", &server)?;
     let updated = http_get(&address, "/entries/hello-world")?;
@@ -1048,11 +1045,11 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Working again\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Working again\n",
     )?;
     fs::write(
         site.join("content/stale.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Old\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Old\n",
     )?;
     assert!(build()?.status.success());
     assert!(site.join("dist/stale.html").is_file());
@@ -1072,19 +1069,35 @@ fn invalid_article_dates_report_source_and_preserve_previous_output() -> Result<
     for (dates, reason) in [
         (
             "created_at = \"2026-09-17\"",
-            "created_at must be a TOML local date",
+            "created_at must be a TOML local date-time",
+        ),
+        (
+            "created_at = 2026-09-17",
+            "created_at must be a TOML local date-time",
+        ),
+        (
+            "created_at = 2026-09-17 10:00:00",
+            "created_at must be a TOML local date-time",
         ),
         (
             "created_at = 2026-09-17T10:00:00Z",
-            "created_at must be a TOML local date",
+            "created_at must be a TOML local date-time",
         ),
         (
             "created_at = 2026-09-17T10:00:00.5",
-            "created_at must be a TOML local date",
+            "created_at must be a TOML local date-time",
         ),
         (
-            "created_at = 2026-09-17\nupdated_at = 2026-09-16",
+            "created_at = 2026-09-17 00:00\nupdated_at = 2026-09-16 23:59",
             "updated_at must not precede created_at",
+        ),
+        (
+            "created_at = 2026-09-17 00:00\nupdated_at = 2026-09-18",
+            "updated_at must be a TOML local date-time",
+        ),
+        (
+            "created_at = 2026-09-17 00:00\nupdated_at = 2026-09-18 10:00:00",
+            "updated_at must be a TOML local date-time",
         ),
     ] {
         fs::write(
@@ -1113,7 +1126,7 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
         site.join("content/about.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# First\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# First\n",
     )?;
     fs::write(site.join("static/about.html"), "conflict")?;
     let failed = build()?;
@@ -1130,7 +1143,7 @@ fn rejects_served_url_collisions_and_reserved_paths_without_touching_dist() -> R
     assert!(build_site(&site)?.status.success());
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
-    let post = "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\n# Post\n";
+    let post = "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Post\n";
 
     for (files, reason) in [
         (
@@ -1278,7 +1291,7 @@ fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
     )?;
     fs::write(
         site.join("content/deep.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Nested article'\ntemplate = 'deep/page.html'\n+++\n# Deep\n",
+        "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Nested article'\ntemplate = 'deep/page.html'\n+++\n# Deep\n",
     )?;
 
     let built = build_site(&site)?;

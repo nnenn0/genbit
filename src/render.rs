@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    content::Article,
+    content::{Article, LocalDateTime},
     input::SiteInput,
     output::Artifact,
     route::{TAGS_INDEX_URL, UNTAGGED_TAG, tag_url},
@@ -36,7 +36,7 @@ impl<'a> From<&'a Article> for PublicArticle<'a> {
             description: &article.description,
             url: article.route.url(),
             created_at: article.created_at.date_string(),
-            updated_at: article.updated_at.map(|date| date.to_string()),
+            updated_at: article.updated_at.map(LocalDateTime::date_string),
             tags: &article.tags,
         }
     }
