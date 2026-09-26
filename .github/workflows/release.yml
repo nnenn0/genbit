@@ -98,6 +98,7 @@ jobs:
           retention-days: 1
 
   build:
+    needs: licenses
     strategy:
       matrix:
         include:
@@ -130,20 +131,37 @@ jobs:
         if: endsWith(matrix.target, '-linux-musl')
         run: file "target/$TARGET/release/genbit" | grep -E 'statically linked|static-pie linked'
 
-      - name: Smoke test binary
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: third-party-licenses
+
+      # artifact はファイルの実行権限を保持しないため、ビルドしたランナーでアーカイブにする。
+      - name: Package binary
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          scripts/smoke-test.sh "target/$TARGET/release/genbit" "$version"
+          name="genbit-v$version-$TARGET"
+          mkdir -p "dist/$name"
+          cp "target/$TARGET/release/genbit" LICENSE README.md THIRD_PARTY_LICENSES.md "dist/$name/"
+          tar -C dist -czf "$name.tar.gz" "$name"
+          echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # 利用者が受け取るアーカイブを展開して確かめる。
+      - name: Smoke test archive
+        run: |
+          mkdir "$RUNNER_TEMP/archive"
+          tar -xzf "$ARCHIVE.tar.gz" -C "$RUNNER_TEMP/archive"
+          scripts/smoke-test.sh "$RUNNER_TEMP/archive/$ARCHIVE/genbit" "$VERSION"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: genbit-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/genbit
+          path: ${{ env.ARCHIVE }}.tar.gz
           if-no-files-found: error
           retention-days: 1
 
   release:
-    needs: [prepare, licenses, build]
+    needs: [prepare, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -155,7 +173,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
-      # 下書きはタグを持たないため、verify のタグの確認では同じ版の下書きを見つけられない。
+      # 下書きはタグを持たないため、prepare のタグの確認では同じ版の下書きを見つけられない。
       - name: Check no release exists for the tag
         run: |
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
@@ -163,47 +181,17 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: genbit-*
-          path: bin
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: third-party-licenses
-
-      # artifact はファイルの実行権限を保持しないため、アーカイブに入れる前に付け直す。
-      - name: Package binaries
-        run: |
-          mkdir -p dist release
-          for dir in bin/genbit-*; do
-            target=${dir#bin/genbit-}
-            name="genbit-$RELEASE_TAG-$target"
-            mkdir "dist/$name"
-            cp "$dir/genbit" LICENSE README.md THIRD_PARTY_LICENSES.md "dist/$name/"
-            chmod +x "dist/$name/genbit"
-            tar -C dist -czf "release/$name.tar.gz" "$name"
-          done
-          test "$(find release -name 'genbit-*.tar.gz' | wc -l)" -eq 2
-
-      # 利用者が受け取るアーカイブを展開し、中身と実行権限がそろっていることを確かめる。
-      - name: Smoke test archive
-        run: |
-          name="genbit-$RELEASE_TAG-x86_64-unknown-linux-musl"
-          mkdir "$RUNNER_TEMP/archive"
-          tar -xzf "release/$name.tar.gz" -C "$RUNNER_TEMP/archive"
-          for file in genbit LICENSE README.md THIRD_PARTY_LICENSES.md; do
-            test -s "$RUNNER_TEMP/archive/$name/$file"
-          done
-          scripts/smoke-test.sh "$RUNNER_TEMP/archive/$name/genbit" "${RELEASE_TAG#v}"
+          path: release
+          merge-multiple: true
 
       - name: Create checksums
         working-directory: release
-        run: sha256sum genbit-*.tar.gz > SHA256SUMS
+        run: |
+          test "$(find . -name "genbit-$RELEASE_TAG-*.tar.gz" | wc -l)" -eq 2
+          sha256sum genbit-*.tar.gz > SHA256SUMS
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
