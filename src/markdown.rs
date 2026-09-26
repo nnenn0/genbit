@@ -68,11 +68,6 @@ pub(crate) fn render(source: &str) -> String {
                     heading.push(inner);
                 }
                 let id = unique_heading_id(&heading_text(&heading), &mut used_ids);
-                let marker = if level == HeadingLevel::H2 {
-                    "##"
-                } else {
-                    "###"
-                };
                 anchored.push(Event::Start(Tag::Heading {
                     level,
                     id: Some(id.clone().into()),
@@ -80,9 +75,10 @@ pub(crate) fn render(source: &str) -> String {
                     attrs,
                 }));
                 anchored.push(Event::Html(
-                    format!("<a class=\"heading-anchor\" href=\"#{id}\" aria-label=\"この見出しへのリンク\">{marker}</a>").into(),
+                    format!("<a class=\"heading-anchor\" href=\"#{id}\">").into(),
                 ));
-                anchored.extend(heading);
+                anchored.extend(heading.into_iter().filter(|event| !is_link_boundary(event)));
+                anchored.push(Event::Html("</a>".into()));
                 anchored.push(Event::End(TagEnd::Heading(level)));
             }
             other => anchored.push(other),
@@ -91,6 +87,15 @@ pub(crate) fn render(source: &str) -> String {
     let mut output = String::new();
     html::push_html(&mut output, add_code_labels(anchored).into_iter());
     output
+}
+
+/// 見出し全体をリンクにするため、見出し内のリンクはテキストだけ残す。
+fn is_link_boundary(event: &Event<'_>) -> bool {
+    match event {
+        Event::Start(Tag::Link { .. }) | Event::End(TagEnd::Link) => true,
+        Event::Html(html) => html.as_ref() == "</a>" || html.starts_with("<a href="),
+        _ => false,
+    }
 }
 
 fn add_code_labels(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
@@ -292,11 +297,25 @@ mod tests {
         assert!(html.contains("<h1>Title</h1>"), "{html}");
         assert!(html.contains("<h2 id=\"fiberとは\">"), "{html}");
         assert!(html.contains("href=\"#fiberとは\""), "{html}");
-        assert!(html.contains(">##</a>Fiberとは</h2>"), "{html}");
+        assert!(
+            html.contains("<a class=\"heading-anchor\" href=\"#fiberとは\">Fiberとは</a></h2>"),
+            "{html}"
+        );
         assert!(html.contains("<h3 id=\"usestate-と-fiber\">"), "{html}");
         assert!(html.contains("href=\"#usestate-と-fiber\""), "{html}");
         assert!(
-            html.contains(">###</a><code>useState</code> と Fiber</h3>"),
+            html.contains("href=\"#usestate-と-fiber\"><code>useState</code> と Fiber</a></h3>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn unwraps_links_inside_headings() {
+        let html = render("## [内部](other.md) と [外部](https://example.com)\n");
+        assert!(
+            html.contains(
+                "<a class=\"heading-anchor\" href=\"#内部-と-外部\">内部 と 外部</a></h2>"
+            ),
             "{html}"
         );
     }

@@ -261,7 +261,12 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(article.contains("prefers-color-scheme"), "{article}");
     assert!(article.contains("href=/entries/hello-world"), "{article}");
-    assert!(article.contains(">&lt;Hello & world></h1>"), "{article}");
+    assert!(
+        article.contains(
+            "<h1><a class=heading-anchor href=/entries/hello-world>&lt;Hello & world></a></h1>"
+        ),
+        "{article}"
+    );
     assert!(article.contains("2026-09-17</time>"), "{article}");
     assert!(article.contains("公開: 2026-09-17</time>"), "{article}");
     assert!(article.contains("更新: 2026-09-22</time>"), "{article}");
