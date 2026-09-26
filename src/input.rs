@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     fs,
-    io::ErrorKind,
+    io::{self, ErrorKind},
     path::{Component, Path, PathBuf},
 };
 
@@ -33,7 +33,13 @@ impl<'a> SiteInput<'a> {
 
     pub(crate) fn copy_file(&self, relative: &Path, target: &Path) -> Result<()> {
         let path = self.required_file(relative)?;
-        fs::copy(&path, target)
+        // `fs::copy` clones files on macOS, and FSEvents reports that as a change to the
+        // source, so `dev` would rebuild forever. Stream the bytes instead.
+        let mut source =
+            fs::File::open(&path).with_context(|| format!("cannot read {}", path.display()))?;
+        let mut output = fs::File::create(target)
+            .with_context(|| format!("cannot write {}", target.display()))?;
+        io::copy(&mut source, &mut output)
             .with_context(|| format!("cannot copy {} to {}", path.display(), target.display()))?;
         Ok(())
     }

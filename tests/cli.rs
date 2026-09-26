@@ -85,6 +85,29 @@ fn write_config(site: &Path, overrides: &[(&str, Option<&str>)]) -> Result<()> {
     fs::write(&path, source).with_context(|| format!("cannot write {}", path.display()))
 }
 
+fn assert_sse_silent(stream: &mut TcpStream, timeout: Duration, server: &DevProcess) -> Result<()> {
+    stream.set_read_timeout(Some(timeout))?;
+    let mut buffer = [0; 4096];
+    match stream.read(&mut buffer) {
+        Ok(read_count) => bail!(
+            "unexpected SSE data {:?}:\n{}",
+            String::from_utf8_lossy(buffer.get(..read_count).unwrap_or_default()),
+            server.logs()
+        ),
+        Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn wait_for_sse_quiet(stream: &mut TcpStream, server: &DevProcess) -> Result<()> {
+    for _ in 0..3 {
+        if assert_sse_silent(stream, Duration::from_secs(1), server).is_ok() {
+            return Ok(());
+        }
+    }
+    bail!("SSE kept sending reloads without edits:\n{}", server.logs())
+}
+
 fn read_sse_until(
     stream: &mut TcpStream,
     data: &mut Vec<u8>,
@@ -1023,7 +1046,6 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         b"GET /__genbit/reload HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n",
     )?;
     let mut data = Vec::new();
-    let mut buffer = [0; 4096];
     read_sse_until(&mut events, &mut data, b"\r\n\r\n", &server)?;
     assert!(
         String::from_utf8_lossy(&data).contains("text/event-stream"),
@@ -1031,19 +1053,15 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         server.logs()
     );
 
+    // macOS FSEvents may report files written just before `dev` started, which causes one
+    // extra rebuild. Reloads must still stop, since a rebuild must not trigger itself.
+    wait_for_sse_quiet(&mut events, &server)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ntitle = [\n+++\n",
     )?;
-    events.set_read_timeout(Some(Duration::from_millis(500)))?;
-    let Err(error) = events.read(&mut buffer) else {
-        bail!("invalid source sent a reload");
-    };
-    assert!(matches!(
-        error.kind(),
-        ErrorKind::TimedOut | ErrorKind::WouldBlock
-    ));
+    assert_sse_silent(&mut events, Duration::from_millis(500), &server)?;
     let mut failure_logged = false;
     for _ in 0..50 {
         if server.logs().contains("Rebuild failed") {
