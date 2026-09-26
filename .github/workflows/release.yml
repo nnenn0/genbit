@@ -35,7 +35,19 @@ jobs:
       - name: Run tests
         run: cargo test --locked --all-targets --all-features
 
-      # 依存クレートの著作権表示とソースの入手先を、配布アーカイブに同梱する。
+  # 依存クレートの著作権表示とソースの入手先を、配布アーカイブに同梱する。
+  # about.toml で配布ターゲットを指定しているため、生成結果は実行する OS によらない。
+  licenses:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: rustup toolchain install
+
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: cargo-about@0.9.2
@@ -43,14 +55,16 @@ jobs:
       - name: Generate third-party licenses
         run: scripts/third-party-licenses.sh THIRD_PARTY_LICENSES.md
 
+      # artifact はジョブ間の受け渡しにだけ使う。配布物は Release に添付する。
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: third-party-licenses
           path: THIRD_PARTY_LICENSES.md
           if-no-files-found: error
+          retention-days: 1
 
+  # verify と並列に動かす。下書き Release は release ジョブが全ジョブの成功を待ってから作る。
   build:
-    needs: verify
     strategy:
       matrix:
         include:
@@ -87,37 +101,50 @@ jobs:
       - name: Smoke test binary
         run: scripts/smoke-test.sh "target/$TARGET/release/genbit" "${RELEASE_TAG#v}"
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: third-party-licenses
-
-      - name: Package binary
-        run: |
-          name="genbit-$RELEASE_TAG-$TARGET"
-          mkdir -p "dist/$name"
-          cp "target/$TARGET/release/genbit" LICENSE README.md THIRD_PARTY_LICENSES.md "dist/$name/"
-          tar -C dist -czf "$name.tar.gz" "$name"
-
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: genbit-${{ matrix.target }}
-          path: genbit-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          path: target/${{ matrix.target }}/release/genbit
           if-no-files-found: error
+          retention-days: 1
 
   release:
-    needs: build
+    needs: [verify, licenses, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
       id-token: write
       attestations: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: genbit-*
-          path: release
-          merge-multiple: true
+          path: bin
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: third-party-licenses
+
+      # artifact はファイルの実行権限を保持しないため、アーカイブに入れる前に付け直す。
+      - name: Package binaries
+        run: |
+          mkdir -p dist release
+          for dir in bin/genbit-*; do
+            target=${dir#bin/genbit-}
+            name="genbit-$RELEASE_TAG-$target"
+            mkdir "dist/$name"
+            cp "$dir/genbit" LICENSE README.md THIRD_PARTY_LICENSES.md "dist/$name/"
+            chmod +x "dist/$name/genbit"
+            tar -C dist -czf "release/$name.tar.gz" "$name"
+          done
+          test "$(find release -name 'genbit-*.tar.gz' | wc -l)" -eq 2
 
       - name: Create checksums
         working-directory: release
@@ -131,7 +158,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           gh release create "$RELEASE_TAG" release/genbit-*.tar.gz release/SHA256SUMS \
             --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
