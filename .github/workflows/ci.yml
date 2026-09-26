@@ -16,19 +16,25 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust 1.98.1
+      - name: Install Rust
+        run: rustup toolchain install
+
+      # Dependabot は Dockerfile のイメージだけを更新するため、版のずれを CI で止める。
+      - name: Check Rust version consistency
         run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          rustup component add rustfmt clippy --toolchain 1.98.1
+          toolchain=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          test -n "$toolchain"
+          grep -qx "rust-version = \"$toolchain\"" Cargo.toml
+          grep -qx "FROM rust:$toolchain-bookworm" Dockerfile
 
       - name: Check formatting
-        run: cargo +1.98.1 fmt --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo +1.98.1 clippy --locked --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo +1.98.1 test --locked --all-targets --all-features
+        run: cargo test --locked --all-targets --all-features
 
   test-macos:
     runs-on: macos-15
@@ -38,8 +44,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust 1.98.1
-        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Install Rust
+        run: rustup toolchain install
 
       - name: Run tests
-        run: cargo +1.98.1 test --locked --all-targets --all-features
+        run: cargo test --locked --all-targets --all-features

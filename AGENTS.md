@@ -15,7 +15,7 @@
 
 ## Tech Stack
 
-- Rust 2024 edition、`rust-version = 1.98.1`。`Dockerfile` と GitHub Actions も Rust 1.98.1 を指定。依存関係は `Cargo.toml`、解決済み版は `Cargo.lock`。
+- Rust 2024 edition、`rust-version = 1.98.1`。ツールチェーンは `rust-toolchain.toml` で固定し、GitHub Actions はこれを使う。`Dockerfile` のイメージと `Cargo.toml` の `rust-version` は同じ版にそろえ、CI が一致を検査する。依存関係は `Cargo.toml`、解決済み版は `Cargo.lock`。
 - CLI: clap 4。エラー: anyhow。設定・データ: serde 1、toml 1。
 - 生成: pulldown-cmark 0.13、Tera 2、minify-html 0.18。開発サーバー: axum 0.8、Tokio 1、tower-http 0.7、notify 8、tokio-stream 0.1。出力の一時領域: tempfile 3。
 - DB、マイグレーション、フロントエンドのビルドシステムはない。ブラウザー用コードは生成 HTML と `dev` 専用の小さなリロードスクリプト。
