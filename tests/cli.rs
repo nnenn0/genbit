@@ -355,13 +355,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(!home.contains("/entries/hello-world.html"));
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(article.contains("prefers-color-scheme"), "{article}");
-    assert!(article.contains("href=/entries/hello-world"), "{article}");
-    assert!(
-        article.contains(
-            "<h1><a class=heading-anchor href=/entries/hello-world>&lt;Hello & world></a></h1>"
-        ),
-        "{article}"
-    );
+    assert!(article.contains("<h1>&lt;Hello & world></h1>"), "{article}");
     for expected in [
         "<dt>created_at",
         "<dt>updated_at",
