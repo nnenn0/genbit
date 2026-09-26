@@ -14,18 +14,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # リリースする版を決め、そのコミットをリリースしてよいかを確かめる。
-  # fmt・Clippy・テストは main の CI が同じコミットで実行済みなので、ここでは結果だけを見る。
   prepare:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    permissions:
-      contents: read
-      checks: read
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,26 +42,25 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      # 確認するチェックは main のルールセットの必須チェックから取り、一覧を二重に持たない。
-      - name: Check required checks passed
-        run: |
-          required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/main" \
-            --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | unique | .[]')
-          test -n "$required"
-          results=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
-            --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv')
-          failed=0
-          while IFS= read -r name; do
-            result=$(printf '%s\n' "$results" | awk -F '\t' -v name="$name" '$1 == name { print $2 "/" $3; exit }')
-            if [ "$result" != completed/success ]; then
-              echo "::error::Required check $name is ${result:-missing} on $GITHUB_SHA"
-              failed=1
-            fi
-          done <<< "$required"
-          if [ "$failed" -ne 0 ]; then
-            echo "Release only after every required check has passed on this commit. If CI is still running, wait and run the workflow again."
-            exit 1
-          fi
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --locked --all-targets --all-features
 
   # about.toml で配布ターゲットを指定しているため、生成結果は実行する OS によらない。
   licenses:
@@ -161,7 +153,7 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [prepare, build]
+    needs: [prepare, test, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
