@@ -16,26 +16,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust 1.98.1
-        run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          rustup component add rustfmt clippy --toolchain 1.98.1
+      - name: Install Rust
+        run: rustup toolchain install
 
       - name: Check tag matches Cargo version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          version=$(cargo +1.98.1 metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
           test "$RELEASE_TAG" = "v$version"
 
       - name: Check formatting
-        run: cargo +1.98.1 fmt --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo +1.98.1 clippy --locked --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo +1.98.1 test --locked --all-targets --all-features
+        run: cargo test --locked --all-targets --all-features
 
   build:
     needs: verify
@@ -56,15 +54,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust 1.98.1
-        run: rustup toolchain install 1.98.1 --profile minimal --target "$TARGET"
+      - name: Install Rust
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
 
       - name: Install musl tools
         if: endsWith(matrix.target, '-linux-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build binary
-        run: cargo +1.98.1 build --locked --release --target "$TARGET"
+        run: cargo build --locked --release --target "$TARGET"
 
       - name: Check static linking
         if: endsWith(matrix.target, '-linux-musl')
