@@ -4,6 +4,10 @@ article > time { margin-bottom: 1.5rem; }
 pre { overflow-x: auto; padding: 1rem; background: #f3f4f6; }
 code { font-family: ui-monospace, monospace; }
 img { max-width: 100%; height: auto; }
+.heading-anchor { margin-right: 0.4em; color: #666; font-size: 0.8em; font-weight: 400; text-decoration: none; }
+.heading-anchor:hover, .heading-anchor:focus-visible { color: #1557b0; text-decoration: underline; }
 @media (prefers-color-scheme: dark) {
   pre { background: #292e36; }
+  .heading-anchor { color: #a8afb9; }
+  .heading-anchor:hover, .heading-anchor:focus-visible { color: #9cc4ff; }
 }

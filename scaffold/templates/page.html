@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block main %}
 <article>
-  <h1>{{ article.title }}</h1>
+  <h1><a class="heading-anchor" href="{{ article.url }}" aria-label="この記事へのリンク">#</a>{{ article.title }}</h1>
   {% if article.updated_at %}
   <div class="article-dates">
     <time datetime="{{ article.created_at }}">公開: {{ article.created_at }}</time>

@@ -1,9 +1,10 @@
-use pulldown_cmark::{Event, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd, html};
+use std::collections::HashSet;
 
 pub(crate) fn render(source: &str) -> String {
     let mut events = Parser::new(source);
     let mut external_link = false;
-    let transformed = std::iter::from_fn(move || {
+    let mut transformed = std::iter::from_fn(move || {
         let event = events.next()?;
         match event {
             Event::Start(Tag::Image {
@@ -49,9 +50,85 @@ pub(crate) fn render(source: &str) -> String {
             other => Some(other),
         }
     });
+    let mut anchored = Vec::new();
+    let mut used_ids = HashSet::new();
+    while let Some(event) = transformed.next() {
+        match event {
+            Event::Start(Tag::Heading {
+                level,
+                classes,
+                attrs,
+                ..
+            }) if matches!(level, HeadingLevel::H2 | HeadingLevel::H3) => {
+                let mut heading = Vec::new();
+                for inner in transformed.by_ref() {
+                    if matches!(inner, Event::End(TagEnd::Heading(_))) {
+                        break;
+                    }
+                    heading.push(inner);
+                }
+                let id = unique_heading_id(&heading_text(&heading), &mut used_ids);
+                let marker = if level == HeadingLevel::H2 {
+                    "##"
+                } else {
+                    "###"
+                };
+                anchored.push(Event::Start(Tag::Heading {
+                    level,
+                    id: Some(id.clone().into()),
+                    classes,
+                    attrs,
+                }));
+                anchored.push(Event::Html(
+                    format!("<a class=\"heading-anchor\" href=\"#{id}\" aria-label=\"この見出しへのリンク\">{marker}</a>").into(),
+                ));
+                anchored.extend(heading);
+                anchored.push(Event::End(TagEnd::Heading(level)));
+            }
+            other => anchored.push(other),
+        }
+    }
     let mut output = String::new();
-    html::push_html(&mut output, transformed);
+    html::push_html(&mut output, anchored.into_iter());
     output
+}
+
+fn heading_text(events: &[Event<'_>]) -> String {
+    let mut text = String::new();
+    for event in events {
+        match event {
+            Event::Text(value) | Event::Code(value) => text.push_str(value),
+            Event::SoftBreak | Event::HardBreak => text.push(' '),
+            _ => {}
+        }
+    }
+    text
+}
+
+fn unique_heading_id(text: &str, used: &mut HashSet<String>) -> String {
+    let mut base = String::new();
+    let mut separator = false;
+    for character in text.chars() {
+        if character.is_alphanumeric() {
+            if separator && !base.is_empty() {
+                base.push('-');
+            }
+            base.extend(character.to_lowercase());
+            separator = false;
+        } else if character.is_whitespace() || matches!(character, '-' | '_') {
+            separator = true;
+        }
+    }
+    if base.is_empty() {
+        base.push_str("section");
+    }
+    let mut id = base.clone();
+    let mut suffix = 2;
+    while !used.insert(id.clone()) {
+        id = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+    id
 }
 
 fn article_url(url: &str) -> Option<String> {
@@ -136,6 +213,30 @@ mod tests {
         assert!(html.contains("<strong>bold</strong>"), "{html}");
         assert!(html.contains("<code>code</code>"), "{html}");
         assert!(html.contains("let x = 1;"), "{html}");
+    }
+
+    #[test]
+    fn adds_links_to_second_and_third_level_headings() {
+        let html = render("# Title\n\n## Fiberとは\n\n### `useState` と Fiber\n");
+        assert!(html.contains("<h1>Title</h1>"), "{html}");
+        assert!(html.contains("<h2 id=\"fiberとは\">"), "{html}");
+        assert!(html.contains("href=\"#fiberとは\""), "{html}");
+        assert!(html.contains(">##</a>Fiberとは</h2>"), "{html}");
+        assert!(html.contains("<h3 id=\"usestate-と-fiber\">"), "{html}");
+        assert!(html.contains("href=\"#usestate-と-fiber\""), "{html}");
+        assert!(
+            html.contains(">###</a><code>useState</code> と Fiber</h3>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn keeps_heading_ids_unique_after_normalization() {
+        let html = render("## A B\n\n## A B\n\n### A-B\n\n## !!!\n\n## !!!\n");
+        for id in ["a-b", "a-b-2", "a-b-3", "section", "section-2"] {
+            assert!(html.contains(&format!("id=\"{id}\"")), "{html}");
+            assert!(html.contains(&format!("href=\"#{id}\"")), "{html}");
+        }
     }
 
     #[test]
