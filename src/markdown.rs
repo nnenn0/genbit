@@ -1,17 +1,37 @@
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, LinkType, Parser, Tag, TagEnd, html};
 use std::collections::HashSet;
 
-pub(crate) fn render(source: &str) -> String {
+pub(crate) struct Rendered {
+    pub(crate) html: String,
+    /// Link and image targets written to the HTML, except external links, for checking against the site.
+    pub(crate) links: Vec<String>,
+}
+
+pub(crate) fn render(source: &str) -> Rendered {
     let mut events = Parser::new(source);
     let mut external_link = false;
+    let mut in_linked_heading = false;
+    let mut links = Vec::new();
+    let collected = &mut links;
     let mut transformed = std::iter::from_fn(move || {
         let event = events.next()?;
         match event {
+            Event::Start(Tag::Heading { level, .. }) => {
+                in_linked_heading = is_linked_heading(level);
+                Some(event)
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                in_linked_heading = false;
+                Some(event)
+            }
             Event::Start(Tag::Image {
                 dest_url, title, ..
-            }) => Some(Event::Html(
-                image_html(&mut events, &dest_url, &title).into(),
-            )),
+            }) => {
+                collected.push(dest_url.to_string());
+                Some(Event::Html(
+                    image_html(&mut events, &dest_url, &title).into(),
+                ))
+            }
             Event::Start(Tag::Link {
                 link_type,
                 dest_url,
@@ -23,21 +43,16 @@ pub(crate) fn render(source: &str) -> String {
                     || dest_url.starts_with("//")
                 {
                     external_link = true;
-                    let mut anchor = format!(
-                        "<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\"",
-                        escape_attribute(&dest_url)
-                    );
-                    if !title.is_empty() {
-                        anchor.push_str(" title=\"");
-                        anchor.push_str(&escape_attribute(&title));
-                        anchor.push('"');
-                    }
-                    anchor.push('>');
-                    Some(Event::Html(anchor.into()))
+                    Some(Event::Html(external_anchor(&dest_url, &title).into()))
                 } else {
+                    let dest_url = article_url(&dest_url).map_or(dest_url, Into::into);
+                    // Links inside linked headings are unwrapped, and email autolinks have no mailto: yet.
+                    if !in_linked_heading && link_type != LinkType::Email {
+                        collected.push(dest_url.to_string());
+                    }
                     Some(Event::Start(Tag::Link {
                         link_type,
-                        dest_url: article_url(&dest_url).map_or(dest_url, Into::into),
+                        dest_url,
                         title,
                         id,
                     }))
@@ -59,7 +74,7 @@ pub(crate) fn render(source: &str) -> String {
                 classes,
                 attrs,
                 ..
-            }) if matches!(level, HeadingLevel::H2 | HeadingLevel::H3) => {
+            }) if is_linked_heading(level) => {
                 let mut heading = Vec::new();
                 for inner in transformed.by_ref() {
                     if matches!(inner, Event::End(TagEnd::Heading(_))) {
@@ -84,9 +99,31 @@ pub(crate) fn render(source: &str) -> String {
             other => anchored.push(other),
         }
     }
+    drop(transformed);
     let mut output = String::new();
     html::push_html(&mut output, add_code_labels(anchored).into_iter());
-    output
+    Rendered {
+        html: output,
+        links,
+    }
+}
+
+fn external_anchor(url: &str, title: &str) -> String {
+    let mut anchor = format!(
+        "<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\"",
+        escape_attribute(url)
+    );
+    if !title.is_empty() {
+        anchor.push_str(" title=\"");
+        anchor.push_str(&escape_attribute(title));
+        anchor.push('"');
+    }
+    anchor.push('>');
+    anchor
+}
+
+fn is_linked_heading(level: HeadingLevel) -> bool {
+    matches!(level, HeadingLevel::H2 | HeadingLevel::H3)
 }
 
 /// 見出し全体をリンクにするため、見出し内のリンクはテキストだけ残す。
@@ -173,9 +210,8 @@ fn unique_heading_id(text: &str, used: &mut HashSet<String>) -> String {
 }
 
 fn article_url(url: &str) -> Option<String> {
-    let boundary = url.find(['?', '#']).unwrap_or(url.len());
-    let (path, suffix) = url.split_at(boundary);
-    if path.starts_with('/') || path.contains(':') {
+    let (path, suffix) = crate::route::split_site_link(url)?;
+    if path.starts_with('/') {
         return None;
     }
     path.strip_suffix(".md")
@@ -238,9 +274,13 @@ fn escape_attribute(source: &str) -> String {
 mod tests {
     use super::render;
 
+    fn render_html(source: &str) -> String {
+        render(source).html
+    }
+
     #[test]
     fn adds_image_attributes_and_escapes_alt_text() {
-        let html = render("![a **bold** & <bad>](image.png \"A title\")");
+        let html = render_html("![a **bold** & <bad>](image.png \"A title\")");
         assert!(html.contains("src=\"image.png\""), "{html}");
         assert!(html.contains("alt=\"a bold &amp; &lt;bad&gt;\""), "{html}");
         assert!(html.contains("loading=\"lazy\""), "{html}");
@@ -250,7 +290,7 @@ mod tests {
 
     #[test]
     fn preserves_non_image_markdown() {
-        let html = render("**bold** and `code`\n\n```rust\nlet x = 1;\n```\n");
+        let html = render_html("**bold** and `code`\n\n```rust\nlet x = 1;\n```\n");
         assert!(html.contains("<strong>bold</strong>"), "{html}");
         assert!(html.contains("<code>code</code>"), "{html}");
         assert!(html.contains("let x = 1;"), "{html}");
@@ -258,7 +298,8 @@ mod tests {
 
     #[test]
     fn shows_fenced_code_language_without_changing_code_markup() {
-        let html = render("```tsx\nconst value = 1;\n```\n\n```js title=example\nalert(1);\n```\n");
+        let html =
+            render_html("```tsx\nconst value = 1;\n```\n\n```js title=example\nalert(1);\n```\n");
         assert!(
             html.contains("<span class=\"code-language\">tsx</span>"),
             "{html}"
@@ -275,7 +316,7 @@ mod tests {
 
     #[test]
     fn leaves_code_blocks_without_language_unlabeled() {
-        let html = render("```\nplain\n```\n\n    indented\n");
+        let html = render_html("```\nplain\n```\n\n    indented\n");
         assert!(!html.contains("code-language"), "{html}");
         assert!(!html.contains("code-block"), "{html}");
         assert_eq!(html.matches("<pre>").count(), 2);
@@ -283,7 +324,7 @@ mod tests {
 
     #[test]
     fn escapes_code_language_as_html_text() {
-        let html = render("```a<b&c\nvalue\n```\n");
+        let html = render_html("```a<b&c\nvalue\n```\n");
         assert!(html.contains("a&lt;b&amp;c</span>"), "{html}");
         assert!(
             !html.contains("<span class=\"code-language\">a<b"),
@@ -293,7 +334,7 @@ mod tests {
 
     #[test]
     fn adds_links_to_second_and_third_level_headings() {
-        let html = render("# Title\n\n## Fiberとは\n\n### `useState` と Fiber\n");
+        let html = render_html("# Title\n\n## Fiberとは\n\n### `useState` と Fiber\n");
         assert!(html.contains("<h1>Title</h1>"), "{html}");
         assert!(html.contains("<h2 id=\"fiberとは\">"), "{html}");
         assert!(html.contains("href=\"#fiberとは\""), "{html}");
@@ -311,7 +352,7 @@ mod tests {
 
     #[test]
     fn unwraps_links_inside_headings() {
-        let html = render("## [内部](other.md) と [外部](https://example.com)\n");
+        let html = render_html("## [内部](other.md) と [外部](https://example.com)\n");
         assert!(
             html.contains(
                 "<a class=\"heading-anchor\" href=\"#内部-と-外部\">内部 と 外部</a></h2>"
@@ -322,7 +363,7 @@ mod tests {
 
     #[test]
     fn keeps_heading_ids_unique_after_normalization() {
-        let html = render("## A B\n\n## A B\n\n### A-B\n\n## !!!\n\n## !!!\n");
+        let html = render_html("## A B\n\n## A B\n\n### A-B\n\n## !!!\n\n## !!!\n");
         for id in ["a-b", "a-b-2", "a-b-3", "section", "section-2"] {
             assert!(html.contains(&format!("id=\"{id}\"")), "{html}");
             assert!(html.contains(&format!("href=\"#{id}\"")), "{html}");
@@ -348,16 +389,16 @@ mod tests {
             ("#section", "#section"),
             ("other.html", "other.html"),
         ] {
-            let html = render(&format!("[article]({url})"));
+            let html = render_html(&format!("[article]({url})"));
             assert!(html.contains(&format!("href=\"{expected}\"")), "{html}");
         }
-        let image = render("![image](other.md)");
+        let image = render_html("![image](other.md)");
         assert!(image.contains("src=\"other.md\""), "{image}");
     }
 
     #[test]
     fn opens_external_links_in_new_tabs() {
-        let html = render(
+        let html = render_html(
             "[web](https://example.com/?a=1&b=2 \"A & B\") [cdn](//cdn.example.com) [local](next.md) [section](#top)",
         );
         assert!(html.contains("href=\"https://example.com/?a=1&amp;b=2\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"A &amp; B\""), "{html}");
@@ -370,5 +411,28 @@ mod tests {
         assert!(html.contains("href=\"next\""), "{html}");
         assert!(html.contains("href=\"#top\""), "{html}");
         assert_eq!(html.matches("target=\"_blank\"").count(), 2, "{html}");
+    }
+
+    #[test]
+    fn collects_rendered_internal_link_and_image_targets() {
+        let rendered = render(concat!(
+            "[next](next.md#x) ![photo](../img/a.png) [abs](/about) [top](#top)\n\n",
+            "[web](https://example.com) <https://example.com/auto> <someone@example.com> ",
+            "[mail](mailto:a@example.com)\n\n",
+            "## [heading](gone.md) ![icon](icon.png)\n\n",
+            "# [title](kept.md)\n",
+        ));
+        assert_eq!(
+            rendered.links,
+            [
+                "next#x",
+                "../img/a.png",
+                "/about",
+                "#top",
+                "mailto:a@example.com",
+                "icon.png",
+                "kept"
+            ]
+        );
     }
 }

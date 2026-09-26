@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail, ensure};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 pub(crate) const FEED_URL: &str = "/feed.xml";
@@ -78,10 +78,12 @@ fn valid_segment(segment: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
+/// Returns the served URLs with their original case: collisions ignore case, but hosts match links exactly.
 pub(crate) fn validate_served_urls<'a>(
     files: impl IntoIterator<Item = (&'a Path, &'a str)>,
-) -> Result<()> {
+) -> Result<BTreeSet<String>> {
     let mut claimed = BTreeMap::new();
+    let mut urls = BTreeSet::new();
     for (path, source) in files {
         for url in served_urls(path)? {
             let key = url.to_ascii_lowercase();
@@ -89,9 +91,99 @@ pub(crate) fn validate_served_urls<'a>(
             if let Some(previous) = claimed.insert(key, source) {
                 bail!("URL collision at {url}: {previous} and {source}");
             }
+            urls.insert(url);
+        }
+    }
+    Ok(urls)
+}
+
+/// Returns `None` for links with a scheme or host, which leave the site.
+pub(crate) fn split_site_link(link: &str) -> Option<(&str, &str)> {
+    let boundary = link.find(['?', '#']).unwrap_or(link.len());
+    let (path, suffix) = link.split_at(boundary);
+    (!path.starts_with("//") && !path.contains(':')).then_some((path, suffix))
+}
+
+pub(crate) fn validate_links(
+    page_url: &str,
+    links: &[String],
+    source: &Path,
+    served: &BTreeSet<String>,
+) -> Result<()> {
+    for link in links {
+        let target = resolve_link(page_url, link).with_context(|| {
+            format!(
+                "invalid internal link in content/{}: {link}",
+                source.display()
+            )
+        })?;
+        if let Some(target) = target {
+            ensure!(
+                served.contains(&target),
+                "broken internal link in content/{}: {link} resolves to {target}, which is not generated",
+                source.display()
+            );
         }
     }
     Ok(())
+}
+
+/// Resolves a link the way a browser would from `page_url`, returning `None` for external and same-page links.
+fn resolve_link(page_url: &str, link: &str) -> Result<Option<String>> {
+    let Some((path, _)) = split_site_link(link) else {
+        return Ok(None);
+    };
+    if path.is_empty() {
+        return Ok(None);
+    }
+    let joined = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        let directory = page_url.rfind('/').and_then(|end| page_url.get(..=end));
+        format!("{}{path}", directory.unwrap_or("/"))
+    };
+    let raw = joined.split('/').skip(1).collect::<Vec<_>>();
+    let mut segments = Vec::with_capacity(raw.len());
+    for (index, segment) in raw.iter().enumerate() {
+        let last = index + 1 == raw.len();
+        match *segment {
+            "." => {}
+            ".." => {
+                // A `..` at the root stays at the root, as in RFC 3986.
+                segments.pop();
+            }
+            other => {
+                segments.push(percent_decode(other)?);
+                continue;
+            }
+        }
+        if last {
+            segments.push(String::new());
+        }
+    }
+    Ok(Some(format!("/{}", segments.join("/"))))
+}
+
+fn percent_decode(segment: &str) -> Result<String> {
+    let bytes = segment.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while let Some(&byte) = bytes.get(index) {
+        if byte == b'%' {
+            let value = bytes
+                .get(index + 1..index + 3)
+                .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))
+                .and_then(|hex| std::str::from_utf8(hex).ok())
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+                .context("invalid percent-encoding")?;
+            decoded.push(value);
+            index += 3;
+        } else {
+            decoded.push(byte);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).context("percent-encoded path is not UTF-8")
 }
 
 pub(crate) fn is_reserved_url(path: &str) -> bool {
@@ -122,9 +214,11 @@ fn served_urls(path: &Path) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Route, is_reserved_url, served_urls, validate_served_urls};
+    use super::{
+        Route, is_reserved_url, resolve_link, served_urls, validate_links, validate_served_urls,
+    };
     use anyhow::{Context, Result};
-    use std::path::Path;
+    use std::{collections::BTreeSet, path::Path};
 
     #[test]
     fn content_and_request_paths_share_the_same_route() -> Result<()> {
@@ -216,6 +310,104 @@ mod tests {
             (Path::new("foo.html"), "article"),
             (Path::new("foo/bar.html"), "nested article"),
         ])?;
+        Ok(())
+    }
+
+    #[test]
+    fn resolves_links_like_a_browser() -> Result<()> {
+        for (link, expected) in [
+            ("/entries/foo", "/entries/foo"),
+            ("/entries/foo#section", "/entries/foo"),
+            ("/entries/foo?view=full#section", "/entries/foo"),
+            ("foo", "/entries/foo"),
+            ("./foo", "/entries/foo"),
+            ("../about", "/about"),
+            ("sub/../foo", "/entries/foo"),
+            ("../../../about", "/about"),
+            ("/../about", "/about"),
+            ("..", "/"),
+            ("sub/.", "/entries/sub/"),
+            ("/tags/rust/", "/tags/rust/"),
+            ("%E7%94%BB%E5%83%8F.png", "/entries/画像.png"),
+            ("画像.png", "/entries/画像.png"),
+            ("a%20b.png", "/entries/a b.png"),
+        ] {
+            assert_eq!(
+                resolve_link("/entries/a", link)?.as_deref(),
+                Some(expected),
+                "{link}"
+            );
+        }
+        assert_eq!(resolve_link("/about", "foo")?.as_deref(), Some("/foo"));
+        Ok(())
+    }
+
+    #[test]
+    fn skips_external_and_same_page_links() -> Result<()> {
+        for link in [
+            "https://example.com/missing",
+            "http://example.com/missing",
+            "//example.com/missing",
+            "mailto:someone@example.com",
+            "tel:+81-3-0000-0000",
+            "data:image/png;base64,AAAA",
+            "#section",
+            "?view=full",
+            "",
+        ] {
+            assert_eq!(resolve_link("/entries/a", link)?, None, "{link}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_percent_encoding() {
+        for link in ["%", "a%2", "a%zz", "a%+1", "%FF"] {
+            assert!(resolve_link("/entries/a", link).is_err(), "accepted {link}");
+        }
+    }
+
+    #[test]
+    fn validates_links_against_served_urls_exactly() -> Result<()> {
+        let served = validate_served_urls([
+            (Path::new("entries/foo.html"), "article"),
+            (Path::new("tags/rust/index.html"), "tag"),
+            (Path::new("assets/Photo.png"), "static/assets/Photo.png"),
+        ])?;
+        let source = Path::new("entries/a.md");
+        let valid = [
+            "foo",
+            "/entries/foo.html#x",
+            "/tags/rust",
+            "/tags/rust/",
+            "../assets/Photo.png",
+            "https://example.com/missing",
+        ]
+        .map(str::to_owned);
+        validate_links("/entries/a", &valid, source, &served)?;
+        for (link, target) in [
+            ("missing", "/entries/missing"),
+            ("foo/", "/entries/foo/"),
+            ("/Entries/foo", "/Entries/foo"),
+            ("/assets/photo.png", "/assets/photo.png"),
+        ] {
+            let error = validate_links("/entries/a", &[link.to_owned()], source, &served)
+                .err()
+                .context("accepted broken link")?;
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "broken internal link in content/entries/a.md: {link} resolves to {target}, which is not generated"
+                )
+            );
+        }
+        let error = validate_links("/entries/a", &["a%zz".to_owned()], source, &BTreeSet::new())
+            .err()
+            .context("accepted invalid link")?;
+        assert!(
+            format!("{error:#}").contains("invalid internal link in content/entries/a.md: a%zz"),
+            "{error:#}"
+        );
         Ok(())
     }
 }

@@ -140,6 +140,7 @@ pub(crate) struct Article {
     pub(crate) template: String,
     pub(crate) tags: Vec<String>,
     pub(crate) html: String,
+    pub(crate) links: Vec<String>,
     pub(crate) source: PathBuf,
 }
 
@@ -203,7 +204,8 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
         updated_at,
         template,
         tags: metadata.tags,
-        html: rendered,
+        html: rendered.html,
+        links: rendered.links,
         source: relative.to_path_buf(),
     })
 }

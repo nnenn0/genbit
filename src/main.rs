@@ -30,7 +30,11 @@ enum Command {
         name: String,
     },
     /// Build the current site into dist/
-    Build,
+    Build {
+        /// Run every build step and check, but leave dist/ unchanged
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Build and serve the current site with live reload
     Dev {
         /// Address to bind (use 0.0.0.0 for Docker port forwarding)
@@ -51,10 +55,14 @@ fn main() -> Result<()> {
             println!("Run genbit build to generate the site.");
             Ok(())
         }
-        Command::Build => {
+        Command::Build { dry_run } => {
             let root = std::env::current_dir()?;
-            let count = build::run(&root)?;
-            println!("Built {count} pages into dist/");
+            let count = build::run(&root, dry_run)?;
+            if dry_run {
+                println!("Checked {count} pages; dist/ was not changed");
+            } else {
+                println!("Built {count} pages into dist/");
+            }
             Ok(())
         }
         Command::Dev { host, port } => {

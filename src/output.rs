@@ -1,7 +1,7 @@
 use crate::input::SiteInput;
 use anyhow::{Context, Result, bail, ensure};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::ErrorKind,
     path::{Component, Path, PathBuf},
@@ -23,6 +23,7 @@ enum ArtifactContent {
 
 pub(crate) struct OutputPlan {
     artifacts: Vec<Artifact>,
+    urls: BTreeSet<String>,
 }
 
 struct StagedOutput {
@@ -50,13 +51,16 @@ impl Artifact {
 
 impl OutputPlan {
     pub(crate) fn new(artifacts: Vec<Artifact>) -> Result<Self> {
-        validate(&artifacts)?;
-        Ok(Self { artifacts })
+        let urls = validate(&artifacts)?;
+        Ok(Self { artifacts, urls })
+    }
+
+    pub(crate) fn urls(&self) -> &BTreeSet<String> {
+        &self.urls
     }
 
     pub(crate) fn publish(self, input: &SiteInput<'_>) -> Result<()> {
-        let dist = input.root().join("dist");
-        let exists = check_destination(&dist)?;
+        let exists = check_destination(input)?;
         let staged = self.stage(input)?;
         staged.publish(input.root(), exists)
     }
@@ -111,7 +115,7 @@ impl StagedOutput {
     }
 }
 
-fn validate(artifacts: &[Artifact]) -> Result<()> {
+fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
     let mut paths = BTreeMap::new();
     for artifact in artifacts {
         ensure!(
@@ -157,12 +161,13 @@ fn validate(artifacts: &[Artifact]) -> Result<()> {
         artifacts
             .iter()
             .map(|artifact| (artifact.path.as_path(), artifact.source.as_str())),
-    )?;
-    Ok(())
+    )
 }
 
-fn check_destination(dist: &Path) -> Result<bool> {
-    match fs::symlink_metadata(dist) {
+/// Returns whether `dist` exists, failing when it is not output that genbit may replace.
+pub(crate) fn check_destination(input: &SiteInput<'_>) -> Result<bool> {
+    let dist = input.root().join("dist");
+    match fs::symlink_metadata(&dist) {
         Ok(metadata) => {
             ensure!(
                 metadata.is_dir() && !metadata.file_type().is_symlink(),
