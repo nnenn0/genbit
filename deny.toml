@@ -1,0 +1,49 @@
+# cargo-deny の設定。CI の `.github/workflows/deny.yml` が使う。
+
+[graph]
+all-features = true
+
+[advisories]
+# 保守されていないクレートも含め、該当する勧告はすべてエラーにする。
+unmaintained = "all"
+yanked = "deny"
+ignore = [
+    # rkyv 0.7 は minify-html -> lightningcss -> parcel_sourcemap 経由で入る。
+    # parcel_sourcemap がアーカイブを読むのは `SourceMap::from_buffer` だけで、
+    # lightningcss と minify-html はこれを呼ばない。genbit は rkyv の
+    # アーカイブを扱わないため影響しない。parcel_sourcemap 2.1.1 が最新で、
+    # 修正版の rkyv 0.8 へは上流の更新なしに移れない。
+    { id = "RUSTSEC-2026-0235", reason = "rkyv archives are never read; no upstream fix for parcel_sourcemap" },
+]
+
+[licenses]
+# 現在の依存で使われているライセンスのうち、genbit を MIT で配布することと
+# 衝突しないものだけを許可する。これ以外のライセンスの依存が入ると失敗する。
+# MPL-2.0 は minify-html が使う lightningcss 系のクレートのライセンス。
+# about.toml の accepted と同じにそろえる。CI が一致を検査する。
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+# 同じクレートの複数版は依存先の都合で生じ、こちらでは解消できないため検査しない。
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

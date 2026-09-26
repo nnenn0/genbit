@@ -39,6 +39,13 @@ jobs:
           grep -qx "rust-version = \"$toolchain\"" Cargo.toml
           grep -qx "FROM rust:$toolchain-bookworm" Dockerfile
 
+      # cargo-deny と cargo-about は別々の設定ファイルで許可するライセンスを持つため、一覧のずれを止める。
+      - name: Check license lists match
+        run: |
+          licenses() { sed -n "/^$1 = \[/,/^\]/p" "$2" | grep -o '"[^"]*"' | sort; }
+          test -n "$(licenses allow deny.toml)"
+          diff <(licenses allow deny.toml) <(licenses accepted about.toml)
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
