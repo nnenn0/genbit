@@ -63,7 +63,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # verify と並列に動かす。下書き Release は release ジョブが全ジョブの成功を待ってから作る。
   build:
     strategy:
       matrix:
