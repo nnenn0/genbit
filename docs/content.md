@@ -94,6 +94,16 @@ broken internal link in content/entries/a.md: missing#x resolves to /entries/mis
 
 言語指定付きのコードブロックには、指定した言語名を左上にそのまま表示します（例: `tsx`）。言語指定のないコードブロックには表示しません。シンタックスハイライトは行いません。
 
+### 表
+
+GitHub Flavored Markdownの表の記法を使えます。区切り行の `:---`・`:---:`・`---:` による揃えの指定は、各セルの `style="text-align: ..."` として出力します。初期CSSは表に罫線を引き、本文の幅に収まらない表は横にスクロールできるようにしています。
+
+```markdown
+| ページ | 転送サイズ |
+| --- | ---: |
+| トップページ | 1,098 |
+```
+
 ### 画像
 
 Markdownの画像には `loading="lazy"` と `decoding="async"` を付けます。

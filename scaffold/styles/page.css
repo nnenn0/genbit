@@ -8,10 +8,14 @@ pre { overflow-x: auto; padding: 0.75rem; background: #f3f4f6; }
 .code-block pre { margin: 0; padding-top: 0.25rem; background: transparent; }
 code { font-family: ui-monospace, monospace; }
 img { max-width: 100%; height: auto; }
-.heading-anchor { color: inherit; }
+table { display: block; max-width: 100%; margin: 1em 0; overflow-x: auto; border-collapse: collapse; }
+th, td { padding: 0.25rem 0.75rem; border-bottom: 1px solid #ddd; }
+th { text-align: left; }
+.heading-anchor { color: inherit; text-decoration: none; }
 @media (prefers-color-scheme: dark) {
   pre { background: #292e36; }
   .code-block { background: #292e36; }
   .code-language { color: #a8afb9; background: #39404a; }
   .article-meta { color: #a8afb9; }
+  th, td { border-color: #39404a; }
 }

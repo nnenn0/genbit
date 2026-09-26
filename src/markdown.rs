@@ -1,4 +1,6 @@
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, LinkType, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{
+    CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd, html,
+};
 use std::collections::HashSet;
 
 pub(crate) struct Rendered {
@@ -8,7 +10,7 @@ pub(crate) struct Rendered {
 }
 
 pub(crate) fn render(source: &str) -> Rendered {
-    let mut events = Parser::new(source);
+    let mut events = Parser::new_ext(source, Options::ENABLE_TABLES);
     let mut external_link = false;
     let mut in_linked_heading = false;
     let mut links = Vec::new();
@@ -286,6 +288,23 @@ mod tests {
         assert!(html.contains("loading=\"lazy\""), "{html}");
         assert!(html.contains("decoding=\"async\""), "{html}");
         assert!(html.contains("title=\"A title\""), "{html}");
+    }
+
+    #[test]
+    fn renders_tables_with_alignment() {
+        let html = render_html("| Page | Size |\n| --- | ---: |\n| Top | 1,098 |\n");
+        assert!(html.contains("<table>"), "{html}");
+        assert!(html.contains("<th>Page</th>"), "{html}");
+        assert!(
+            html.contains("<td style=\"text-align: right\">1,098</td>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn collects_internal_links_inside_tables() {
+        let rendered = render("| Page |\n| --- |\n| [Top](/) |\n| [Next](next.md) |\n");
+        assert_eq!(rendered.links, ["/", "next"]);
     }
 
     #[test]
