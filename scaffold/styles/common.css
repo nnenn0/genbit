@@ -1,4 +1,9 @@
 :root { font-family: system-ui, sans-serif; color-scheme: light; color: #222; background: #faf9f6; line-height: 1.7; }
+@view-transition { navigation: auto; }
+::view-transition-group(root) { animation-duration: 100ms; }
+@media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
+}
 body { max-width: 38rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
 header { margin-bottom: 2.5rem; padding-bottom: 0.75rem; border-bottom: 1px solid #d8d6d0; font-size: 1.75rem; font-weight: 700; }
 header a { color: inherit; }

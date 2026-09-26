@@ -227,10 +227,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let not_found = fs::read_to_string(site.join("dist/404.html"))?;
     assert!(not_found.contains("<h1>404</h1>"), "{not_found}");
-    assert!(
-        not_found.contains("ページが見つかりませんでした。"),
-        "{not_found}"
-    );
+    assert!(not_found.contains("<p>Not Found"), "{not_found}");
     assert!(not_found.contains("name=robots"), "{not_found}");
     assert!(not_found.contains("content=noindex"), "{not_found}");
     assert!(!not_found.contains("rel=canonical"), "{not_found}");
@@ -1017,10 +1014,7 @@ fn dev_port_conflict_does_not_build_or_replace_dist() -> Result<()> {
 fn assert_not_found_page(address: &str, path: &str) -> Result<()> {
     let response = http_get(address, path)?;
     assert!(response.starts_with("HTTP/1.1 404"), "{response}");
-    assert!(
-        response.contains("ページが見つかりませんでした。"),
-        "{response}"
-    );
+    assert!(response.contains("<p>Not Found"), "{response}");
     assert!(response.contains("EventSource"), "{response}");
     Ok(())
 }
