@@ -1,11 +1,18 @@
 name: CI
 
+# ブランチの変更は PR で検証する。main への push はマージ後の確認とキャッシュの保存を兼ねる。
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+# PR では新しい push が来たら古い実行を取り消す。main はコミットごとの結果を残す。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   rust:
@@ -18,6 +25,11 @@ jobs:
 
       - name: Install Rust
         run: rustup toolchain install
+
+      # PR は main のキャッシュを読むだけにして、キャッシュ容量を PR ごとに消費しない。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Dependabot は Dockerfile のイメージだけを更新するため、版のずれを CI で止める。
       - name: Check Rust version consistency
@@ -46,6 +58,11 @@ jobs:
 
       - name: Install Rust
         run: rustup toolchain install
+
+      # PR は main のキャッシュを読むだけにして、キャッシュ容量を PR ごとに消費しない。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run tests
         run: cargo test --locked --all-targets --all-features
