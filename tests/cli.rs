@@ -37,6 +37,27 @@ impl DevProcess {
             .unwrap_or_else(|error| format!("cannot read {}: {error}", self.log.display()))
     }
 
+    /// Starts dev on a free port and waits until it accepts connections.
+    fn start_listening(site: &Path) -> Result<(Self, String)> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        drop(listener);
+        let mut server = Self::start(site, port)?;
+        let address = format!("127.0.0.1:{port}");
+        server.wait_until_listening(&address)?;
+        Ok((server, address))
+    }
+
+    fn wait_for_log(&self, text: &str) -> Result<()> {
+        for _ in 0..50 {
+            if self.logs().contains(text) {
+                return Ok(());
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        bail!("missing {text:?} in dev logs:\n{}", self.logs())
+    }
+
     fn wait_until_listening(&mut self, address: &str) -> Result<()> {
         for _ in 0..50 {
             if TcpStream::connect(address).is_ok() {
@@ -176,6 +197,27 @@ fn assert_sse_silent(stream: &mut TcpStream, timeout: Duration, server: &DevProc
         Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => Ok(()),
         Err(error) => Err(error.into()),
     }
+}
+
+/// Connects to the reload stream and waits until reloads caused by startup have stopped.
+fn open_reload_stream(address: &str, server: &DevProcess) -> Result<TcpStream> {
+    let mut events = TcpStream::connect(address)?;
+    events.set_read_timeout(Some(Duration::from_secs(8)))?;
+    events.write_all(
+        b"GET /__genbit/reload HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n",
+    )?;
+    let mut headers = Vec::new();
+    read_sse_until(&mut events, &mut headers, b"\r\n\r\n", server)?;
+    ensure!(
+        String::from_utf8_lossy(&headers).contains("text/event-stream"),
+        "missing SSE content type:\n{}",
+        server.logs()
+    );
+    // macOS FSEvents may report files written just before `dev` started, which causes one
+    // extra rebuild. Reloads must still stop, since a rebuild must not trigger itself.
+    wait_for_sse_quiet(&mut events, server)?;
+    events.set_read_timeout(Some(Duration::from_secs(8)))?;
+    Ok(events)
 }
 
 fn wait_for_sse_quiet(stream: &mut TcpStream, server: &DevProcess) -> Result<()> {
@@ -1072,25 +1114,20 @@ fn custom_article_template_receives_documented_fields() -> Result<()> {
 }
 
 #[test]
-fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
+fn dev_serves_clean_urls_static_files_and_not_found_page() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/about.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# About page\n",
+        article_source(&[], "# About page\n"),
     )?;
     fs::create_dir_all(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/nested.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Nested article'\n+++\n# Nested page\n",
+        article_source(&[], "# Nested page\n"),
     )?;
     fs::write(site.join("static/asset.txt"), "static asset")?;
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
-    let mut server = DevProcess::start(&site, port)?;
-    let address = format!("127.0.0.1:{port}");
-    server.wait_until_listening(&address)?;
+    let (_server, address) = DevProcess::start_listening(&site)?;
 
     let page = http_get(&address, "/")?;
     assert!(page.starts_with("HTTP/1.1 200"), "{page}");
@@ -1100,59 +1137,78 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     assert!(http_get(&address, "/entries/posts/nested.html")?.contains("Nested page"));
     assert!(http_get(&address, "/asset.txt")?.contains("static asset"));
     assert_not_found_page(&address, "/missing/path")?;
+    Ok(())
+}
 
-    let mut events = TcpStream::connect(&address)?;
-    events.set_read_timeout(Some(Duration::from_secs(8)))?;
-    events.write_all(
-        b"GET /__genbit/reload HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n",
+#[test]
+fn dev_reloads_after_an_article_is_edited() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let (server, address) = DevProcess::start_listening(&site)?;
+    let mut events = open_reload_stream(&address, &server)?;
+
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], "# Changed in dev\n"),
     )?;
-    let mut data = Vec::new();
-    read_sse_until(&mut events, &mut data, b"\r\n\r\n", &server)?;
-    assert!(
-        String::from_utf8_lossy(&data).contains("text/event-stream"),
-        "missing SSE content type:\n{}",
-        server.logs()
-    );
+    read_sse_until(&mut events, &mut Vec::new(), b"data: reload", &server)?;
+    let updated = http_get(&address, "/entries/hello-world")?;
+    assert!(updated.contains("Changed in dev"), "{updated}");
+    Ok(())
+}
 
-    // macOS FSEvents may report files written just before `dev` started, which causes one
-    // extra rebuild. Reloads must still stop, since a rebuild must not trigger itself.
-    wait_for_sse_quiet(&mut events, &server)?;
+#[test]
+fn dev_keeps_serving_after_failed_rebuild_and_reloads_after_fix() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let (server, address) = DevProcess::start_listening(&site)?;
+    let mut events = open_reload_stream(&address, &server)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
+
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ntitle = [\n+++\n",
     )?;
     assert_sse_silent(&mut events, Duration::from_millis(500), &server)?;
-    let mut failure_logged = false;
-    for _ in 0..50 {
-        if server.logs().contains("Rebuild failed") {
-            failure_logged = true;
-            break;
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
-    assert!(
-        failure_logged,
-        "missing build failure in dev logs:\n{}",
-        server.logs()
-    );
+    server.wait_for_log("Rebuild failed")?;
     assert!(http_get(&address, "/")?.contains(&before));
 
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Changed in dev\n",
+        article_source(&[], "# Fixed in dev\n"),
     )?;
-    read_sse_until(&mut events, &mut data, b"data: reload", &server)?;
-    let updated = http_get(&address, "/entries/hello-world")?;
-    assert!(updated.contains("Changed in dev"), "{updated}");
+    read_sse_until(&mut events, &mut Vec::new(), b"data: reload", &server)?;
+    let fixed = http_get(&address, "/entries/hello-world")?;
+    assert!(fixed.contains("Fixed in dev"), "{fixed}");
+    Ok(())
+}
 
-    data.clear();
+#[test]
+fn dev_reloads_after_an_article_is_removed() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(
+        site.join("content/about.md"),
+        article_source(&[], "# About page\n"),
+    )?;
+    let (server, address) = DevProcess::start_listening(&site)?;
+    assert!(http_get(&address, "/about")?.contains("About page"));
+    let mut events = open_reload_stream(&address, &server)?;
+
     fs::remove_file(site.join("content/about.md"))?;
-    read_sse_until(&mut events, &mut data, b"data: reload", &server)?;
+    read_sse_until(&mut events, &mut Vec::new(), b"data: reload", &server)?;
     assert_not_found_page(&address, "/about")?;
+    Ok(())
+}
 
-    // The open SSE connection must not keep dev from stopping.
+#[test]
+fn dev_stops_cleanly_on_sigterm_with_an_open_reload_stream() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let (mut server, address) = DevProcess::start_listening(&site)?;
+    let _events = open_reload_stream(&address, &server)?;
+
     let status = server.stop("TERM")?;
     assert!(status.success(), "{status}\n{}", server.logs());
     assert!(
@@ -1160,13 +1216,18 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
         "{}",
         server.logs()
     );
+    Ok(())
+}
 
-    let build = build_site(&site)?;
-    assert!(
-        build.status.success(),
-        "{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
+#[test]
+fn build_after_dev_removes_the_reload_script() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let (mut server, _address) = DevProcess::start_listening(&site)?;
+    assert!(fs::read_to_string(site.join("dist/index.html"))?.contains("EventSource"));
+    server.stop("TERM")?;
+
+    build_ok(&site)?;
     let production = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(!production.contains("EventSource"), "{production}");
     Ok(())
@@ -1176,11 +1237,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
 fn dev_stops_cleanly_on_ctrl_c() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
-    let mut server = DevProcess::start(&site, port)?;
-    server.wait_until_listening(&format!("127.0.0.1:{port}"))?;
+    let (mut server, _address) = DevProcess::start_listening(&site)?;
 
     let status = server.stop("INT")?;
     assert!(status.success(), "{status}\n{}", server.logs());
