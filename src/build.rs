@@ -7,7 +7,7 @@ use crate::{
     render::Renderer,
 };
 use anyhow::{Context as _, Result};
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 pub(crate) fn run(root: &Path) -> Result<usize> {
     run_with_reload(root, None)
@@ -29,17 +29,39 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>) -> Result<usize> {
             .cmp(&left.created_at)
             .then_with(|| left.route.url().cmp(right.route.url()))
     });
+    let mut tags: BTreeMap<String, Vec<&Article>> = BTreeMap::new();
+    let mut untagged = Vec::new();
+    for article in &articles {
+        if article.tags.is_empty() {
+            untagged.push(article);
+        }
+        for tag in &article.tags {
+            tags.entry(tag.clone()).or_default().push(article);
+        }
+    }
     let renderer = Renderer::load(&input, &articles, reload_script)?;
-    let mut artifacts = Vec::with_capacity(articles.len() + 4);
+    let mut artifacts = Vec::with_capacity(articles.len() + tags.len() + 6);
     let home_json_ld = metadata::website_json_ld(&config)?;
     artifacts.push(renderer.home(&config, &articles, &home_json_ld)?);
+    artifacts.push(renderer.tags_index(&config, &tags, untagged.len(), &home_json_ld)?);
+    for (tag, entries) in &tags {
+        artifacts.push(renderer.tag(&config, tag, entries, &home_json_ld)?);
+    }
+    if !untagged.is_empty() {
+        artifacts.push(renderer.untagged(&config, &untagged, &home_json_ld)?);
+    }
     artifacts.push(renderer.not_found(&config)?);
     for article in &articles {
         let canonical_url = config.site_url.join_root_path(article.route.url());
         let json_ld = metadata::article_json_ld(&config, article, &canonical_url)?;
         artifacts.push(renderer.article(&config, article, &canonical_url, &json_ld)?);
     }
-    artifacts.push(metadata::sitemap(&config.site_url, &articles)?);
+    artifacts.push(metadata::sitemap(
+        &config.site_url,
+        &articles,
+        &tags,
+        !untagged.is_empty(),
+    )?);
     artifacts.push(metadata::robots(&config.site_url));
     let static_root = root.join("static");
     let assets = input
@@ -54,7 +76,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>) -> Result<usize> {
         .collect::<Result<Vec<_>>>()?;
     artifacts.extend(assets);
     OutputPlan::new(artifacts)?.publish(&input)?;
-    Ok(articles.len() + 1)
+    Ok(articles.len() + tags.len() + usize::from(!untagged.is_empty()) + 2)
 }
 
 fn load_articles(input: &SiteInput<'_>) -> Result<Vec<Article>> {

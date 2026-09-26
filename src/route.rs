@@ -2,6 +2,13 @@ use anyhow::{Context, Result, bail, ensure};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
+pub(crate) const TAGS_INDEX_URL: &str = "/tags/";
+pub(crate) const UNTAGGED_TAG: &str = "untagged";
+
+pub(crate) fn tag_url(tag: &str) -> String {
+    format!("{TAGS_INDEX_URL}{tag}/")
+}
+
 pub(crate) struct Route {
     url: String,
     output: PathBuf,

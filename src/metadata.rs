@@ -2,10 +2,11 @@ use crate::{
     config::{Config, SiteUrl},
     content::Article,
     output::Artifact,
+    route::{TAGS_INDEX_URL, UNTAGGED_TAG, tag_url},
 };
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 #[derive(Serialize)]
 struct WebsiteStructuredData<'a> {
@@ -71,10 +72,15 @@ fn json_ld(value: &impl Serialize) -> Result<String> {
         .replace('&', "\\u0026"))
 }
 
-pub(crate) fn sitemap(base: &SiteUrl, articles: &[Article]) -> Result<Artifact> {
+pub(crate) fn sitemap(
+    base: &SiteUrl,
+    articles: &[Article],
+    tags: &BTreeMap<String, Vec<&Article>>,
+    has_untagged: bool,
+) -> Result<Artifact> {
     ensure!(
-        articles.len() < 50_000,
-        "sitemap.xml supports at most 50,000 URLs including the home page"
+        articles.len() + tags.len() + usize::from(has_untagged) + 1 < 50_000,
+        "sitemap.xml supports at most 50,000 URLs including generated pages"
     );
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
@@ -91,6 +97,23 @@ pub(crate) fn sitemap(base: &SiteUrl, articles: &[Article]) -> Result<Artifact> 
                 .replace('&', "&amp;")
                 .replace('<', "&lt;"),
         );
+        xml.push_str("</loc></url>\n");
+    }
+    for path in
+        std::iter::once(TAGS_INDEX_URL.to_owned()).chain(tags.keys().map(|tag| tag_url(tag)))
+    {
+        xml.push_str("  <url><loc>");
+        xml.push_str(
+            &base
+                .join_root_path(&path)
+                .replace('&', "&amp;")
+                .replace('<', "&lt;"),
+        );
+        xml.push_str("</loc></url>\n");
+    }
+    if has_untagged {
+        xml.push_str("  <url><loc>");
+        xml.push_str(&base.join_root_path(&tag_url(UNTAGGED_TAG)));
         xml.push_str("</loc></url>\n");
     }
     xml.push_str("</urlset>\n");

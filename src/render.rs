@@ -1,5 +1,11 @@
-use crate::{config::Config, content::Article, input::SiteInput, output::Artifact};
-use anyhow::{Context as _, Result};
+use crate::{
+    config::Config,
+    content::Article,
+    input::SiteInput,
+    output::Artifact,
+    route::{TAGS_INDEX_URL, UNTAGGED_TAG, tag_url},
+};
+use anyhow::{Context as _, Result, ensure};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -20,6 +26,7 @@ struct PublicArticle<'a> {
     url: &'a str,
     created_at: String,
     updated_at: Option<String>,
+    tags: &'a [String],
 }
 
 impl<'a> From<&'a Article> for PublicArticle<'a> {
@@ -30,6 +37,7 @@ impl<'a> From<&'a Article> for PublicArticle<'a> {
             url: article.route.url(),
             created_at: article.created_at.date_string(),
             updated_at: article.updated_at.map(|date| date.to_string()),
+            tags: &article.tags,
         }
     }
 }
@@ -61,6 +69,34 @@ struct NotFoundView<'a> {
     css: &'a str,
 }
 
+#[derive(Serialize)]
+struct PublicTag<'a> {
+    name: &'a str,
+    url: String,
+    count: usize,
+}
+
+#[derive(Serialize)]
+struct TagsView<'a> {
+    site: &'a Config,
+    description: &'a str,
+    canonical_url: String,
+    json_ld: &'a str,
+    tags: Vec<PublicTag<'a>>,
+    css: &'a str,
+}
+
+#[derive(Serialize)]
+struct TagView<'a, 'b> {
+    site: &'a Config,
+    description: String,
+    canonical_url: String,
+    json_ld: &'a str,
+    tag: &'a str,
+    entries: Vec<PublicArticle<'b>>,
+    css: &'a str,
+}
+
 impl<'a> Renderer<'a> {
     pub(crate) fn load(
         input: &SiteInput<'_>,
@@ -68,7 +104,12 @@ impl<'a> Renderer<'a> {
         reload_script: Option<&'a str>,
     ) -> Result<Self> {
         let tera = load_templates(input)?;
-        let mut templates = BTreeSet::from(["root.html", "404.html"]);
+        ensure!(
+            tera.get_template_names().any(|name| name == "tags.html")
+                && tera.get_template_names().any(|name| name == "tag.html"),
+            "tag pages require templates/tags.html and templates/tag.html"
+        );
+        let mut templates = BTreeSet::from(["root.html", "404.html", "tags.html", "tag.html"]);
         templates.extend(articles.iter().map(|article| article.template.as_str()));
         let styles = load_styles(input, &templates)?;
         Ok(Self {
@@ -76,6 +117,97 @@ impl<'a> Renderer<'a> {
             styles,
             reload_script,
         })
+    }
+
+    pub(crate) fn tags_index(
+        &self,
+        config: &Config,
+        tags: &BTreeMap<String, Vec<&Article>>,
+        untagged_count: usize,
+        json_ld: &str,
+    ) -> Result<Artifact> {
+        let css = self
+            .styles
+            .get("tags.html")
+            .context("missing styles for tags.html")?;
+        let mut public_tags: Vec<PublicTag<'_>> = tags
+            .iter()
+            .map(|(name, articles)| PublicTag {
+                name,
+                url: tag_url(name),
+                count: articles.len(),
+            })
+            .collect();
+        if untagged_count > 0 {
+            public_tags.push(PublicTag {
+                name: UNTAGGED_TAG,
+                url: tag_url(UNTAGGED_TAG),
+                count: untagged_count,
+            });
+        }
+        self.render(
+            "tags.html",
+            &TagsView {
+                site: config,
+                description: "記事のタグ一覧",
+                canonical_url: config.site_url.join_root_path(TAGS_INDEX_URL),
+                json_ld,
+                tags: public_tags,
+                css,
+            },
+            PathBuf::from("tags/index.html"),
+            "<generated tag index>",
+        )
+    }
+
+    pub(crate) fn tag(
+        &self,
+        config: &Config,
+        tag: &str,
+        articles: &[&Article],
+        json_ld: &str,
+    ) -> Result<Artifact> {
+        self.tag_page(config, tag, articles, json_ld)
+    }
+
+    pub(crate) fn untagged(
+        &self,
+        config: &Config,
+        articles: &[&Article],
+        json_ld: &str,
+    ) -> Result<Artifact> {
+        self.tag_page(config, UNTAGGED_TAG, articles, json_ld)
+    }
+
+    fn tag_page(
+        &self,
+        config: &Config,
+        tag: &str,
+        articles: &[&Article],
+        json_ld: &str,
+    ) -> Result<Artifact> {
+        let css = self
+            .styles
+            .get("tag.html")
+            .context("missing styles for tag.html")?;
+        let entries = articles
+            .iter()
+            .map(|article| PublicArticle::from(*article))
+            .collect();
+        self.render(
+            "tag.html",
+            &TagView {
+                site: config,
+                description: format!("{tag} の記事一覧"),
+                canonical_url: config.site_url.join_root_path(&tag_url(tag)),
+                json_ld,
+                tag,
+                entries,
+                css,
+            },
+            PathBuf::from("tags").join(tag).join("index.html"),
+            &format!("<generated tag {tag}>"),
+        )
     }
 
     pub(crate) fn home(
@@ -257,7 +389,8 @@ mod tests {
         assert!(single.get("entries").is_none());
         let value = serde_json::to_value(&public)?;
         let fields = value.as_object().context("article view is not an object")?;
-        assert_eq!(fields.len(), 5);
+        assert_eq!(fields.len(), 6);
+        assert_eq!(fields.get("tags"), Some(&serde_json::json!([])));
         assert_eq!(
             fields.get("url").and_then(serde_json::Value::as_str),
             Some("/post")

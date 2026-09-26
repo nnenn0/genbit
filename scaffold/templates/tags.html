@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}タグ一覧 | {{ site.title }}{% endblock title %}
+{% block og_title %}タグ一覧 | {{ site.title }}{% endblock og_title %}
+{% block og_type %}website{% endblock og_type %}
+{% block main %}
+<h1>タグ一覧</h1>
+<ul>
+  {% for tag in tags %}
+  <li><a href="{{ tag.url }}">{{ tag.name }}</a> ({{ tag.count }})</li>
+  {% endfor %}
+</ul>
+{% endblock main %}

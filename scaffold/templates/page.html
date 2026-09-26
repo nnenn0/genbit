@@ -3,6 +3,9 @@
 <article>
   <h1>{{ article.title }}</h1>
   <time datetime="{{ article.created_at }}">{{ article.created_at }}</time>
+  {% if article.tags %}<nav aria-label="記事のタグ" class="article-tags">
+    {% for tag in article.tags %}<a href="/tags/{{ tag }}/">{{ tag }}</a>{% endfor %}
+  </nav>{% endif %}
   {{ content | safe }}
 </article>
 {% endblock main %}

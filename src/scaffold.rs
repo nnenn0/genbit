@@ -19,6 +19,14 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../scaffold/templates/root.html"),
     ),
     (
+        "templates/tags.html",
+        include_str!("../scaffold/templates/tags.html"),
+    ),
+    (
+        "templates/tag.html",
+        include_str!("../scaffold/templates/tag.html"),
+    ),
+    (
         "templates/404.html",
         include_str!("../scaffold/templates/404.html"),
     ),
@@ -34,6 +42,11 @@ const FILES: &[(&str, &str)] = &[
         "styles/root.css",
         include_str!("../scaffold/styles/root.css"),
     ),
+    (
+        "styles/tags.css",
+        include_str!("../scaffold/styles/tags.css"),
+    ),
+    ("styles/tag.css", include_str!("../scaffold/styles/tag.css")),
     (
         "content/entries/hello-world.md",
         include_str!("../scaffold/content/entries/hello-world.md"),

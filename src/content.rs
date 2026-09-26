@@ -1,6 +1,7 @@
-use crate::route::Route;
+use crate::route::{Route, UNTAGGED_TAG};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Deserializer, de::Error as _};
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 use toml::value::{Date, Datetime};
 
@@ -13,6 +14,8 @@ struct FrontMatter {
     title: Option<String>,
     description: Option<String>,
     template: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_created_at")]
     created_at: Option<Datetime>,
     #[serde(default, deserialize_with = "deserialize_updated_at")]
@@ -75,6 +78,7 @@ pub(crate) struct Article {
     pub(crate) created_at: CreatedAt,
     pub(crate) updated_at: Option<Date>,
     pub(crate) template: String,
+    pub(crate) tags: Vec<String>,
     pub(crate) html: String,
     pub(crate) source: PathBuf,
 }
@@ -109,6 +113,18 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
         .to_owned();
     ensure!(!description.is_empty(), "description must not be empty");
     let template = metadata.template.unwrap_or_else(|| "page.html".to_owned());
+    let mut seen_tags = BTreeSet::new();
+    for tag in &metadata.tags {
+        ensure!(
+            valid_tag(tag),
+            "invalid tag {tag:?}: use lowercase kebab-case"
+        );
+        ensure!(
+            tag != UNTAGGED_TAG,
+            "tag \"untagged\" is reserved for articles without tags"
+        );
+        ensure!(seen_tags.insert(tag), "duplicate tag {tag:?}");
+    }
     ensure!(
         !template.is_empty()
             && Path::new(&template)
@@ -125,9 +141,20 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
         created_at,
         updated_at,
         template,
+        tags: metadata.tags,
         html: rendered,
         source: relative.to_path_buf(),
     })
+}
+
+fn valid_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
 }
 
 fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
@@ -271,6 +298,39 @@ mod tests {
             Path::new("date-only.md"),
         )?;
         assert_eq!(midnight.created_at, date_only.created_at);
+        Ok(())
+    }
+
+    #[test]
+    fn validates_tags() -> Result<()> {
+        let source = "+++\ncreated_at = 2026-09-17\ndescription = 'Post'\ntags = ['react', 'react-19', 'web-security']\n+++\nBody";
+        let article = parse(source, Path::new("post.md"))?;
+        assert_eq!(article.tags, ["react", "react-19", "web-security"]);
+        let untagged = parse(
+            "+++\ncreated_at = 2026-09-17\ndescription = 'Post'\n+++\nBody",
+            Path::new("post.md"),
+        )?;
+        assert!(untagged.tags.is_empty());
+        for tags in [
+            "['React']",
+            "['Web Security']",
+            "['web_security']",
+            "['web--security']",
+            "['-web']",
+            "['web-']",
+            "['セキュリティ']",
+            "['']",
+            "['react', 'react']",
+            "['untagged']",
+        ] {
+            let source = format!(
+                "+++\ncreated_at = 2026-09-17\ndescription = 'Post'\ntags = {tags}\n+++\nBody"
+            );
+            assert!(
+                parse(&source, Path::new("post.md")).is_err(),
+                "accepted {tags}"
+            );
+        }
         Ok(())
     }
 }

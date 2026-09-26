@@ -37,11 +37,15 @@ my-blog/
 ├── templates/
 │   ├── base.html
 │   ├── page.html
-│   └── root.html
+│   ├── root.html
+│   ├── tags.html
+│   └── tag.html
 ├── styles/
 │   ├── common.css
 │   ├── page.css
-│   └── root.css
+│   ├── root.css
+│   ├── tags.css
+│   └── tag.css
 └── static/
     └── assets/img/
         ├── favicon.png
@@ -49,7 +53,7 @@ my-blog/
         └── ogp.png
 ```
 
-`config.toml` の必須項目はサイトの `title`、`description`、`site_url`、`og_image` です。`description` にはトップページの説明文を指定します。`new` が入れる説明文は仮の文章なので、公開前にサイトの内容に合わせて書き換えてください。トップページは `templates/root.html` から自動生成され、ブログタイトルと記事一覧だけを表示します。`content/root.md` は不要です。
+`config.toml` の必須項目はサイトの `title`、`description`、`site_url`、`og_image` です。`description` にはトップページの説明文を指定します。`new` が入れる説明文は仮の文章なので、公開前にサイトの内容に合わせて書き換えてください。トップページは `templates/root.html` から自動生成され、ブログタイトル・タグ一覧へのリンク・記事一覧を表示します。`content/root.md` は不要です。
 
 `site_url` も必須です。`new` はローカルプレビュー用の `http://127.0.0.1:3000/` を設定するため、公開前に正式なサイトURL（例: `https://example.com/`）へ変更してください。サイトをドメインのルートに置くHTTP(S)のURLだけを受け付けます。トップページと全記事に絶対URLの canonical リンクを出し、同じURLを列挙した `dist/sitemap.xml` と、その Sitemap を案内する `dist/robots.txt` を生成します。記事URLは拡張子なしの `/entries/hello-world` を使うため、公開先もそのURLを配信する必要があります。サブパス配信にはまだ対応していません。
 
@@ -66,6 +70,7 @@ template = "page.html"
 created_at = 2026-09-17 09:00
 updated_at = 2026-09-22
 description = "記事で扱う内容を簡潔に説明します。"
+tags = ["react", "web-security"]
 +++
 
 # はじめに
@@ -73,11 +78,13 @@ description = "記事で扱う内容を簡潔に説明します。"
 
 記事の `description` は必須です。記事を書いた後、その内容を説明する文章をフロントマターに指定してください。本文からの自動生成や文字数による切り詰めは行いません。検索結果に表示される文章は検索エンジン側で決まります。
 
+`tags` は省略可能な文字列の配列です。タグ名は英小文字・数字からなる語をハイフンでつないだ形式（例: `react-19`）に限り、同じ記事内で重複できません。`untagged` は予約語です。`templates/tags.html` と `templates/tag.html` から `/tags/` と `/tags/{tag}/` を生成し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示します。タグページの記事はトップページと同じ作成日時順です。
+
 `content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、記事URLは `/entries/hello-world` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。拡張子なしのURLで配信するには、ホスティングサービス側が `.html` ファイルを対応づける必要があります。`genbit dev` では拡張子なしのURLを配信します。トップページには記事の作成日とタイトルを作成日時の新しい順に並べます。同じ日時の記事はURL順です。`static/` のファイルはそのままコピーされます。初期テンプレートは記事ページにも作成日を表示します。生成サイトのテンプレートとCSSは自由に編集できます。
 
 記事と静的ファイルが同じ配信URLを使う構成はビルド時に拒否します。たとえば `content/foo.md` と `static/foo` はどちらも `/foo` を使い、`static/foo/index.html` も `/foo` からのディレクトリアクセスと競合します。`.html` の直接URLと、開発サーバーで使う拡張子なしURLも検査します。`/__genbit` とその配下は開発サーバー用の予約URLなので、記事や静的ファイルには使えません。衝突時は旧 `dist/` を更新しません。
 
-全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）と `css` を参照できます。トップページと記事のテンプレートには `description`、`canonical_url`、`json_ld` も渡されます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。404用テンプレートには `site` と `css` だけを渡します。初期テンプレートは `base.html` の `metadata` ブロックを上書きして `noindex` を指定し、canonical・OGP・JSON-LDを出しません。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
+全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）と `css` を参照できます。トップページ・記事・タグページのテンプレートには `description`、`canonical_url`、`json_ld` も渡されます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。タグ一覧の `tags.html` には `tags`（各要素に `name`、`url`、`count`）が、タグ別の `tag.html` には `tag` と作成日時順の `entries` が渡されます。404用テンプレートには `site` と `css` だけを渡します。初期テンプレートは `base.html` の `metadata` ブロックを上書きして `noindex` を指定し、canonical・OGP・JSON-LDを出しません。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
 
 記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは `.md` を取り除きます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
 

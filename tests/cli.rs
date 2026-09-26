@@ -120,10 +120,14 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "templates/base.html",
         "templates/page.html",
         "templates/root.html",
+        "templates/tags.html",
+        "templates/tag.html",
         "templates/404.html",
         "styles/common.css",
         "styles/page.css",
         "styles/root.css",
+        "styles/tags.css",
+        "styles/tag.css",
         "static/assets/img/favicon.svg",
         "static/assets/img/favicon.png",
         "static/assets/img/ogp.png",
@@ -445,10 +449,12 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
         "https://example.com/",
         "https://example.com/entries/hello-world",
         "https://example.com/entries/posts/another",
+        "https://example.com/tags/",
+        "https://example.com/tags/untagged/",
     ] {
         assert!(sitemap.contains(&format!("<loc>{url}</loc>")), "{sitemap}");
     }
-    assert_eq!(sitemap.matches("<url>").count(), 3);
+    assert_eq!(sitemap.matches("<url>").count(), 5);
     assert!(!sitemap.contains(".html"), "{sitemap}");
     Ok(())
 }
@@ -600,6 +606,113 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
     for date in ["2026-09-17", "2026-09-16", "2026-09-05"] {
         assert!(home.contains(&format!("datetime={date}")), "{home}");
     }
+    Ok(())
+}
+
+#[test]
+fn generates_tag_pages_with_sorted_articles_and_sitemap_entries() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    for (name, date, tags) in [
+        ("older", "2026-09-17", "['rust', 'web-security']"),
+        ("newer", "2026-09-19", "['rust']"),
+        ("untagged", "2026-09-20", "[]"),
+    ] {
+        fs::write(
+            site.join(format!("content/entries/{name}.md")),
+            format!(
+                "+++\ncreated_at = {date}\ndescription = 'Test article'\ntags = {tags}\n+++\n{name}"
+            ),
+        )?;
+    }
+    let output = build_site(&site)?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let tags_index = fs::read_to_string(site.join("dist/tags/index.html"))?;
+    assert!(tags_index.contains("href=/tags/rust/"), "{tags_index}");
+    assert!(tags_index.contains("(2)"), "{tags_index}");
+    assert!(tags_index.contains("href=/tags/untagged/"), "{tags_index}");
+    assert!(
+        tags_index.contains("href=/tags/web-security/"),
+        "{tags_index}"
+    );
+    assert!(
+        tags_index
+            .find("/tags/rust/")
+            .context("rust link missing")?
+            < tags_index
+                .find("/tags/web-security/")
+                .context("web-security link missing")?
+    );
+    let rust = fs::read_to_string(site.join("dist/tags/rust/index.html"))?;
+    assert!(
+        rust.find("/entries/newer").context("newer missing")?
+            < rust.find("/entries/older").context("older missing")?,
+        "{rust}"
+    );
+    assert!(!rust.contains("/entries/untagged"), "{rust}");
+    let untagged_page = fs::read_to_string(site.join("dist/tags/untagged/index.html"))?;
+    assert!(
+        untagged_page.contains("/entries/untagged"),
+        "{untagged_page}"
+    );
+    assert!(!untagged_page.contains("/entries/newer"), "{untagged_page}");
+    assert!(rust.contains("http://127.0.0.1:3000/tags/rust/"), "{rust}");
+    let article = fs::read_to_string(site.join("dist/entries/newer.html"))?;
+    assert!(article.contains("href=/tags/rust/"), "{article}");
+    let untagged = fs::read_to_string(site.join("dist/entries/untagged.html"))?;
+    assert!(!untagged.contains("<nav"), "{untagged}");
+    let sitemap = fs::read_to_string(site.join("dist/sitemap.xml"))?;
+    for path in [
+        "/tags/",
+        "/tags/rust/",
+        "/tags/web-security/",
+        "/tags/untagged/",
+    ] {
+        assert!(
+            sitemap.contains(&format!("<loc>http://127.0.0.1:3000{path}</loc>")),
+            "{sitemap}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn invalid_tags_and_generated_tag_url_collisions_preserve_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let initial = build_site(&site)?;
+    assert!(initial.status.success());
+    let original = fs::read_to_string(site.join("dist/tags/index.html"))?;
+    let article_path = site.join("content/entries/invalid.md");
+    for tags in ["['React']", "['react', 'react']", "['untagged']"] {
+        fs::write(
+            &article_path,
+            format!(
+                "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\ntags = {tags}\n+++\nBody"
+            ),
+        )?;
+        let output = build_site(&site)?;
+        assert!(!output.status.success(), "accepted {tags}");
+        assert_eq!(
+            fs::read_to_string(site.join("dist/tags/index.html"))?,
+            original
+        );
+    }
+    fs::remove_file(&article_path)?;
+    fs::write(
+        site.join("content/tags.md"),
+        "+++\ncreated_at = 2026-09-17\ndescription = 'Test article'\n+++\nBody",
+    )?;
+    let output = build_site(&site)?;
+    assert!(!output.status.success());
+    assert_eq!(
+        fs::read_to_string(site.join("dist/tags/index.html"))?,
+        original
+    );
     Ok(())
 }
 
