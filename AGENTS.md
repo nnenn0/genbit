@@ -8,7 +8,7 @@
 
 ## Project Overview
 
-- genbit は Rust 製の静的サイトジェネレーター CLI（`Cargo.toml` の版は `0.1.1`）。Markdown 記事と Tera テンプレートから HTML を生成する。
+- genbit は Rust 製の静的サイトジェネレーター CLI。Markdown 記事と Tera テンプレートから HTML を生成する。
 - 主な利用者は、CLI でサイトを新規作成し、自分のサイトの `config.toml`、記事、テンプレート、CSS、静的ファイルを編集・公開する人。サイト作成・ビルド・ローカルプレビューに Node.js は不要。
 - `new` がサイトの初期ファイルをコピーし、`build` が `dist/` を生成し、`dev` が再ビルド付きローカル配信を行う。生成サイトはこのリポジトリとは別ディレクトリで運用する。
 - 現状は基本的な生成・プレビュー機能がある初期段階。`README.md` は画像の最適化とシンタックスハイライトを未実装と明記している。初期CSSはOSの暗色設定に追従するが、手動切り替えはない。公開サービスや管理画面はこのリポジトリにない。
@@ -75,7 +75,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。`tests/cli.rs` ではビルドの成否を `build_ok` / `build_err`（失敗時の stderr を返す）で確認し、記事は既定のフロントマターに差分を重ねる `article_source` で組み立てる。網羅率は CI で計測するが、閾値はない。
 - `.github/workflows/ci.yml` は pull request と `main` への push で、次のジョブを並列に実行する。`lint` は版の一致・`scripts/*.sh` の shellcheck・rustfmt・Clippy、`test-linux` は Ubuntu での cargo-llvm-cov によるカバレッジ計測付きテスト（要約をジョブの Summary に出し、閾値はない）、`test-macos` は macOS のテスト、`smoke-test` は Ubuntu の release ビルドでの `scripts/smoke-test.sh`、`third-party-licenses` は `scripts/third-party-licenses.sh`。ジョブ名は main の ruleset の必須チェック名なので、変えるときは ruleset も合わせて更新する。PR ブランチへの push だけでは動かない。PR では新しい push で古い実行を取り消す。依存のビルド結果は `Swatinem/rust-cache` でキャッシュし、保存は `main` の実行だけが行う。独立した型チェックコマンドは定義されていない。
 - `.github/workflows/deny.yml` は pull request、`main` への push、週 1 回の定期実行で、`deny.toml` に従って cargo-deny を実行する。ジョブは勧告を見る `deny-advisories` と、ライセンス・取得元・禁止クレートを見る `deny-policy` に分かれ、必須チェックは `deny-policy` だけ。脆弱性・保守終了・yank の勧告、許可リスト外のライセンス、crates.io 以外の取得元を拒否する。勧告を無視するときは `deny.toml` の `ignore` に理由を書く。
-- `.github/workflows/release.yml` は `v*` タグの push で、タグと `Cargo.toml` の版の一致と fmt・Clippy・テストの確認（`verify`）、ライセンス一覧の生成（`licenses`）、`x86_64-unknown-linux-musl` と `aarch64-apple-darwin` のビルドと `scripts/smoke-test.sh` での確認（`build`）を並列に行う。すべて成功したら `release` ジョブがアーカイブを作り、`SHA256SUMS`・Artifact Attestations 付きの下書き Release を作る。ジョブ間で受け渡す artifact は1日で消える。アーカイブには `scripts/third-party-licenses.sh` が cargo-about で生成する依存クレートのライセンス一覧 `THIRD_PARTY_LICENSES.md` を同梱する。cargo-about は `taiki-e/install-action` で版を固定して入れる（チェックサムはアクションが検証する）。公開は下書きを確認してから手動で行う。
+- `.github/workflows/release.yml` は Actions の Run workflow から `main` で手動実行する。`Cargo.toml` の版から `v<版>` のタグ名を決め、タグが未作成であることと fmt・Clippy・テストの確認（`verify`）、ライセンス一覧の生成（`licenses`）、`x86_64-unknown-linux-musl` と `aarch64-apple-darwin` のビルドと `scripts/smoke-test.sh` での確認（`build`）を並列に行う。すべて成功したら `release` ジョブがアーカイブを作り、`SHA256SUMS`・Artifact Attestations 付きの下書き Release を作る。ジョブ間で受け渡す artifact は1日で消える。アーカイブには `scripts/third-party-licenses.sh` が cargo-about で生成する依存クレートのライセンス一覧 `THIRD_PARTY_LICENSES.md` を同梱する。cargo-about は `taiki-e/install-action` で版を固定して入れる（チェックサムはアクションが検証する）。公開は下書きを確認してから手動で行い、そのときに GitHub がタグを作る。`v*` タグはルールセットで削除・付け替えを禁じているため、ワークフローはタグを作らない。
 
 ## Environment and Configuration
 

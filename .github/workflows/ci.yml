@@ -104,7 +104,7 @@ jobs:
       - name: Run tests
         run: cargo test --locked --all-targets --all-features
 
-  # 配布と同じ release ビルドで new と build が動くことを、タグを打つ前に確認する。
+  # 配布と同じ release ビルドで new と build が動くことを、リリースの前に確認する。
   smoke-test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -128,7 +128,7 @@ jobs:
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
           scripts/smoke-test.sh target/release/genbit "$version"
 
-  # 配布アーカイブに同梱するライセンス一覧を生成できることを、タグを打つ前に確認する。
+  # 配布アーカイブに同梱するライセンス一覧を生成できることを、リリースの前に確認する。
   # cargo-about はビルド結果を使わないため、release ビルドとは別に並べて動かす。
   third-party-licenses:
     runs-on: ubuntu-24.04

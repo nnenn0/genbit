@@ -24,9 +24,9 @@ docker compose run --rm --entrypoint sh cli -c '
 
 Rustの版は `rust-toolchain.toml` で固定しています。版を上げるときは、`rust-toolchain.toml` の `channel`、`Cargo.toml` の `rust-version`、`Dockerfile` の `FROM rust:<版>-bookworm` を同時に変更してください。3か所が一致しないとCIが失敗します。Dependabotは `Dockerfile` だけを更新するため、その更新PRはCIで止まります。
 
-`v*` タグをpushするとリリース用のワークフローが動き、バイナリをビルドしてGitHub Releaseの下書きを作ります。
+リリースするときは、`Cargo.toml` の版を上げた変更を `main` にマージしてから、GitHubの **Actions > Release > Run workflow** で `main` を選んで実行します。ワークフローは版から `v<版>` のタグ名を決め、検査とビルドが通ればGitHub Releaseの下書きを作ります。下書きの内容を確認して公開すると、そのときにタグが作られます。同じ版のタグや下書きがすでにあると失敗します。`v*` タグは削除も付け替えもできないため、失敗しても版を上げ直す必要がないよう、ワークフローはタグを作りません。
 
-配布アーカイブには、依存クレートの著作権表示とソースの入手先をまとめた `THIRD_PARTY_LICENSES.md` を同梱します。`scripts/third-party-licenses.sh` がcargo-aboutで生成し、内容は `about.toml` と `about.hbs` で決まります。依存を追加して `about.toml` の `accepted` にないライセンスが入ると生成が失敗します。`about.toml` の `accepted` と `deny.toml` の `allow` は同じ一覧にそろえてください。ずれていると `tests/license_lists.rs` のテストが失敗します。CIでも同じスクリプトと、release ビルドでの `scripts/smoke-test.sh` を実行するので、タグを打つ前に気づけます。
+配布アーカイブには、依存クレートの著作権表示とソースの入手先をまとめた `THIRD_PARTY_LICENSES.md` を同梱します。`scripts/third-party-licenses.sh` がcargo-aboutで生成し、内容は `about.toml` と `about.hbs` で決まります。依存を追加して `about.toml` の `accepted` にないライセンスが入ると生成が失敗します。`about.toml` の `accepted` と `deny.toml` の `allow` は同じ一覧にそろえてください。ずれていると `tests/license_lists.rs` のテストが失敗します。CIでも同じスクリプトと、release ビルドでの `scripts/smoke-test.sh` を実行するので、リリースの前に気づけます。
 
 手元で一覧を生成するには、CIと同じ版のcargo-aboutを入れてから実行します。
 
