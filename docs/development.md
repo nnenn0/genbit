@@ -26,6 +26,8 @@ Rustの版は `rust-toolchain.toml` で固定しています。版を上げる�
 
 リリースするときは、`Cargo.toml` の版を上げた変更を `main` にマージしてから、GitHubの **Actions > Release > Run workflow** で `main` を選んで実行します。ワークフローは版から `v<版>` のタグ名を決め、検査・ビルド・アーカイブの確認が通ればGitHub Releaseの下書きを作ります。下書きの内容を確認して公開すると、そのときにタグが作られます。同じ版のタグや下書きがすでにあると失敗します。`v*` タグは削除も付け替えもできないため、失敗しても版を上げ直す必要がないよう、ワークフローはタグを作りません。
 
+リリースの実行中は、`.github/workflows` を変更するPRを `main` にマージしないでください。下書きの対象コミットと `main` の最新とでworkflowが異なると、GitHubはworkflowを変更する権限を求めるため、`GITHUB_TOKEN` では下書きを作れず `HTTP 403: Resource not accessible by integration` で失敗します。このときは失敗したジョブを再実行せず、`main` の最新でワークフローを実行し直してください。
+
 配布アーカイブには、依存クレートの著作権表示とソースの入手先をまとめた `THIRD_PARTY_LICENSES.md` を同梱します。`scripts/third-party-licenses.sh` がcargo-aboutで生成し、内容は `about.toml` と `about.hbs` で決まります。依存を追加して `about.toml` の `accepted` にないライセンスが入ると生成が失敗します。`about.toml` の `accepted` と `deny.toml` の `allow` は同じ一覧にそろえてください。ずれていると `tests/license_lists.rs` のテストが失敗します。CIでも同じスクリプトと、release ビルドでの `scripts/smoke-test.sh` を実行するので、リリースの前に気づけます。
 
 手元で一覧を生成するには、CIと同じ版のcargo-aboutを入れてから実行します。
