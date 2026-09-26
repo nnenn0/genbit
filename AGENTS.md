@@ -71,7 +71,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
-- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。網羅率の計測設定はない。
+- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。`tests/cli.rs` ではビルドの成否を `build_ok` / `build_err`（失敗時の stderr を返す）で確認し、記事は既定のフロントマターに差分を重ねる `article_source` で組み立てる。網羅率の計測設定はない。
 - `.github/workflows/ci.yml` は全ブランチの push と pull request で、Ubuntu の rustfmt・Clippy・テストと macOS のテストを実行する。独立した型チェックコマンドは定義されていない。
 - `.github/workflows/release.yml` は `v*` タグの push で、タグと `Cargo.toml` の版の一致、fmt・Clippy・テストを確認し、`x86_64-unknown-linux-musl` と `aarch64-apple-darwin` のバイナリを smoke test してから、アーカイブ・`SHA256SUMS`・Artifact Attestations 付きの下書き Release を作る。公開は下書きを確認してから手動で行う。
 
