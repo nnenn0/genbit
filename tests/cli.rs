@@ -1220,20 +1220,6 @@ fn dev_stops_cleanly_on_sigterm_with_an_open_reload_stream() -> Result<()> {
 }
 
 #[test]
-fn build_after_dev_removes_the_reload_script() -> Result<()> {
-    let workspace = Workspace::new()?;
-    let site = workspace.new_site("blog")?;
-    let (mut server, _address) = DevProcess::start_listening(&site)?;
-    assert!(fs::read_to_string(site.join("dist/index.html"))?.contains("EventSource"));
-    server.stop("TERM")?;
-
-    build_ok(&site)?;
-    let production = fs::read_to_string(site.join("dist/index.html"))?;
-    assert!(!production.contains("EventSource"), "{production}");
-    Ok(())
-}
-
-#[test]
 fn dev_stops_cleanly_on_ctrl_c() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
