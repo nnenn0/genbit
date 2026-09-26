@@ -38,7 +38,7 @@
 | `src/output.rs` | 出力計画で衝突を検査し、生成ファイルの書き込みと静的ファイルのコピーをステージングしてから `dist/` を入れ替える。データ保護に関わるため、既存 `dist/` の扱いを変える前にテストを読む。 |
 | `src/dev.rs` | ポート確保、監視登録、初回ビルド、単一の再ビルド処理、静的配信、SSE リロード。`build` と同じ生成経路を使う。 |
 | `tests/cli.rs` | 一時ディレクトリで実行バイナリを起動する E2E テスト。入出力形式や保護動作を変更するときの主な確認先。 |
-| `README.md`、`.github/workflows/ci.yml`、`Dockerfile`、`compose.yaml` | 利用者向け契約、CI、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
+| `README.md`、`.github/workflows/ci.yml`、`.github/workflows/release.yml`、`Dockerfile`、`compose.yaml` | 利用者向け契約、CI、バイナリのリリース、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
 
 ## Architecture and Data Flow
 
@@ -71,7 +71,8 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
 - ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。網羅率の計測設定はない。
-- `.github/workflows/ci.yml` は全ブランチの push と pull request で rustfmt、Clippy、テストを実行する。独立した型チェックコマンドは定義されていない。
+- `.github/workflows/ci.yml` は全ブランチの push と pull request で、Ubuntu の rustfmt・Clippy・テストと macOS のテストを実行する。独立した型チェックコマンドは定義されていない。
+- `.github/workflows/release.yml` は `v*` タグの push で、タグと `Cargo.toml` の版の一致、fmt・Clippy・テストを確認し、`x86_64-unknown-linux-musl` と `aarch64-apple-darwin` のバイナリを smoke test してから、アーカイブ・`SHA256SUMS`・ビルド来歴付きの下書き Release を作る。公開は下書きを確認してから手動で行う。
 
 ## Environment and Configuration
 

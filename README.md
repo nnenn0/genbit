@@ -2,14 +2,35 @@
 
 genbitはRust製の静的サイトジェネレーターです。MarkdownとTeraテンプレートから静的なHTMLを生成します。サイトの作成・ビルド・ローカルプレビューにNode.jsは不要です。
 
-現在は作者の[blog](https://memo.nnenn0.com/)での利用を中心に開発しています。ソースから試すことはできますが、crates.ioやビルド済みバイナリでの配布、対応OS・CPUの範囲はまだ定めていません。公開先はドメインのルートに配置し、記事の拡張子なしURLを配信できる必要があります。
+genbitは作者が自分の[blog](https://memo.nnenn0.com/)のために作っている個人用のツールです。ソースとビルド済みバイナリは公開していますが、作者のblogに必要な変更を優先して、これからも仕様を大きく変えていきます。設定・フロントマター・テンプレート変数・URL・生成物の構成は、どの版の更新でも互換性なく変わる可能性があります。移行手順の提供、サポート、機能要望への対応は約束しません。使う場合はバージョンを固定し、更新時は変更内容を確認してください。
+
+公開先はドメインのルートに配置し、記事の拡張子なしURLを配信できる必要があります。制限の一覧は[既知の制限](#既知の制限)を参照してください。
+
+## インストール
+
+[GitHub Releases](https://github.com/nnenn0/genbit/releases)でビルド済みバイナリを配布しています。対象はLinux x86_64（`x86_64-unknown-linux-musl`、静的リンク）とmacOS Apple Silicon（`aarch64-apple-darwin`）です。Windowsとその他のCPUには対応していません。
+
+```sh
+VERSION=v0.1.0
+TARGET=aarch64-apple-darwin # Linuxでは x86_64-unknown-linux-musl
+curl -fsSLO "https://github.com/nnenn0/genbit/releases/download/$VERSION/genbit-$VERSION-$TARGET.tar.gz"
+curl -fsSLO "https://github.com/nnenn0/genbit/releases/download/$VERSION/SHA256SUMS"
+shasum -a 256 --check --ignore-missing SHA256SUMS
+tar -xzf "genbit-$VERSION-$TARGET.tar.gz"
+install "genbit-$VERSION-$TARGET/genbit" ~/.local/bin/
+```
+
+`~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。アーカイブにはGitHub Actionsのビルド来歴を付けています。GitHub CLIがあれば `gh attestation verify "genbit-$VERSION-$TARGET.tar.gz" --repo nnenn0/genbit` で、このリポジトリのワークフローがビルドしたことを確認できます。macOSのバイナリは署名・公証していません。ブラウザーでダウンロードして実行を拒否された場合は、`xattr -d com.apple.quarantine genbit` で隔離属性を外してください。
+
+Rust 1.98.1のCargoが使える環境では、ソースからもインストールできます。
+
+```sh
+cargo install --locked --git https://github.com/nnenn0/genbit --tag v0.1.0
+```
 
 ## 使い方
 
-Rust 1.98.1のCargoが使える環境では、このリポジトリからCLIをインストールできます。以下の手順はDocker内のLinux環境で確認済みです。
-
 ```sh
-cargo install --path .
 genbit new my-blog
 cd my-blog
 genbit dev
@@ -103,6 +124,16 @@ Markdownの言語指定付きコードブロックには、指定した言語名
 CSSは各HTMLへインライン展開され、HTMLとともに圧縮されます。`styles/common.css` は全ページへ適用する共通CSSです。任意でテンプレートと同じ相対パス・拡張子を `.css` に替えたCSS（例: `templates/page.html` に対する `styles/page.css`）を置くと、そのテンプレートを使うページだけに追加でインライン展開されます。初期CSSは落ち着いた淡色の背景、狭めの本文幅、広めの行間を使い、OSのダークモード設定には `prefers-color-scheme` で追従します。手動切り替え用のJavaScriptはありません。`new` で作成済みのサイトのCSSやテンプレートは自動更新されません。Markdown画像には `loading="lazy"` と `decoding="async"` を付けます。現段階では画像ファイル自体の圧縮とコードのシンタックスハイライトは実装していません。生成HTMLのサイズは記事・テンプレート・CSSの内容によって変わります。
 
 `config.toml` と `content/`・`templates/`・`styles/`・`static/` 以下の入力ファイルにはシンボリックリンクを使えません。CSSファイル自体だけでなく、その親ディレクトリがシンボリックリンクの場合もビルドを拒否します。テンプレート別の任意CSSがない場合は、そのままビルドできます。
+
+## 既知の制限
+
+- 公開先はドメインのルートに限ります。サブパス（例: `https://example.com/blog/`）への配置には対応していません。
+- 記事URLは拡張子なし（`/entries/hello-world`）です。公開先が `.html` ファイルをこのURLで配信できる必要があります。
+- `dev` が再ビルド後に `dist/` を切り替える瞬間には、独立したHTTPリクエストが一時的に404になる場合があります。自動再読み込みは切り替え後に行うため、通常の編集では影響しません。
+- `build` や `dev` が `dist/` を切り替えている最中にプロセスを強制終了すると、`dist/` がなくなり、旧出力がサイト直下の `.genbit-backup-*/dist` に残る場合があります。自動復旧はしませんが、もう一度 `build` すれば `dist/` を作り直せます。残った `.genbit-build-*` と `.genbit-backup-*` は削除して構いません。
+- 初期テンプレートは日本語で、`<html lang="ja">` を固定で出力します。他の言語で使う場合は `templates/base.html` を編集してください。
+- 画像ファイルの圧縮とコードのシンタックスハイライトは行いません。
+- ビルド済みバイナリはLinux x86_64とmacOS Apple Siliconだけです。Windowsには対応していません。
 
 ## Dockerでの開発
 
