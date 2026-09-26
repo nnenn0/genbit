@@ -80,4 +80,14 @@ tags = ["react", "web-security"]
 
 ### 画像
 
-Markdownの画像には `loading="lazy"` と `decoding="async"` を付けます。画像ファイルは最適化せずにそのままコピーします。
+Markdownの画像には `loading="lazy"` と `decoding="async"` を付けます。
+
+genbitは画像ファイルを変換しません。`static/` に置いた画像は、形式・寸法・ファイル名を変えずに `dist/` へコピーします。転送量を減らしたい場合は、`static/` に置く前に外部ツールで事前に処理してください。処理の例を次に挙げます。
+
+- 表示する幅より大きな画像の縮小
+- 写真のWebP・AVIFへの変換
+- 図やスクリーンショットのPNGの可逆圧縮
+
+ツールには `cwebp`、`avifenc`、`oxipng`、ImageMagickなどがあります。変換前の画像は `static/` の外に保管してください。`static/` 以下のファイルはすべて公開されます。
+
+形式を出し分けたい場合は、Markdownに `<picture>` 要素を直接書けます。直接書いたHTMLはそのまま出力され、`loading` と `decoding` は付きません。
