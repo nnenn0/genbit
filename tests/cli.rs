@@ -151,6 +151,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "templates/tags.html",
         "templates/tag.html",
         "templates/404.html",
+        "templates/entry-list.html",
         "styles/common.css",
         "styles/page.css",
         "styles/root.css",

@@ -39,7 +39,9 @@ my-blog/
 │   ├── page.html
 │   ├── root.html
 │   ├── tags.html
-│   └── tag.html
+│   ├── tag.html
+│   ├── entry-list.html
+│   └── 404.html
 ├── styles/
 │   ├── common.css
 │   ├── page.css
@@ -88,7 +90,7 @@ tags = ["react", "web-security"]
 
 記事と静的ファイルが同じ配信URLを使う構成はビルド時に拒否します。たとえば `content/foo.md` と `static/foo` はどちらも `/foo` を使い、`static/foo/index.html` も `/foo` からのディレクトリアクセスと競合します。`.html` の直接URLと、開発サーバーで使う拡張子なしURLも検査します。`/__genbit` とその配下は開発サーバー用の予約URLなので、記事や静的ファイルには使えません。衝突時は旧 `dist/` を更新しません。
 
-全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）と `css` を参照できます。トップページ・記事・タグページのテンプレートには `description`、`canonical_url`、`json_ld` も渡されます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。タグ一覧の `tags.html` には `tags`（各要素に `name`、`url`、`count`）が、タグ別の `tag.html` には `tag` と作成日時順の `entries` が渡されます。404用テンプレートには `site` と `css` だけを渡します。初期テンプレートは `base.html` の `metadata` ブロックを上書きして `noindex` を指定し、canonical・OGP・JSON-LDを出しません。テンプレートに渡す `created_at` と `updated_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
+全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）と `css` を参照できます。トップページ・記事・タグページのテンプレートには `description`、`canonical_url`、`json_ld` も渡されます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。タグ一覧の `tags.html` には `tags`（各要素に `name`、`url`、`count`）が、タグ別の `tag.html` には `tag` と作成日時順の `entries` が渡されます。初期テンプレートの `entry-list.html` は `root.html` と `tag.html` が `{% include %}` で共有する記事一覧の部品で、`entries` をそのまま使います。一覧のスタイルは `common.css` の `.entry-list` にあります。404用テンプレートには `site` と `css` だけを渡します。初期テンプレートは `base.html` の `metadata` ブロックを上書きして `noindex` を指定し、canonical・OGP・JSON-LDを出しません。テンプレートに渡す `created_at` と `updated_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
 
 記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは `.md` を取り除きます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
 

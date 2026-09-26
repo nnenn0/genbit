@@ -4,10 +4,6 @@
 {% block og_type %}website{% endblock og_type %}
 {% block main %}
 <h1>{{ tag }}</h1>
-<ul>
-  {% for entry in entries %}
-  <li><a href="{{ entry.url }}">{{ entry.title }}</a><time datetime="{{ entry.created_at }}">{{ entry.created_at }}</time></li>
-  {% endfor %}
-</ul>
+{% include "entry-list.html" %}
 <p class="tags-link"><a href="/tags/">タグ一覧</a></p>
 {% endblock main %}
