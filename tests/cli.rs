@@ -57,6 +57,34 @@ fn build_site(site: &Path) -> Result<Output> {
     run_genbit(site, &["build"])
 }
 
+const DEFAULT_CONFIG: [(&str, &str); 4] = [
+    ("title", "'Blog'"),
+    ("description", "'Blog articles'"),
+    ("site_url", "'https://example.com/'"),
+    ("og_image", "'/assets/img/ogp.png'"),
+];
+
+/// Writes `config.toml` from `DEFAULT_CONFIG`. Each override replaces a field
+/// with a raw TOML value, or removes it when the value is `None`.
+fn write_config(site: &Path, overrides: &[(&str, Option<&str>)]) -> Result<()> {
+    let mut fields = DEFAULT_CONFIG.to_vec();
+    for &(key, value) in overrides {
+        fields.retain(|&(name, _)| name != key);
+        if let Some(value) = value {
+            fields.push((key, value));
+        }
+    }
+    let mut source = String::new();
+    for (key, value) in fields {
+        source.push_str(key);
+        source.push_str(" = ");
+        source.push_str(value);
+        source.push('\n');
+    }
+    let path = site.join("config.toml");
+    fs::write(&path, source).with_context(|| format!("cannot write {}", path.display()))
+}
+
 fn read_sse_until(
     stream: &mut TcpStream,
     data: &mut Vec<u8>,
@@ -393,11 +421,8 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
         "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Heading\n",
     )?;
 
-    for invalid_config in [
-        "title = 'Blog'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
-        "title = 'Blog'\ndescription = '  '\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
-    ] {
-        fs::write(site.join("config.toml"), invalid_config)?;
+    for description in [None, Some("'  '")] {
+        write_config(&site, &[("description", description)])?;
         let invalid = build_site(&site)?;
         assert!(!invalid.status.success());
         assert!(String::from_utf8_lossy(&invalid.stderr).contains("description"));
@@ -417,10 +442,7 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
     assert!(home.contains("rel=canonical"), "{home}");
     assert!(home.contains("http://127.0.0.1:3000/"), "{home}");
 
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
-    )?;
+    write_config(&site, &[])?;
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/another.md"),
@@ -489,16 +511,10 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     let build = || build_site(&site);
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
-    )?;
+    write_config(&site, &[])?;
     assert!(build()?.status.success());
     let original = fs::read_to_string(site.join("dist/sitemap.xml"))?;
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nog_image = '/assets/img/ogp.png'\n",
-    )?;
+    write_config(&site, &[("site_url", None)])?;
     let missing = build()?;
     assert!(!missing.status.success());
     assert!(String::from_utf8_lossy(&missing.stderr).contains("site_url"));
@@ -511,21 +527,13 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
         "https://example.com/?q=1",
         "https://example.com/#fragment",
     ] {
-        fs::write(
-            site.join("config.toml"),
-            format!(
-                "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = '{invalid_url}'\nog_image = '/assets/img/ogp.png'\n"
-            ),
-        )?;
+        write_config(&site, &[("site_url", Some(&format!("'{invalid_url}'")))])?;
         let output = build()?;
         assert!(!output.status.success(), "accepted {invalid_url}");
         assert!(String::from_utf8_lossy(&output.stderr).contains("site_url"));
         assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     }
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\n",
-    )?;
+    write_config(&site, &[("og_image", None)])?;
     let missing_og_image = build()?;
     assert!(!missing_og_image.status.success());
     assert!(String::from_utf8_lossy(&missing_og_image.stderr).contains("og_image"));
@@ -537,28 +545,26 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
         "https://user@example.com/ogp.png",
         "/assets/img/ogp.png#fragment",
     ] {
-        fs::write(
-            site.join("config.toml"),
-            format!(
-                "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '{invalid_og_image}'\n"
-            ),
+        write_config(
+            &site,
+            &[("og_image", Some(&format!("'{invalid_og_image}'")))],
         )?;
         let output = build()?;
         assert!(!output.status.success(), "accepted {invalid_og_image}");
         assert!(String::from_utf8_lossy(&output.stderr).contains("og_image"));
         assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     }
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = 'https://cdn.example.com/social/card.png'\n",
+    write_config(
+        &site,
+        &[(
+            "og_image",
+            Some("'https://cdn.example.com/social/card.png'"),
+        )],
     )?;
     assert!(build()?.status.success());
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("https://cdn.example.com/social/card.png"));
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
-    )?;
+    write_config(&site, &[])?;
     fs::write(site.join("static/sitemap.xml"), "conflict")?;
     let output = build()?;
     assert!(!output.status.success());
@@ -572,9 +578,12 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     let build = || build_site(&site);
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Tom & Jerry <Blog>'\ndescription = 'Notes'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\ntimezone = '+09:00'\n",
+    write_config(
+        &site,
+        &[
+            ("title", Some("'Tom & Jerry <Blog>'")),
+            ("timezone", Some("'+09:00'")),
+        ],
     )?;
     fs::write(
         site.join("content/entries/older.md"),
@@ -591,7 +600,7 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
         feed.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\""),
         "{feed}"
     );
-    assert!(feed.contains("<title>Tom &amp; Jerry &lt;Blog&gt;</title>\n    <link>https://example.com/</link>\n    <description>Notes</description>"), "{feed}");
+    assert!(feed.contains("<title>Tom &amp; Jerry &lt;Blog&gt;</title>\n    <link>https://example.com/</link>\n    <description>Blog articles</description>"), "{feed}");
     assert!(feed.contains("<title>Older &lt;post&gt;</title>"), "{feed}");
     assert!(
         feed.contains("<description>Fish &amp; chips</description>"),
@@ -631,18 +640,12 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
     assert!(home.contains("<a href=/feed.xml>RSS</a>"), "{home}");
 
     let original = feed;
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Notes'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\ntimezone = 'Asia/Tokyo'\n",
-    )?;
+    write_config(&site, &[("timezone", Some("'Asia/Tokyo'"))])?;
     let invalid = build()?;
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("timezone"));
     assert_eq!(fs::read_to_string(site.join("dist/feed.xml"))?, original);
-    fs::write(
-        site.join("config.toml"),
-        "title = 'Blog'\ndescription = 'Notes'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
-    )?;
+    write_config(&site, &[])?;
     fs::write(site.join("static/feed.xml"), "conflict")?;
     let collision = build()?;
     assert!(!collision.status.success());
