@@ -11,6 +11,8 @@ docker compose run --rm cli test --locked --all-targets --all-features
 
 CIはpull requestと `main` へのpushで動き、Ubuntuでfmt・Clippy・テストを、macOSでテストを実行します。PRを作っていないブランチへのpushではCIは動きません。依存のビルド結果は `main` の実行でキャッシュし、PRはそのキャッシュを使います。
 
+依存は `.github/workflows/deny.yml` がcargo-denyで検査します。設定は `deny.toml` で、脆弱性などの勧告、許可していないライセンス、crates.io以外の取得元があると失敗します。勧告は依存を変えなくても後から出るため、週1回の定期実行でも検査します。影響がないと判断した勧告は、`deny.toml` の `ignore` に理由と一緒に追加してください。
+
 Rustの版は `rust-toolchain.toml` で固定しています。版を上げるときは、`rust-toolchain.toml` の `channel`、`Cargo.toml` の `rust-version`、`Dockerfile` の `FROM rust:<版>-bookworm` を同時に変更してください。3か所が一致しないとCIが失敗します。Dependabotは `Dockerfile` だけを更新するため、その更新PRはCIで止まります。
 
 `v*` タグをpushするとリリース用のワークフローが動き、バイナリをビルドしてGitHub Releaseの下書きを作ります。

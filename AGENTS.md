@@ -39,7 +39,7 @@
 | `src/dev.rs` | ポート確保、監視登録、初回ビルド、単一の再ビルド処理、静的配信、SSE リロード。`build` と同じ生成経路を使う。 |
 | `tests/cli.rs` | 一時ディレクトリで実行バイナリを起動する E2E テスト。入出力形式や保護動作を変更するときの主な確認先。 |
 | `README.md`、`docs/` | 利用者向けの概要と仕様。README は概要・インストール・既知の制限、`docs/` は設定・コンテンツ・テンプレート・出力・開発の詳細。`docs/assets/` の画像は README 用。 |
-| `.github/workflows/ci.yml`、`.github/workflows/release.yml`、`Dockerfile`、`compose.yaml` | CI、バイナリのリリース、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
+| `.github/workflows/ci.yml`、`.github/workflows/deny.yml`、`.github/workflows/release.yml`、`deny.toml`、`Dockerfile`、`compose.yaml` | CI、依存の検査、バイナリのリリース、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
 
 ## Architecture and Data Flow
 
@@ -73,6 +73,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
 - ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。`tests/cli.rs` ではビルドの成否を `build_ok` / `build_err`（失敗時の stderr を返す）で確認し、記事は既定のフロントマターに差分を重ねる `article_source` で組み立てる。網羅率の計測設定はない。
 - `.github/workflows/ci.yml` は pull request と `main` への push で、Ubuntu の rustfmt・Clippy・テストと macOS のテストを実行する。PR ブランチへの push だけでは動かない。PR では新しい push で古い実行を取り消す。依存のビルド結果は `Swatinem/rust-cache` でキャッシュし、保存は `main` の実行だけが行う。独立した型チェックコマンドは定義されていない。
+- `.github/workflows/deny.yml` は pull request、`main` への push、週 1 回の定期実行で、`deny.toml` に従って cargo-deny を実行する。脆弱性・保守終了・yank の勧告、許可リスト外のライセンス、crates.io 以外の取得元を拒否する。勧告を無視するときは `deny.toml` の `ignore` に理由を書く。
 - `.github/workflows/release.yml` は `v*` タグの push で、タグと `Cargo.toml` の版の一致、fmt・Clippy・テストを確認し、`x86_64-unknown-linux-musl` と `aarch64-apple-darwin` のバイナリを smoke test してから、アーカイブ・`SHA256SUMS`・Artifact Attestations 付きの下書き Release を作る。公開は下書きを確認してから手動で行う。
 
 ## Environment and Configuration
@@ -87,6 +88,6 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - 作業前に対象モジュール、呼び出し元、関連する `tests/cli.rs` と `scaffold/` を読む。変更後はドキュメント上の説明と生成結果を照合する。
 - 入力サイトの構造、テンプレート変数、フロントマター、URL、`dist/` の保護は利用者向けの仕様として扱う。変更時は `docs/`（必要なら README）と初期素材を更新し、エラーとデータ保護のテストを追加する。
 - 必要な範囲だけ変更し、既存の `Result` とパス付きエラー、厳格な lint を維持する。新規依存は用途と既存依存で代替できない理由を確認する。
-- `scaffold/` は公開してよい初期値だけを置く。利用者サイトの実データ、秘密情報、実際の `.env` をこのリポジトリへ追加しない。`Cargo.lock` を管理し、依存更新は意図して行う。
+- `scaffold/` は公開してよい初期値だけを置く。利用者サイトの実データ、秘密情報、実際の `.env` をこのリポジトリへ追加しない。`Cargo.lock` を管理し、依存更新は意図して行う。依存を追加して許可リスト外のライセンスが入る場合は、`deny.toml` を変える前に配布への影響を確認する。
 - Rust コード・依存・ビルド設定を変更したら、関連テストを整備して上記の fmt、Clippy、test を `--locked` で実行する。文書だけの変更なら内容と差分を確認する。実行できなかった検証はそのまま報告する。
 - 課題の説明を実装の事実と混同しない。Issue にある仮説・改善案は着手時に再検証し、解決したら経緯を残して Issue を閉じる。
