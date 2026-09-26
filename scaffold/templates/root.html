@@ -4,10 +4,10 @@
 {% block og_type %}website{% endblock og_type %}
 {% block header %}<h1>{{ site.title }}</h1>{% endblock header %}
 {% block main %}
-<p class="tags-link"><a href="/tags/">タグ一覧</a></p>
 <ul class="post-list">
   {% for entry in entries %}
   <li><a href="{{ entry.url }}">{{ entry.title }}</a><time datetime="{{ entry.created_at }}">{{ entry.created_at }}</time></li>
   {% endfor %}
 </ul>
+<p class="tags-link"><a href="/tags/">タグ一覧</a></p>
 {% endblock main %}
