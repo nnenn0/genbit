@@ -55,13 +55,13 @@ my-blog/
 
 `config.toml` の必須項目はサイトの `title`、`description`、`site_url`、`og_image` です。`description` にはトップページの説明文を指定します。`new` が入れる説明文は仮の文章なので、公開前にサイトの内容に合わせて書き換えてください。トップページは `templates/root.html` から自動生成され、ブログタイトル・タグ一覧へのリンク・記事一覧を表示します。`content/root.md` は不要です。
 
-`site_url` も必須です。`new` はローカルプレビュー用の `http://127.0.0.1:3000/` を設定するため、公開前に正式なサイトURL（例: `https://example.com/`）へ変更してください。サイトをドメインのルートに置くHTTP(S)のURLだけを受け付けます。トップページと全記事に絶対URLの canonical リンクを出し、同じURLを列挙した `dist/sitemap.xml` と、その Sitemap を案内する `dist/robots.txt` を生成します。sitemapの記事URLには、`updated_at` があればその日付、なければ `created_at` の日付を `<lastmod>` として出力します。記事URLは拡張子なしの `/entries/hello-world` を使うため、公開先もそのURLを配信する必要があります。サブパス配信にはまだ対応していません。
+`site_url` も必須です。`new` はローカルプレビュー用の `http://127.0.0.1:3000/` を設定するため、公開前に正式なサイトURL（例: `https://example.com/`）へ変更してください。サイトをドメインのルートに置くHTTP(S)のURLだけを受け付けます。トップページと全記事に絶対URLの canonical リンクを出し、同じURLを列挙した `dist/sitemap.xml` と、その Sitemap を案内する `dist/robots.txt` を生成します。sitemapの記事URLには、`updated_at` の日付を `<lastmod>` として出力します。記事URLは拡張子なしの `/entries/hello-world` を使うため、公開先もそのURLを配信する必要があります。サブパス配信にはまだ対応していません。
 
 `og_image` にはトップページと全記事で共通して使うOGP画像を指定します。`new` は1200×630ピクセルの `static/assets/img/ogp.png` と、それを指すルート相対URL `/assets/img/ogp.png` を用意します。ルート相対URLはビルド時に `site_url` と結合されます。外部サービスに置いた画像を使う場合は、HTTP(S)の絶対URLも指定できます。生成ページにはOpen Graphメタデータを出力し、トップページには `WebSite`、記事ページには `BlogPosting` のJSON-LD構造化データを出力します。記事単位のOGP画像と著者情報には対応していません。作成済みのサイトは自動更新されないため、`config.toml` への `og_image` 追加とテンプレートへのメタデータ追加が必要です。
 
 `new` はfaviconとして96×96ピクセルのPNGとSVGを用意します。初期テンプレートではPNGを先に指定し、SVG対応ブラウザー向けの候補も併記します。作成済みのサイトは自動更新されないため、必要に応じてPNGの追加と `templates/base.html` の変更を行ってください。
 
-記事のMarkdownにはTOMLフロントマターで `created_at` を必ず指定します。`updated_at` は任意です。どちらも引用符なしのTOMLローカル日時（`YYYY-MM-DD HH:MM`）を使い、日付のみや秒付きの値は受け付けません。日付と時刻の間は `T` でも構いません。時差変換はせず、`updated_at` は `created_at` 以降の日時を指定します。画面とsitemapには日付だけを出力します。自分で記事を追加するときは執筆日と時刻を入力してください。`new` が作るサンプル記事の日時は固定の例なので、記事を使う場合は実際の日時へ書き換えてください。
+記事のMarkdownにはTOMLフロントマターで `created_at` と `updated_at` を必ず指定します。更新していない記事では `updated_at` に `created_at` と同じ日時を指定します。どちらも引用符なしのTOMLローカル日時（`YYYY-MM-DD HH:MM`）を使い、日付のみや秒付きの値は受け付けません。日付と時刻の間は `T` でも構いません。時差変換はせず、`updated_at` は `created_at` 以降の日時を指定します。画面とsitemapには日付だけを出力します。自分で記事を追加するときは執筆日と時刻を入力してください。`new` が作るサンプル記事の日時は固定の例なので、記事を使う場合は実際の日時へ書き換えてください。
 
 ```markdown
 +++
@@ -78,13 +78,13 @@ tags = ["react", "web-security"]
 
 記事の `description` は必須です。記事を書いた後、その内容を説明する文章をフロントマターに指定してください。本文からの自動生成や文字数による切り詰めは行いません。検索結果に表示される文章は検索エンジン側で決まります。
 
-`tags` は省略可能な文字列の配列です。タグ名は英小文字・数字からなる語をハイフンでつないだ形式（例: `react-19`）に限り、同じ記事内で重複できません。`untagged` は予約語です。`templates/tags.html` と `templates/tag.html` から `/tags/` と `/tags/{tag}/` を生成し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示します。タグページの記事はトップページと同じ作成日時順です。
+`tags` は省略可能な文字列の配列です。タグ名は英小文字・数字からなる語をハイフンでつないだ形式（例: `react-19`）に限り、同じ記事内で重複できません。`untagged` は予約語です。`templates/tags.html` と `templates/tag.html` から `/tags/` と `/tags/{tag}/` を生成し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示し、テンプレートに渡す `tags` は `["untagged"]` になります。タグページの記事はトップページと同じ作成日時順です。
 
-`content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、記事URLは `/entries/hello-world` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。拡張子なしのURLで配信するには、ホスティングサービス側が `.html` ファイルを対応づける必要があります。`genbit dev` では拡張子なしのURLを配信します。トップページには記事の作成日とタイトルを作成日時の新しい順に並べます。同じ日時の記事はURL順です。`static/` のファイルはそのままコピーされます。初期テンプレートは記事ページに公開日を表示し、`updated_at` があれば更新日も表示します。生成サイトのテンプレートとCSSは自由に編集できます。
+`content/entries/hello-world.md` は `dist/entries/hello-world.html` になり、記事URLは `/entries/hello-world` です。コンテンツのディレクトリ構造を保ったまま、Markdownの拡張子を `.html` へ替えて出力します。拡張子なしのURLで配信するには、ホスティングサービス側が `.html` ファイルを対応づける必要があります。`genbit dev` では拡張子なしのURLを配信します。トップページには記事の作成日とタイトルを作成日時の新しい順に並べます。同じ日時の記事はURL順です。`static/` のファイルはそのままコピーされます。初期テンプレートは記事ページに `created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。生成サイトのテンプレートとCSSは自由に編集できます。
 
 記事と静的ファイルが同じ配信URLを使う構成はビルド時に拒否します。たとえば `content/foo.md` と `static/foo` はどちらも `/foo` を使い、`static/foo/index.html` も `/foo` からのディレクトリアクセスと競合します。`.html` の直接URLと、開発サーバーで使う拡張子なしURLも検査します。`/__genbit` とその配下は開発サーバー用の予約URLなので、記事や静的ファイルには使えません。衝突時は旧 `dist/` を更新しません。
 
-全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）と `css` を参照できます。トップページ・記事・タグページのテンプレートには `description`、`canonical_url`、`json_ld` も渡されます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。タグ一覧の `tags.html` には `tags`（各要素に `name`、`url`、`count`）が、タグ別の `tag.html` には `tag` と作成日時順の `entries` が渡されます。404用テンプレートには `site` と `css` だけを渡します。初期テンプレートは `base.html` の `metadata` ブロックを上書きして `noindex` を指定し、canonical・OGP・JSON-LDを出しません。テンプレートに渡す `created_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
+全テンプレートで `site`（`title`、`description`、`site_url`、絶対URLに解決済みの `og_image`）と `css` を参照できます。トップページ・記事・タグページのテンプレートには `description`、`canonical_url`、`json_ld` も渡されます。トップページの `root.html` には作成日時順の `entries` が渡され、各要素に `title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。記事テンプレートには同じ項目を持つ `article` と、MarkdownをHTMLに変換した `content` が渡されます。タグ一覧の `tags.html` には `tags`（各要素に `name`、`url`、`count`）が、タグ別の `tag.html` には `tag` と作成日時順の `entries` が渡されます。404用テンプレートには `site` と `css` だけを渡します。初期テンプレートは `base.html` の `metadata` ブロックを上書きして `noindex` を指定し、canonical・OGP・JSON-LDを出しません。テンプレートに渡す `created_at` と `updated_at` は日付（`YYYY-MM-DD`）なので、表示形式は変わりません。
 
 記事中の相対リンクで `.md` ファイルを指定すると、生成HTMLでは `.md` を取り除きます。例えば同じディレクトリの記事への `[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
 

@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    content::{Article, LocalDateTime},
+    content::Article,
     input::SiteInput,
     output::Artifact,
     route::{TAGS_INDEX_URL, UNTAGGED_TAG, tag_url},
@@ -25,8 +25,8 @@ struct PublicArticle<'a> {
     description: &'a str,
     url: &'a str,
     created_at: String,
-    updated_at: Option<String>,
-    tags: &'a [String],
+    updated_at: String,
+    tags: Vec<&'a str>,
 }
 
 impl<'a> From<&'a Article> for PublicArticle<'a> {
@@ -36,8 +36,12 @@ impl<'a> From<&'a Article> for PublicArticle<'a> {
             description: &article.description,
             url: article.route.url(),
             created_at: article.created_at.date_string(),
-            updated_at: article.updated_at.map(LocalDateTime::date_string),
-            tags: &article.tags,
+            updated_at: article.updated_at.date_string(),
+            tags: if article.tags.is_empty() {
+                vec![UNTAGGED_TAG]
+            } else {
+                article.tags.iter().map(String::as_str).collect()
+            },
         }
     }
 }
@@ -359,7 +363,7 @@ mod tests {
             "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'http://127.0.0.1:3000/'\nog_image = '/assets/img/ogp.png'\n",
         )?;
         let articles = [content::parse(
-            "+++\ncreated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
+            "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
             Path::new("post.md"),
         )?];
         let entries = articles.iter().map(PublicArticle::from).collect::<Vec<_>>();
@@ -390,7 +394,7 @@ mod tests {
         let value = serde_json::to_value(&public)?;
         let fields = value.as_object().context("article view is not an object")?;
         assert_eq!(fields.len(), 6);
-        assert_eq!(fields.get("tags"), Some(&serde_json::json!([])));
+        assert_eq!(fields.get("tags"), Some(&serde_json::json!(["untagged"])));
         assert_eq!(
             fields.get("url").and_then(serde_json::Value::as_str),
             Some("/post")
@@ -399,7 +403,10 @@ mod tests {
             fields.get("created_at").and_then(serde_json::Value::as_str),
             Some("2026-09-17")
         );
-        assert_eq!(fields.get("updated_at"), Some(&serde_json::Value::Null));
+        assert_eq!(
+            fields.get("updated_at").and_then(serde_json::Value::as_str),
+            Some("2026-09-17")
+        );
         Ok(())
     }
 }

@@ -2,17 +2,14 @@
 {% block main %}
 <article>
   <h1><a class="heading-anchor" href="{{ article.url }}">{{ article.title }}</a></h1>
-  {% if article.updated_at %}
-  <div class="article-dates">
-    <time datetime="{{ article.created_at }}">公開: {{ article.created_at }}</time>
-    <time datetime="{{ article.updated_at }}">更新: {{ article.updated_at }}</time>
-  </div>
-  {% else %}
-  <time datetime="{{ article.created_at }}">{{ article.created_at }}</time>
-  {% endif %}
-  {% if article.tags %}<nav aria-label="記事のタグ" class="article-tags">
-    {% for tag in article.tags %}<a href="/tags/{{ tag }}/">{{ tag }}</a>{% endfor %}
-  </nav>{% endif %}
+  <dl class="article-meta">
+    <dt>created_at</dt>
+    <dd><time datetime="{{ article.created_at }}">{{ article.created_at }}</time></dd>
+    <dt>updated_at</dt>
+    <dd><time datetime="{{ article.updated_at }}">{{ article.updated_at }}</time></dd>
+    <dt>tags</dt>
+    <dd>{% for tag in article.tags %}<a href="/tags/{{ tag }}/">{{ tag }}</a>{% endfor %}</dd>
+  </dl>
   {{ content | safe }}
 </article>
 {% endblock main %}

@@ -1,6 +1,7 @@
-article > time { margin-bottom: 1.5rem; }
-.article-dates { margin-bottom: 1.5rem; }
-.article-tags { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; margin: -0.75rem 0 1.5rem; font-size: 0.875rem; }
+.article-meta { display: grid; grid-template-columns: max-content 1fr; gap: 0 0.5em; margin: 0 0 1.5rem; color: #666; font-size: 0.875rem; }
+.article-meta dt::after { content: ":"; }
+.article-meta dd { display: flex; flex-wrap: wrap; gap: 0 0.8rem; margin: 0; }
+.article-meta time { display: inline; font-size: inherit; }
 pre { overflow-x: auto; padding: 0.75rem; background: #f3f4f6; }
 .code-block { margin: 1em 0; background: #f3f4f6; }
 .code-language { display: block; width: fit-content; margin-top: 0.25rem; padding: 0.125rem 0.375rem; color: #666; background: #e7e9ed; font-size: 0.75rem; line-height: 1; }
@@ -12,4 +13,5 @@ img { max-width: 100%; height: auto; }
   pre { background: #292e36; }
   .code-block { background: #292e36; }
   .code-language { color: #a8afb9; background: #39404a; }
+  .article-meta { color: #a8afb9; }
 }

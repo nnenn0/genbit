@@ -78,7 +78,7 @@ pub(crate) struct Article {
     pub(crate) description: String,
     pub(crate) route: Route,
     pub(crate) created_at: LocalDateTime,
-    pub(crate) updated_at: Option<LocalDateTime>,
+    pub(crate) updated_at: LocalDateTime,
     pub(crate) template: String,
     pub(crate) tags: Vec<String>,
     pub(crate) html: String,
@@ -94,14 +94,12 @@ pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
         .and_then(|value| LocalDateTime::from_datetime(value, CREATED_AT_FORMAT))?;
     let updated_at = metadata
         .updated_at
-        .map(|value| LocalDateTime::from_datetime(value, UPDATED_AT_FORMAT))
-        .transpose()?;
-    if let Some(updated) = updated_at {
-        ensure!(
-            updated >= created_at,
-            "updated_at must not precede created_at"
-        );
-    }
+        .context("updated_at is required for articles")
+        .and_then(|value| LocalDateTime::from_datetime(value, UPDATED_AT_FORMAT))?;
+    ensure!(
+        updated_at >= created_at,
+        "updated_at must not precede created_at"
+    );
     let title = metadata.title.unwrap_or_else(|| {
         relative
             .file_stem()
@@ -232,6 +230,10 @@ mod tests {
                 "created_at is required",
             ),
             (
+                "+++\ncreated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Missing update",
+                "updated_at is required",
+            ),
+            (
                 "+++\ncreated_at = \"2026-09-17\"\ndescription = 'Post description'\n+++\n# Quoted date",
                 "created_at must be a TOML local date-time",
             ),
@@ -272,11 +274,11 @@ mod tests {
                 "updated_at must be a TOML local date-time",
             ),
             (
-                "+++\ncreated_at = 2026-09-17 00:00\ndescription = '  '\n+++\n# Empty description",
+                "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = '  '\n+++\n# Empty description",
                 "description must not be empty",
             ),
             (
-                "+++\ncreated_at = 2026-09-17 00:00\n+++\n# Missing description",
+                "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\n+++\n# Missing description",
                 "description is required",
             ),
         ] {
@@ -294,16 +296,10 @@ mod tests {
         )?;
         assert_eq!(article.created_at.date_string(), "2026-09-17");
         assert_eq!(article.created_at.minutes_of_day, 0);
-        assert_eq!(
-            article
-                .updated_at
-                .map(LocalDateTime::date_string)
-                .as_deref(),
-            Some("2026-09-22")
-        );
-        assert_eq!(article.updated_at.map(|date| date.minutes_of_day), Some(0));
+        assert_eq!(article.updated_at.date_string(), "2026-09-22");
+        assert_eq!(article.updated_at.minutes_of_day, 0);
         let article = parse(
-            "+++\ncreated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
+            "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
             Path::new("post.md"),
         )?;
         assert_eq!(article.created_at.date_string(), "2026-09-17");
@@ -314,12 +310,9 @@ mod tests {
         )?;
         assert_eq!(article.created_at.date_string(), "2026-09-17");
         assert_eq!(article.created_at.minutes_of_day, 10 * 60 + 30);
-        assert_eq!(
-            article.updated_at.map(|date| date.minutes_of_day),
-            Some(10 * 60 + 31)
-        );
+        assert_eq!(article.updated_at.minutes_of_day, 10 * 60 + 31);
         let midnight = parse(
-            "+++\ncreated_at = 2026-09-17T00:00\ndescription = 'Post description'\n+++\n# Post",
+            "+++\ncreated_at = 2026-09-17T00:00\nupdated_at = 2026-09-17T00:00\ndescription = 'Post description'\n+++\n# Post",
             Path::new("midnight.md"),
         )?;
         assert_eq!(midnight.created_at.minutes_of_day, 0);
@@ -328,11 +321,11 @@ mod tests {
 
     #[test]
     fn validates_tags() -> Result<()> {
-        let source = "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = ['react', 'react-19', 'web-security']\n+++\nBody";
+        let source = "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = ['react', 'react-19', 'web-security']\n+++\nBody";
         let article = parse(source, Path::new("post.md"))?;
         assert_eq!(article.tags, ["react", "react-19", "web-security"]);
         let untagged = parse(
-            "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Post'\n+++\nBody",
+            "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\n+++\nBody",
             Path::new("post.md"),
         )?;
         assert!(untagged.tags.is_empty());
@@ -349,7 +342,7 @@ mod tests {
             "['untagged']",
         ] {
             let source = format!(
-                "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\nBody"
+                "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\nBody"
             );
             assert!(
                 parse(&source, Path::new("post.md")).is_err(),
