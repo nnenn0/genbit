@@ -17,7 +17,8 @@ ignore = [
 ]
 
 [licenses]
-# genbit は MIT。配布バイナリに含まれてよいライセンスだけを許可する。
+# 現在の依存で使われているライセンスのうち、genbit を MIT で配布することと
+# 衝突しないものだけを許可する。これ以外のライセンスの依存が入ると失敗する。
 # MPL-2.0 は minify-html が使う lightningcss 系のクレートのライセンス。
 allow = [
     "0BSD",
