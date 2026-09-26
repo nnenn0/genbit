@@ -40,7 +40,7 @@
 | macOS Apple Silicon | `aarch64-apple-darwin` |
 
 ```sh
-VERSION=v0.1.0
+VERSION=v0.1.1
 TARGET=aarch64-apple-darwin # Linuxでは x86_64-unknown-linux-musl
 curl -fsSLO "https://github.com/nnenn0/genbit/releases/download/$VERSION/genbit-$VERSION-$TARGET.tar.gz"
 curl -fsSLO "https://github.com/nnenn0/genbit/releases/download/$VERSION/SHA256SUMS"
@@ -49,7 +49,7 @@ tar -xzf "genbit-$VERSION-$TARGET.tar.gz"
 install "genbit-$VERSION-$TARGET/genbit" ~/.local/bin/
 ```
 
-`~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。
+`~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。アーカイブには、genbitが含む依存クレートのライセンスをまとめた `THIRD_PARTY_LICENSES.md` も入っています。
 
 <details>
 <summary>Artifact Attestationsの検証、macOSのGatekeeper、ソースからのビルド</summary>
@@ -69,7 +69,7 @@ xattr -d com.apple.quarantine genbit
 Rust 1.98.1のCargoが使える環境では、ソースからもインストールできます。
 
 ```sh
-cargo install --locked --git https://github.com/nnenn0/genbit --tag v0.1.0
+cargo install --locked --git https://github.com/nnenn0/genbit --tag v0.1.1
 ```
 
 </details>

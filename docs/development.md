@@ -9,7 +9,22 @@ docker compose run --rm cli clippy --locked --all-targets --all-features -- -D w
 docker compose run --rm cli test --locked --all-targets --all-features
 ```
 
-CIはUbuntuでfmt・Clippy・テストを、macOSでテストを実行します。`v*` タグをpushするとリリース用のワークフローが動き、バイナリをビルドしてGitHub Releaseの下書きを作ります。
+CIはpull requestと `main` へのpushで動き、Ubuntuでfmt・Clippy・テストを、macOSでテストを実行します。PRを作っていないブランチへのpushではCIは動きません。依存のビルド結果は `main` の実行でキャッシュし、PRはそのキャッシュを使います。
+
+依存は `.github/workflows/deny.yml` がcargo-denyで検査します。設定は `deny.toml` で、脆弱性などの勧告、許可していないライセンス、crates.io以外の取得元があると失敗します。勧告は依存を変えなくても後から出るため、週1回の定期実行でも検査します。影響がないと判断した勧告は、`deny.toml` の `ignore` に理由と一緒に追加してください。
+
+Rustの版は `rust-toolchain.toml` で固定しています。版を上げるときは、`rust-toolchain.toml` の `channel`、`Cargo.toml` の `rust-version`、`Dockerfile` の `FROM rust:<版>-bookworm` を同時に変更してください。3か所が一致しないとCIが失敗します。Dependabotは `Dockerfile` だけを更新するため、その更新PRはCIで止まります。
+
+`v*` タグをpushするとリリース用のワークフローが動き、バイナリをビルドしてGitHub Releaseの下書きを作ります。
+
+配布アーカイブには、依存クレートの著作権表示とソースの入手先をまとめた `THIRD_PARTY_LICENSES.md` を同梱します。`scripts/third-party-licenses.sh` がcargo-aboutで生成し、内容は `about.toml` と `about.hbs` で決まります。依存を追加して `about.toml` の `accepted` にないライセンスが入ると生成が失敗します。`about.toml` の `accepted` と `deny.toml` の `allow` は同じ一覧にそろえてください。ずれていると `tests/license_lists.rs` のテストが失敗します。CIでも同じスクリプトと、release ビルドでの `scripts/smoke-test.sh` を実行するので、タグを打つ前に気づけます。
+
+手元で一覧を生成するには、CIと同じ版のcargo-aboutを入れてから実行します。
+
+```sh
+cargo install cargo-about --locked --version 0.9.2
+scripts/third-party-licenses.sh THIRD_PARTY_LICENSES.md
+```
 
 ## Dockerでサイトをプレビューする
 

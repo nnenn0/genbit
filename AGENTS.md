@@ -8,14 +8,14 @@
 
 ## Project Overview
 
-- genbit は Rust 製の静的サイトジェネレーター CLI（`Cargo.toml` の版は `0.1.0`）。Markdown 記事と Tera テンプレートから HTML を生成する。
+- genbit は Rust 製の静的サイトジェネレーター CLI（`Cargo.toml` の版は `0.1.1`）。Markdown 記事と Tera テンプレートから HTML を生成する。
 - 主な利用者は、CLI でサイトを新規作成し、自分のサイトの `config.toml`、記事、テンプレート、CSS、静的ファイルを編集・公開する人。サイト作成・ビルド・ローカルプレビューに Node.js は不要。
 - `new` がサイトの初期ファイルをコピーし、`build` が `dist/` を生成し、`dev` が再ビルド付きローカル配信を行う。生成サイトはこのリポジトリとは別ディレクトリで運用する。
 - 現状は基本的な生成・プレビュー機能がある初期段階。`README.md` は画像の最適化とシンタックスハイライトを未実装と明記している。初期CSSはOSの暗色設定に追従するが、手動切り替えはない。公開サービスや管理画面はこのリポジトリにない。
 
 ## Tech Stack
 
-- Rust 2024 edition、`rust-version = 1.98.1`。`Dockerfile` と GitHub Actions も Rust 1.98.1 を指定。依存関係は `Cargo.toml`、解決済み版は `Cargo.lock`。
+- Rust 2024 edition、`rust-version = 1.98.1`。ツールチェーンは `rust-toolchain.toml` で固定し、GitHub Actions はこれを使う。`Dockerfile` のイメージと `Cargo.toml` の `rust-version` は同じ版にそろえ、CI が一致を検査する。依存関係は `Cargo.toml`、解決済み版は `Cargo.lock`。
 - CLI: clap 4。エラー: anyhow。設定・データ: serde 1、toml 1。
 - 生成: pulldown-cmark 0.13、Tera 2、minify-html 0.18。開発サーバー: axum 0.8、Tokio 1、tower-http 0.7、notify 8、tokio-stream 0.1。出力の一時領域: tempfile 3。
 - DB、マイグレーション、フロントエンドのビルドシステムはない。ブラウザー用コードは生成 HTML と `dev` 専用の小さなリロードスクリプト。
@@ -38,8 +38,9 @@
 | `src/output.rs` | 出力計画で衝突を検査し、生成ファイルの書き込みと静的ファイルのコピーをステージングしてから `dist/` を入れ替える。データ保護に関わるため、既存 `dist/` の扱いを変える前にテストを読む。 |
 | `src/dev.rs` | ポート確保、監視登録、初回ビルド、単一の再ビルド処理、静的配信、SSE リロード。`build` と同じ生成経路を使う。 |
 | `tests/cli.rs` | 一時ディレクトリで実行バイナリを起動する E2E テスト。入出力形式や保護動作を変更するときの主な確認先。 |
+| `tests/license_lists.rs` | `deny.toml` の `allow` と `about.toml` の `accepted` が同じライセンスの一覧であることを検査する。 |
 | `README.md`、`docs/` | 利用者向けの概要と仕様。README は概要・インストール・既知の制限、`docs/` は設定・コンテンツ・テンプレート・出力・開発の詳細。`docs/assets/` の画像は README 用。 |
-| `.github/workflows/ci.yml`、`.github/workflows/release.yml`、`Dockerfile`、`compose.yaml` | CI、バイナリのリリース、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
+| `.github/workflows/ci.yml`、`.github/workflows/deny.yml`、`.github/workflows/release.yml`、`scripts/`、`deny.toml`、`about.toml`、`about.hbs`、`Dockerfile`、`compose.yaml` | CI、依存の検査、バイナリのリリース、配布物の smoke test と依存のライセンス一覧の生成、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
 
 ## Architecture and Data Flow
 
@@ -71,9 +72,10 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
-- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。網羅率の計測設定はない。
-- `.github/workflows/ci.yml` は全ブランチの push と pull request で、Ubuntu の rustfmt・Clippy・テストと macOS のテストを実行する。独立した型チェックコマンドは定義されていない。
-- `.github/workflows/release.yml` は `v*` タグの push で、タグと `Cargo.toml` の版の一致、fmt・Clippy・テストを確認し、`x86_64-unknown-linux-musl` と `aarch64-apple-darwin` のバイナリを smoke test してから、アーカイブ・`SHA256SUMS`・Artifact Attestations 付きの下書き Release を作る。公開は下書きを確認してから手動で行う。
+- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。`tests/cli.rs` ではビルドの成否を `build_ok` / `build_err`（失敗時の stderr を返す）で確認し、記事は既定のフロントマターに差分を重ねる `article_source` で組み立てる。網羅率の計測設定はない。
+- `.github/workflows/ci.yml` は pull request と `main` への push で、Ubuntu の rustfmt・Clippy・テスト、macOS のテスト、Ubuntu の release ビルドでの `scripts/smoke-test.sh` と `scripts/third-party-licenses.sh` を実行する。`scripts/*.sh` の shellcheck も検査する。PR ブランチへの push だけでは動かない。PR では新しい push で古い実行を取り消す。依存のビルド結果は `Swatinem/rust-cache` でキャッシュし、保存は `main` の実行だけが行う。独立した型チェックコマンドは定義されていない。
+- `.github/workflows/deny.yml` は pull request、`main` への push、週 1 回の定期実行で、`deny.toml` に従って cargo-deny を実行する。脆弱性・保守終了・yank の勧告、許可リスト外のライセンス、crates.io 以外の取得元を拒否する。勧告を無視するときは `deny.toml` の `ignore` に理由を書く。
+- `.github/workflows/release.yml` は `v*` タグの push で、タグと `Cargo.toml` の版の一致、fmt・Clippy・テストを確認し、`x86_64-unknown-linux-musl` と `aarch64-apple-darwin` のバイナリを `scripts/smoke-test.sh` で確認してから、アーカイブ・`SHA256SUMS`・Artifact Attestations 付きの下書き Release を作る。アーカイブには `scripts/third-party-licenses.sh` が cargo-about で生成する依存クレートのライセンス一覧 `THIRD_PARTY_LICENSES.md` を同梱する。cargo-about は `taiki-e/install-action` で版を固定して入れる（チェックサムはアクションが検証する）。公開は下書きを確認してから手動で行う。
 
 ## Environment and Configuration
 
@@ -87,6 +89,6 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - 作業前に対象モジュール、呼び出し元、関連する `tests/cli.rs` と `scaffold/` を読む。変更後はドキュメント上の説明と生成結果を照合する。
 - 入力サイトの構造、テンプレート変数、フロントマター、URL、`dist/` の保護は利用者向けの仕様として扱う。変更時は `docs/`（必要なら README）と初期素材を更新し、エラーとデータ保護のテストを追加する。
 - 必要な範囲だけ変更し、既存の `Result` とパス付きエラー、厳格な lint を維持する。新規依存は用途と既存依存で代替できない理由を確認する。
-- `scaffold/` は公開してよい初期値だけを置く。利用者サイトの実データ、秘密情報、実際の `.env` をこのリポジトリへ追加しない。`Cargo.lock` を管理し、依存更新は意図して行う。
+- `scaffold/` は公開してよい初期値だけを置く。利用者サイトの実データ、秘密情報、実際の `.env` をこのリポジトリへ追加しない。`Cargo.lock` を管理し、依存更新は意図して行う。依存を追加して許可リスト外のライセンスが入る場合は、`deny.toml` を変える前に配布への影響を確認する。
 - Rust コード・依存・ビルド設定を変更したら、関連テストを整備して上記の fmt、Clippy、test を `--locked` で実行する。文書だけの変更なら内容と差分を確認する。実行できなかった検証はそのまま報告する。
 - 課題の説明を実装の事実と混同しない。Issue にある仮説・改善案は着手時に再検証し、解決したら経緯を残して Issue を閉じる。

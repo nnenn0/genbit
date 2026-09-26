@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use std::{
     fs,
     io::{ErrorKind, Read, Write},
@@ -57,17 +57,34 @@ fn build_site(site: &Path) -> Result<Output> {
     run_genbit(site, &["build"])
 }
 
-const DEFAULT_CONFIG: [(&str, &str); 4] = [
-    ("title", "'Blog'"),
-    ("description", "'Blog articles'"),
-    ("site_url", "'https://example.com/'"),
-    ("og_image", "'/assets/img/ogp.png'"),
-];
+/// Runs `genbit build` and reports its stderr when the build fails.
+fn build_ok(site: &Path) -> Result<()> {
+    let output = build_site(site)?;
+    ensure!(
+        output.status.success(),
+        "genbit build failed in {}:\n{}",
+        site.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
 
-/// Writes `config.toml` from `DEFAULT_CONFIG`. Each override replaces a field
-/// with a raw TOML value, or removes it when the value is `None`.
-fn write_config(site: &Path, overrides: &[(&str, Option<&str>)]) -> Result<()> {
-    let mut fields = DEFAULT_CONFIG.to_vec();
+/// Runs `genbit build`, requires it to fail, and returns its stderr.
+fn build_err(site: &Path) -> Result<String> {
+    let output = build_site(site)?;
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    ensure!(
+        !output.status.success(),
+        "genbit build unexpectedly succeeded in {}:\n{stderr}",
+        site.display()
+    );
+    Ok(stderr)
+}
+
+/// Renders TOML lines from `defaults`. Each override replaces a field with a
+/// raw TOML value, or removes it when the value is `None`.
+fn toml_fields(defaults: &[(&str, &str)], overrides: &[(&str, Option<&str>)]) -> String {
+    let mut fields = defaults.to_vec();
     for &(key, value) in overrides {
         fields.retain(|&(name, _)| name != key);
         if let Some(value) = value {
@@ -81,8 +98,36 @@ fn write_config(site: &Path, overrides: &[(&str, Option<&str>)]) -> Result<()> {
         source.push_str(value);
         source.push('\n');
     }
+    source
+}
+
+const DEFAULT_CONFIG: [(&str, &str); 4] = [
+    ("title", "'Blog'"),
+    ("description", "'Blog articles'"),
+    ("site_url", "'https://example.com/'"),
+    ("og_image", "'/assets/img/ogp.png'"),
+];
+
+/// Writes `config.toml` from `DEFAULT_CONFIG` with `toml_fields` overrides.
+fn write_config(site: &Path, overrides: &[(&str, Option<&str>)]) -> Result<()> {
     let path = site.join("config.toml");
-    fs::write(&path, source).with_context(|| format!("cannot write {}", path.display()))
+    fs::write(&path, toml_fields(&DEFAULT_CONFIG, overrides))
+        .with_context(|| format!("cannot write {}", path.display()))
+}
+
+const DEFAULT_ARTICLE: [(&str, &str); 3] = [
+    ("created_at", "2026-09-17 00:00"),
+    ("updated_at", "2026-09-17 00:00"),
+    ("description", "'Test article'"),
+];
+
+/// Returns an article source whose front matter is `DEFAULT_ARTICLE` with
+/// `toml_fields` overrides.
+fn article_source(overrides: &[(&str, Option<&str>)], body: &str) -> String {
+    format!(
+        "+++\n{}+++\n{body}",
+        toml_fields(&DEFAULT_ARTICLE, overrides)
+    )
 }
 
 fn assert_sse_silent(stream: &mut TcpStream, timeout: Duration, server: &DevProcess) -> Result<()> {
@@ -262,28 +307,29 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ntitle = \"<Hello & world>\"\ncreated_at = 2026-09-17 00:00\ndescription = 'A post'\nupdated_at = 2026-09-22 00:00\n+++\n\n**A post**\n",
+        article_source(
+            &[
+                ("title", Some("\"<Hello & world>\"")),
+                ("description", Some("'A post'")),
+                ("updated_at", Some("2026-09-22 00:00")),
+            ],
+            "\n**A post**\n",
+        ),
     )?;
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/another.md"),
-        "+++\ncreated_at = 2026-09-16 00:00\nupdated_at = 2026-09-16 00:00\ndescription = 'Test article'\n+++\n# Another\n",
+        article_source(
+            &[
+                ("created_at", Some("2026-09-16 00:00")),
+                ("updated_at", Some("2026-09-16 00:00")),
+            ],
+            "# Another\n",
+        ),
     )?;
     fs::write(site.join("static/logo.png"), [0, 1, 2, 255])?;
-    let output = build_site(&site)?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     let home = fs::read_to_string(site.join("dist/index.html"))?;
-    let not_found = fs::read_to_string(site.join("dist/404.html"))?;
-    assert!(not_found.contains("<h1>404</h1>"), "{not_found}");
-    assert!(not_found.contains("<p>Not Found"), "{not_found}");
-    assert!(not_found.contains("name=robots"), "{not_found}");
-    assert!(not_found.contains("content=noindex"), "{not_found}");
-    assert!(!not_found.contains("rel=canonical"), "{not_found}");
-    assert!(!not_found.contains("application/ld+json"), "{not_found}");
     assert!(home.contains("<style>"));
     assert!(home.contains("prefers-color-scheme"), "{home}");
     assert!(home.contains("href=/assets/img/favicon.png"), "{home}");
@@ -355,19 +401,29 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
 }
 
 #[test]
+fn builds_not_found_page_without_indexing_metadata() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let not_found = fs::read_to_string(site.join("dist/404.html"))?;
+    assert!(not_found.contains("<h1>404</h1>"), "{not_found}");
+    assert!(not_found.contains("<p>Not Found"), "{not_found}");
+    assert!(not_found.contains("name=robots"), "{not_found}");
+    assert!(not_found.contains("content=noindex"), "{not_found}");
+    assert!(!not_found.contains("rel=canonical"), "{not_found}");
+    assert!(!not_found.contains("application/ld+json"), "{not_found}");
+    Ok(())
+}
+
+#[test]
 fn missing_404_template_fails_without_replacing_output() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    assert!(build_site(&site)?.status.success());
+    build_ok(&site)?;
     let previous = fs::read(site.join("dist/404.html"))?;
     fs::remove_file(site.join("templates/404.html"))?;
-    let output = build_site(&site)?;
-    assert!(
-        !output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("404.html"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("404.html"), "{stderr}");
     assert_eq!(fs::read(site.join("dist/404.html"))?, previous);
     Ok(())
 }
@@ -378,18 +434,26 @@ fn article_description_uses_front_matter_instead_of_body() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Chosen summary with quotes & friends'\n+++\n# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
+        article_source(
+            &[(
+                "description",
+                Some("'Chosen summary with quotes & friends'"),
+            )],
+            "# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
+        ),
     )?;
     fs::write(
         site.join("content/override.md"),
-        "+++\ncreated_at = 2026-09-18 00:00\nupdated_at = 2026-09-18 00:00\ndescription = 'Chosen summary'\n+++\nBody text.\n",
+        article_source(
+            &[
+                ("created_at", Some("2026-09-18 00:00")),
+                ("updated_at", Some("2026-09-18 00:00")),
+                ("description", Some("'Chosen summary'")),
+            ],
+            "Body text.\n",
+        ),
     )?;
-    let output = build_site(&site)?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     let article_head = article.split("<style>").next().context("missing head")?;
     assert!(article_head.contains("name=description"), "{article}");
@@ -415,14 +479,9 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Heading\n\n- List only\n",
+        article_source(&[], "# Heading\n\n- List only\n"),
     )?;
-    let build = build_site(&site)?;
-    assert!(
-        build.status.success(),
-        "{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
+    build_ok(&site)?;
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(home.contains("name=description"), "{home}");
@@ -431,25 +490,20 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
 
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\n+++\n# Heading\n",
+        article_source(&[("description", None)], "# Heading\n"),
     )?;
-    let missing_article_description = build_site(&site)?;
-    assert!(!missing_article_description.status.success());
-    assert!(
-        String::from_utf8_lossy(&missing_article_description.stderr)
-            .contains("description is required")
-    );
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("description is required"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Heading\n",
+        article_source(&[], "# Heading\n"),
     )?;
 
     for description in [None, Some("'  '")] {
         write_config(&site, &[("description", description)])?;
-        let invalid = build_site(&site)?;
-        assert!(!invalid.status.success());
-        assert!(String::from_utf8_lossy(&invalid.stderr).contains("description"));
+        let stderr = build_err(&site)?;
+        assert!(stderr.contains("description"), "{stderr}");
         assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, home);
     }
     Ok(())
@@ -459,8 +513,7 @@ fn descriptions_are_always_present_and_site_description_is_required() -> Result<
 fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let build = || build_site(&site);
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     assert!(site.join("dist/sitemap.xml").exists());
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("rel=canonical"), "{home}");
@@ -470,14 +523,15 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/another.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-22 00:00\ndescription = 'Another article'\n+++\nAnother article.\n",
+        article_source(
+            &[
+                ("updated_at", Some("2026-09-22 00:00")),
+                ("description", Some("'Another article'")),
+            ],
+            "Another article.\n",
+        ),
     )?;
-    let output = build()?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     for (file, canonical) in [
         ("dist/index.html", "https://example.com/"),
         (
@@ -534,14 +588,12 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
 fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let build = || build_site(&site);
     write_config(&site, &[])?;
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     let original = fs::read_to_string(site.join("dist/sitemap.xml"))?;
     write_config(&site, &[("site_url", None)])?;
-    let missing = build()?;
-    assert!(!missing.status.success());
-    assert!(String::from_utf8_lossy(&missing.stderr).contains("site_url"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("site_url"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     for invalid_url in [
         "example.com",
@@ -552,15 +604,13 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
         "https://example.com/#fragment",
     ] {
         write_config(&site, &[("site_url", Some(&format!("'{invalid_url}'")))])?;
-        let output = build()?;
-        assert!(!output.status.success(), "accepted {invalid_url}");
-        assert!(String::from_utf8_lossy(&output.stderr).contains("site_url"));
+        let stderr = build_err(&site).with_context(|| format!("accepted {invalid_url}"))?;
+        assert!(stderr.contains("site_url"), "{stderr}");
         assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     }
     write_config(&site, &[("og_image", None)])?;
-    let missing_og_image = build()?;
-    assert!(!missing_og_image.status.success());
-    assert!(String::from_utf8_lossy(&missing_og_image.stderr).contains("og_image"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("og_image"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     for invalid_og_image in [
         "assets/img/ogp.png",
@@ -573,9 +623,8 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
             &site,
             &[("og_image", Some(&format!("'{invalid_og_image}'")))],
         )?;
-        let output = build()?;
-        assert!(!output.status.success(), "accepted {invalid_og_image}");
-        assert!(String::from_utf8_lossy(&output.stderr).contains("og_image"));
+        let stderr = build_err(&site).with_context(|| format!("accepted {invalid_og_image}"))?;
+        assert!(stderr.contains("og_image"), "{stderr}");
         assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     }
     write_config(
@@ -585,14 +634,13 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
             Some("'https://cdn.example.com/social/card.png'"),
         )],
     )?;
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("https://cdn.example.com/social/card.png"));
     write_config(&site, &[])?;
     fs::write(site.join("static/sitemap.xml"), "conflict")?;
-    let output = build()?;
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("output collision"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("output collision"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     Ok(())
 }
@@ -601,7 +649,6 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
 fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let build = || build_site(&site);
     write_config(
         &site,
         &[
@@ -611,14 +658,17 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
     )?;
     fs::write(
         site.join("content/entries/older.md"),
-        "+++\ntitle = 'Older <post>'\ncreated_at = 2026-09-16 23:30\nupdated_at = 2026-09-30 12:00\ndescription = 'Fish & chips'\n+++\nOlder.\n",
+        article_source(
+            &[
+                ("title", Some("'Older <post>'")),
+                ("created_at", Some("2026-09-16 23:30")),
+                ("updated_at", Some("2026-09-30 12:00")),
+                ("description", Some("'Fish & chips'")),
+            ],
+            "Older.\n",
+        ),
     )?;
-    let output = build()?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     let feed = fs::read_to_string(site.join("dist/feed.xml"))?;
     assert!(
         feed.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\""),
@@ -665,18 +715,16 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
 
     let original = feed;
     write_config(&site, &[("timezone", Some("'Asia/Tokyo'"))])?;
-    let invalid = build()?;
-    assert!(!invalid.status.success());
-    assert!(String::from_utf8_lossy(&invalid.stderr).contains("timezone"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("timezone"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/feed.xml"))?, original);
     write_config(&site, &[])?;
     fs::write(site.join("static/feed.xml"), "conflict")?;
-    let collision = build()?;
-    assert!(!collision.status.success());
-    assert!(String::from_utf8_lossy(&collision.stderr).contains("output collision"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("output collision"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/feed.xml"))?, original);
     fs::remove_file(site.join("static/feed.xml"))?;
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     let utc = fs::read_to_string(site.join("dist/feed.xml"))?;
     assert!(
         utc.contains("<pubDate>Wed, 16 Sep 2026 23:30:00 +0000</pubDate>"),
@@ -691,19 +739,23 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
+        article_source(
+            &[],
+            "[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
+        ),
     )?;
     fs::write(
         site.join("content/entries/next.md"),
-        "+++\ncreated_at = 2026-09-18 00:00\nupdated_at = 2026-09-18 00:00\ndescription = 'Test article'\n+++\n# Next\n",
+        article_source(
+            &[
+                ("created_at", Some("2026-09-18 00:00")),
+                ("updated_at", Some("2026-09-18 00:00")),
+            ],
+            "# Next\n",
+        ),
     )?;
 
-    let build = build_site(&site)?;
-    assert!(
-        build.status.success(),
-        "{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
+    build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("href=\"next?view=full#details\""), "{html}");
     assert!(html.contains("href=https://example.com/next.md"), "{html}");
@@ -724,17 +776,17 @@ fn homepage_lists_articles_by_creation_date() -> Result<()> {
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
-            format!(
-                "+++\ntitle = \"{name}\"\ncreated_at = {date}\nupdated_at = {date}\ndescription = 'Test article'\n+++\n# {name}\n"
+            article_source(
+                &[
+                    ("title", Some(&format!("'{name}'"))),
+                    ("created_at", Some(date)),
+                    ("updated_at", Some(date)),
+                ],
+                &format!("# {name}\n"),
             ),
         )?;
     }
-    let output = build_site(&site)?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let newest = home
         .find("/entries/new")
@@ -763,17 +815,17 @@ fn generates_tag_pages_with_sorted_articles_and_sitemap_entries() -> Result<()> 
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
-            format!(
-                "+++\ncreated_at = {date}\nupdated_at = {date}\ndescription = 'Test article'\ntags = {tags}\n+++\n{name}"
+            article_source(
+                &[
+                    ("created_at", Some(date)),
+                    ("updated_at", Some(date)),
+                    ("tags", Some(tags)),
+                ],
+                name,
             ),
         )?;
     }
-    let output = build_site(&site)?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     let tags_index = fs::read_to_string(site.join("dist/tags/index.html"))?;
     assert!(tags_index.contains("href=/tags/rust/"), "{tags_index}");
     assert!(tags_index.contains("(2)"), "{tags_index}");
@@ -827,31 +879,29 @@ fn generates_tag_pages_with_sorted_articles_and_sitemap_entries() -> Result<()> 
 fn invalid_tags_and_generated_tag_url_collisions_preserve_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let initial = build_site(&site)?;
-    assert!(initial.status.success());
+    build_ok(&site)?;
     let original = fs::read_to_string(site.join("dist/tags/index.html"))?;
     let article_path = site.join("content/entries/invalid.md");
-    for tags in ["['React']", "['react', 'react']", "['untagged']"] {
+    for (tags, reason) in [
+        ("['React']", "invalid tag \"React\""),
+        ("['react', 'react']", "duplicate tag \"react\""),
+        ("['untagged']", "tag \"untagged\" is reserved"),
+    ] {
         fs::write(
             &article_path,
-            format!(
-                "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\ntags = {tags}\n+++\nBody"
-            ),
+            article_source(&[("tags", Some(tags))], "Body"),
         )?;
-        let output = build_site(&site)?;
-        assert!(!output.status.success(), "accepted {tags}");
+        let stderr = build_err(&site).with_context(|| format!("accepted {tags}"))?;
+        assert!(stderr.contains(reason), "{tags}: {stderr}");
         assert_eq!(
             fs::read_to_string(site.join("dist/tags/index.html"))?,
             original
         );
     }
     fs::remove_file(&article_path)?;
-    fs::write(
-        site.join("content/tags.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\nBody",
-    )?;
-    let output = build_site(&site)?;
-    assert!(!output.status.success());
+    fs::write(site.join("content/tags.md"), article_source(&[], "Body"))?;
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("collision at /tags"), "{stderr}");
     assert_eq!(
         fs::read_to_string(site.join("dist/tags/index.html"))?,
         original
@@ -871,17 +921,16 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
     ] {
         fs::write(
             site.join(format!("content/entries/{name}.md")),
-            format!(
-                "+++\ncreated_at = {created_at}\nupdated_at = {created_at}\ndescription = 'Test article'\n+++\n# {name}\n"
+            article_source(
+                &[
+                    ("created_at", Some(created_at)),
+                    ("updated_at", Some(created_at)),
+                ],
+                &format!("# {name}\n"),
             ),
         )?;
     }
-    let output = build_site(&site)?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let same = home
         .find("/entries/b-same")
@@ -909,14 +958,12 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     fs::remove_file(site.join("styles/page.css"))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
+        article_source(
+            &[],
+            "# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
+        ),
     )?;
-    let output = build_site(&site)?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("<style>h1{color:red}</style>"), "{html}");
     assert!(html.contains("src=photo.png"), "{html}");
@@ -944,12 +991,7 @@ fn inlines_common_and_template_specific_css() -> Result<()> {
         site.join("styles/page.css"),
         ":root { --page-marker: yes; }",
     )?;
-    let build = build_site(&site)?;
-    assert!(
-        build.status.success(),
-        "{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
+    build_ok(&site)?;
 
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
@@ -976,14 +1018,18 @@ fn custom_article_template_receives_documented_fields() -> Result<()> {
     )?;
     fs::write(
         site.join("content/custom.md"),
-        "+++\ntitle = 'Custom Post'\ndescription = 'Custom summary'\ntemplate = 'custom.html'\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-22 00:00\n+++\n**Custom body**\n",
+        article_source(
+            &[
+                ("title", Some("'Custom Post'")),
+                ("description", Some("'Custom summary'")),
+                ("template", Some("'custom.html'")),
+                ("created_at", Some("2026-09-17 10:30")),
+                ("updated_at", Some("2026-09-22 00:00")),
+            ],
+            "**Custom body**\n",
+        ),
     )?;
-    let built = build_site(&site)?;
-    assert!(
-        built.status.success(),
-        "{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
+    build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/custom.html"))?;
     assert!(html.contains("--custom-marker"), "{html}");
     assert!(html.contains("http://127.0.0.1:3000/custom"), "{html}");
@@ -1147,29 +1193,30 @@ fn http_get(address: &str, path: &str) -> Result<String> {
 fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let build = || build_site(&site);
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         "+++\ntitle = [\n+++\nInvalid",
     )?;
-    let failed = build()?;
-    assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("content/entries/hello-world.md"));
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("content/entries/hello-world.md"),
+        "{stderr}"
+    );
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     fs::write(
         site.join("content/entries/hello-world.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Working again\n",
+        article_source(&[], "# Working again\n"),
     )?;
     fs::write(
         site.join("content/stale.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Old\n",
+        article_source(&[], "# Old\n"),
     )?;
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     assert!(site.join("dist/stale.html").is_file());
     fs::remove_file(site.join("content/stale.md"))?;
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     assert!(!site.join("dist/stale.html").exists());
     Ok(())
 }
@@ -1178,7 +1225,7 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
 fn invalid_article_dates_report_source_and_preserve_previous_output() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    assert!(build_site(&site)?.status.success());
+    build_ok(&site)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     let article = site.join("content/entries/hello-world.md");
     for (dates, reason) in [
@@ -1219,9 +1266,7 @@ fn invalid_article_dates_report_source_and_preserve_previous_output() -> Result<
             &article,
             format!("+++\n{dates}\ndescription = 'Test article'\n+++\n# Post\n"),
         )?;
-        let failed = build_site(&site)?;
-        assert!(!failed.status.success(), "accepted {dates}");
-        let stderr = String::from_utf8_lossy(&failed.stderr);
+        let stderr = build_err(&site).with_context(|| format!("accepted {dates}"))?;
         assert!(
             stderr.contains("content/entries/hello-world.md"),
             "{stderr}"
@@ -1236,17 +1281,15 @@ fn invalid_article_dates_report_source_and_preserve_previous_output() -> Result<
 fn rejects_output_collisions_without_touching_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let build = || build_site(&site);
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(
         site.join("content/about.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# First\n",
+        article_source(&[], "# First\n"),
     )?;
     fs::write(site.join("static/about.html"), "conflict")?;
-    let failed = build()?;
-    assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("output collision"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("output collision"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     Ok(())
 }
@@ -1255,10 +1298,11 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
 fn rejects_served_url_collisions_and_reserved_paths_without_touching_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    assert!(build_site(&site)?.status.success());
+    build_ok(&site)?;
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let article = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
-    let post = "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Test article'\n+++\n# Post\n";
+    let post = article_source(&[], "# Post\n");
+    let post = post.as_str();
 
     for (files, reason) in [
         (
@@ -1292,9 +1336,7 @@ fn rejects_served_url_collisions_and_reserved_paths_without_touching_dist() -> R
                 },
             )?;
         }
-        let failed = build_site(&site)?;
-        let stderr = String::from_utf8_lossy(&failed.stderr);
-        assert!(!failed.status.success(), "accepted {files:?}: {stderr}");
+        let stderr = build_err(&site).with_context(|| format!("accepted {files:?}"))?;
         assert!(stderr.contains(reason), "{files:?}: {stderr}");
         for relative in files {
             assert!(stderr.contains(relative), "{files:?}: {stderr}");
@@ -1310,12 +1352,7 @@ fn rejects_served_url_collisions_and_reserved_paths_without_touching_dist() -> R
     fs::create_dir_all(site.join("content/foo"))?;
     fs::write(site.join("content/foo.md"), post)?;
     fs::write(site.join("content/foo/bar.md"), post)?;
-    let built = build_site(&site)?;
-    assert!(
-        built.status.success(),
-        "{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
+    build_ok(&site)?;
     assert!(site.join("dist/foo.html").is_file());
     assert!(site.join("dist/foo/bar.html").is_file());
     Ok(())
@@ -1325,22 +1362,19 @@ fn rejects_served_url_collisions_and_reserved_paths_without_touching_dist() -> R
 fn protects_unrecognized_dist_and_detects_static_file_conflicts() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let build = || build_site(&site);
 
     fs::create_dir(site.join("dist"))?;
     fs::write(site.join("dist/keep.txt"), "user file")?;
-    let failed = build()?;
-    assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("unrecognized dist"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("unrecognized dist"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/keep.txt"))?, "user file");
 
     fs::remove_dir_all(site.join("dist"))?;
-    assert!(build()?.status.success());
+    build_ok(&site)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     fs::write(site.join("static/index.html"), "conflict")?;
-    let failed = build()?;
-    assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("output collision"));
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("output collision"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/index.html"))?, before);
     Ok(())
 }
@@ -1352,12 +1386,7 @@ fn rejects_symlinks_in_site_inputs_without_touching_dist() -> Result<()> {
 
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    let built = build_site(&site)?;
-    assert!(
-        built.status.success(),
-        "{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
+    build_ok(&site)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
     let original_css = fs::read_to_string(site.join("styles/common.css"))?;
 
@@ -1367,9 +1396,7 @@ fn rejects_symlinks_in_site_inputs_without_touching_dist() -> Result<()> {
         fs::rename(&input, &outside)?;
         symlink(&outside, &input)?;
 
-        let failed = build_site(&site)?;
-        let stderr = String::from_utf8_lossy(&failed.stderr);
-        assert!(!failed.status.success(), "accepted {relative}");
+        let stderr = build_err(&site).with_context(|| format!("accepted {relative}"))?;
         assert!(
             stderr.contains("symlinks are not supported"),
             "{relative}: {stderr}"
@@ -1406,15 +1433,16 @@ fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
     )?;
     fs::write(
         site.join("content/deep.md"),
-        "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Nested article'\ntemplate = 'deep/page.html'\n+++\n# Deep\n",
+        article_source(
+            &[
+                ("description", Some("'Nested article'")),
+                ("template", Some("'deep/page.html'")),
+            ],
+            "# Deep\n",
+        ),
     )?;
 
-    let built = build_site(&site)?;
-    assert!(
-        built.status.success(),
-        "{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
+    build_ok(&site)?;
     let before = fs::read_to_string(site.join("dist/deep.html"))?;
     assert!(before.contains("Nested template") && before.contains("--nested-css"));
 
@@ -1422,12 +1450,8 @@ fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
     let outside_dir = workspace.0.path().join("outside-deep");
     fs::rename(&parent, &outside_dir)?;
     symlink(&outside_dir, &parent)?;
-    let failed = build_site(&site)?;
-    let stderr = String::from_utf8_lossy(&failed.stderr);
-    assert!(
-        !failed.status.success() && stderr.contains("symlinks are not supported"),
-        "{stderr}"
-    );
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("symlinks are not supported"), "{stderr}");
     assert!(stderr.contains("styles/deep"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/deep.html"))?, before);
     fs::remove_file(&parent)?;
@@ -1437,12 +1461,8 @@ fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
     let outside_css = workspace.0.path().join("outside-page.css");
     fs::rename(&css, &outside_css)?;
     symlink(&outside_css, &css)?;
-    let failed = build_site(&site)?;
-    let stderr = String::from_utf8_lossy(&failed.stderr);
-    assert!(
-        !failed.status.success() && stderr.contains("symlinks are not supported"),
-        "{stderr}"
-    );
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("symlinks are not supported"), "{stderr}");
     assert!(stderr.contains("page.css"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/deep.html"))?, before);
     assert_eq!(
