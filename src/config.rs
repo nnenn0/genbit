@@ -71,35 +71,14 @@ impl TryFrom<RawConfig> for Config {
 
 impl SiteUrl {
     fn parse(value: &str) -> Result<Self> {
+        let url = parse_http_url(value, "site_url")?;
         ensure!(
-            !value.contains('#'),
-            "config.toml: site_url must not contain a fragment"
-        );
-        let uri: Uri = value
-            .parse()
-            .context("config.toml: site_url must be an absolute HTTP(S) URL")?;
-        let scheme = uri
-            .scheme_str()
-            .context("config.toml: site_url must have a scheme")?;
-        ensure!(
-            scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"),
-            "config.toml: site_url must use http or https"
-        );
-        let authority = uri
-            .authority()
-            .context("config.toml: site_url must have a host")?;
-        ensure!(
-            !authority.host().is_empty() && !authority.as_str().contains('@'),
-            "config.toml: site_url must have a host without credentials"
-        );
-        ensure!(
-            uri.path_and_query().is_none_or(|part| part.as_str() == "/"),
+            url.uri
+                .path_and_query()
+                .is_none_or(|part| part.as_str() == "/"),
             "config.toml: site_url must point to the site root without a path or query"
         );
-        Ok(Self(format!(
-            "{}://{authority}/",
-            scheme.to_ascii_lowercase()
-        )))
+        Ok(Self(format!("{}/", url.origin)))
     }
 
     pub(crate) fn as_str(&self) -> &str {
@@ -145,43 +124,51 @@ impl UtcOffset {
 }
 
 fn validate_og_image(value: &str, site_url: &SiteUrl) -> Result<String> {
+    if !value.starts_with('/') || value.starts_with("//") {
+        parse_http_url(value, "og_image")?;
+        return Ok(value.to_owned());
+    }
     ensure!(
         !value.contains('#'),
         "config.toml: og_image must not contain a fragment"
     );
-    if value.starts_with('/') {
-        ensure!(
-            !value.starts_with("//"),
-            "config.toml: og_image must be a root-relative path or absolute HTTP(S) URL"
-        );
-        let uri: Uri = value
-            .parse()
-            .context("config.toml: og_image must be a valid root-relative path")?;
-        ensure!(
-            uri.authority().is_none() && uri.scheme().is_none(),
-            "config.toml: og_image must be a root-relative path or absolute HTTP(S) URL"
-        );
-        return Ok(site_url.join_root_path(&uri.to_string()));
-    }
-
     let uri: Uri = value
         .parse()
-        .context("config.toml: og_image must be a root-relative path or absolute HTTP(S) URL")?;
+        .context("config.toml: og_image must be a valid root-relative path")?;
+    Ok(site_url.join_root_path(&uri.to_string()))
+}
+
+struct HttpUrl {
+    uri: Uri,
+    /// Lowercase scheme and authority, such as `https://example.com`.
+    origin: String,
+}
+
+/// Parses an absolute HTTP(S) URL with a host and no credentials or fragment.
+fn parse_http_url(value: &str, field: &str) -> Result<HttpUrl> {
+    ensure!(
+        !value.contains('#'),
+        "config.toml: {field} must not contain a fragment"
+    );
+    let uri: Uri = value
+        .parse()
+        .with_context(|| format!("config.toml: {field} must be an absolute HTTP(S) URL"))?;
     let scheme = uri
         .scheme_str()
-        .context("config.toml: og_image must be an absolute HTTP(S) URL")?;
+        .with_context(|| format!("config.toml: {field} must be an absolute HTTP(S) URL"))?;
     ensure!(
         scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"),
-        "config.toml: og_image must use http or https"
+        "config.toml: {field} must use http or https"
     );
     let authority = uri
         .authority()
-        .context("config.toml: og_image must have a host")?;
+        .with_context(|| format!("config.toml: {field} must have a host"))?;
     ensure!(
         !authority.host().is_empty() && !authority.as_str().contains('@'),
-        "config.toml: og_image must have a host without credentials"
+        "config.toml: {field} must have a host without credentials"
     );
-    Ok(value.to_owned())
+    let origin = format!("{}://{authority}", scheme.to_ascii_lowercase());
+    Ok(HttpUrl { uri, origin })
 }
 
 #[cfg(test)]
