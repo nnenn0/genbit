@@ -48,7 +48,16 @@ pub(crate) async fn run(root: PathBuf, address: SocketAddr) -> Result<()> {
         .watch(&root, RecursiveMode::Recursive)
         .with_context(|| format!("cannot watch {}", root.display()))?;
 
-    let count = build_site(root.clone()).await?;
+    // 停止のシグナルは初回ビルドの前から受け付け、配信中も同じものを待つ。シグナルでは待機を
+    // やめて正常終了する。実行中のビルドはランタイムの破棄時に完了を待つため、`dist/` の
+    // 切り替え途中では終わらない。
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+
+    let count = tokio::select! {
+        result = build_site(root.clone()) => result?,
+        result = &mut shutdown => return stopped(result),
+    };
     println!("Built {count} pages into dist/");
 
     let (reload_tx, _) = broadcast::channel(16);
@@ -59,16 +68,16 @@ pub(crate) async fn run(root: PathBuf, address: SocketAddr) -> Result<()> {
     println!("Server running at http://{actual}");
 
     let rebuild = rebuild_on_changes(change_rx, reload_tx, move || build_site(root.clone()));
-    // 停止のシグナルでは、配信と再ビルドの待機をやめて正常終了する。実行中のビルドは
-    // ランタイムの破棄時に完了を待つため、`dist/` の切り替え途中では終わらない。
     tokio::select! {
-        result = axum::serve(listener, app) => result.context("development server failed")?,
-        () = rebuild => {}
-        result = shutdown_signal() => {
-            result?;
-            println!("Stopping server");
-        }
+        result = axum::serve(listener, app) => result.context("development server failed"),
+        () = rebuild => Ok(()),
+        result = &mut shutdown => stopped(result),
     }
+}
+
+fn stopped(signal: Result<()>) -> Result<()> {
+    signal?;
+    println!("Stopping server");
     Ok(())
 }
 
