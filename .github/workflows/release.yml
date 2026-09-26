@@ -89,6 +89,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # test の失敗時も release が下書きを作らないため、待ち時間を減らすよう test を待たずに動かす。
   build:
     needs: licenses
     strategy:
