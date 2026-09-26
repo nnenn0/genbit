@@ -49,7 +49,7 @@ tar -xzf "genbit-$VERSION-$TARGET.tar.gz"
 install "genbit-$VERSION-$TARGET/genbit" ~/.local/bin/
 ```
 
-`~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。
+`~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。v0.1.0より後のアーカイブには、genbitが含む依存クレートのライセンスをまとめた `THIRD_PARTY_LICENSES.md` も入っています。
 
 <details>
 <summary>Artifact Attestationsの検証、macOSのGatekeeper、ソースからのビルド</summary>

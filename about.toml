@@ -1,0 +1,22 @@
+# cargo-about の設定。配布アーカイブに同梱する THIRD_PARTY_LICENSES.md を
+# scripts/third-party-licenses.sh で生成する。
+# 許可するライセンスは deny.toml の [licenses] の allow と同じにそろえる。CI が一致を検査する。
+accepted = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+# 配布するバイナリのターゲットだけを対象にする。
+targets = ["x86_64-unknown-linux-musl", "aarch64-apple-darwin"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true

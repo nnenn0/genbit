@@ -17,6 +17,15 @@ Rustの版は `rust-toolchain.toml` で固定しています。版を上げる�
 
 `v*` タグをpushするとリリース用のワークフローが動き、バイナリをビルドしてGitHub Releaseの下書きを作ります。
 
+配布アーカイブには、依存クレートの著作権表示とソースの入手先をまとめた `THIRD_PARTY_LICENSES.md` を同梱します。`scripts/third-party-licenses.sh` がcargo-aboutで生成し、内容は `about.toml` と `about.hbs` で決まります。依存を追加して `about.toml` の `accepted` にないライセンスが入ると生成が失敗します。`about.toml` の `accepted` と `deny.toml` の `allow` は同じ一覧にそろえてください。ずれているとCIが失敗します。CIでも同じスクリプトと、release ビルドでの `scripts/smoke-test.sh` を実行するので、タグを打つ前に気づけます。
+
+手元で一覧を生成するには、CIと同じ版のcargo-aboutを入れてから実行します。
+
+```sh
+cargo install cargo-about --locked --version 0.9.2
+scripts/third-party-licenses.sh THIRD_PARTY_LICENSES.md
+```
+
 ## Dockerでサイトをプレビューする
 
 `SITE_DIR` にはサイトの絶対パスを指定してください。

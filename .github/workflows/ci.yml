@@ -39,6 +39,12 @@ jobs:
           grep -qx "rust-version = \"$toolchain\"" Cargo.toml
           grep -qx "FROM rust:$toolchain-bookworm" Dockerfile
 
+      - name: Check license lists match
+        run: python3 scripts/check-license-lists.py
+
+      - name: Check shell scripts
+        run: shellcheck scripts/*.sh
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -66,3 +72,35 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked --all-targets --all-features
+
+  # 配布と同じ release ビルドで new と build が動くことと、ライセンス一覧を生成できることを、
+  # タグを打つ前に確認する。
+  smoke-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Smoke test binary
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          scripts/smoke-test.sh target/release/genbit "$version"
+
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-about@0.9.2
+
+      - name: Generate third-party licenses
+        run: scripts/third-party-licenses.sh "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md"
