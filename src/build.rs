@@ -62,6 +62,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>) -> Result<usize> {
         &tags,
         !untagged.is_empty(),
     )?);
+    artifacts.push(metadata::feed(&config, &articles));
     artifacts.push(metadata::robots(&config.site_url));
     let static_root = root.join("static");
     let assets = input

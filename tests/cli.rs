@@ -568,6 +568,97 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
 }
 
 #[test]
+fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let build = || build_site(&site);
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Tom & Jerry <Blog>'\ndescription = 'Notes'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\ntimezone = '+09:00'\n",
+    )?;
+    fs::write(
+        site.join("content/entries/older.md"),
+        "+++\ntitle = 'Older <post>'\ncreated_at = 2026-09-16 23:30\nupdated_at = 2026-09-30 12:00\ndescription = 'Fish & chips'\n+++\nOlder.\n",
+    )?;
+    let output = build()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let feed = fs::read_to_string(site.join("dist/feed.xml"))?;
+    assert!(
+        feed.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\""),
+        "{feed}"
+    );
+    assert!(feed.contains("<title>Tom &amp; Jerry &lt;Blog&gt;</title>\n    <link>https://example.com/</link>\n    <description>Notes</description>"), "{feed}");
+    assert!(feed.contains("<title>Older &lt;post&gt;</title>"), "{feed}");
+    assert!(
+        feed.contains("<description>Fish &amp; chips</description>"),
+        "{feed}"
+    );
+    assert!(
+        feed.contains("<guid>https://example.com/entries/older</guid>"),
+        "{feed}"
+    );
+    assert!(
+        feed.contains("<pubDate>Wed, 16 Sep 2026 23:30:00 +0900</pubDate>"),
+        "{feed}"
+    );
+    assert!(!feed.contains("30 Sep 2026"), "{feed}");
+    let newest = feed
+        .find("/entries/hello-world")
+        .context("missing hello-world")?;
+    let older = feed.find("/entries/older").context("missing older")?;
+    assert!(newest < older, "{feed}");
+    let sitemap = fs::read_to_string(site.join("dist/sitemap.xml"))?;
+    assert!(!sitemap.contains("feed.xml"), "{sitemap}");
+    for file in [
+        "dist/index.html",
+        "dist/entries/older.html",
+        "dist/tags/index.html",
+        "dist/404.html",
+    ] {
+        let html = fs::read_to_string(site.join(file))?;
+        assert!(
+            html.contains(
+                "<link title=\"Tom & Jerry <Blog>\" href=/feed.xml rel=alternate type=application/rss+xml>"
+            ),
+            "{file}: {html}"
+        );
+    }
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    assert!(home.contains("<a href=/feed.xml>RSS</a>"), "{home}");
+
+    let original = feed;
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Notes'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\ntimezone = 'Asia/Tokyo'\n",
+    )?;
+    let invalid = build()?;
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("timezone"));
+    assert_eq!(fs::read_to_string(site.join("dist/feed.xml"))?, original);
+    fs::write(
+        site.join("config.toml"),
+        "title = 'Blog'\ndescription = 'Notes'\nsite_url = 'https://example.com/'\nog_image = '/assets/img/ogp.png'\n",
+    )?;
+    fs::write(site.join("static/feed.xml"), "conflict")?;
+    let collision = build()?;
+    assert!(!collision.status.success());
+    assert!(String::from_utf8_lossy(&collision.stderr).contains("output collision"));
+    assert_eq!(fs::read_to_string(site.join("dist/feed.xml"))?, original);
+    fs::remove_file(site.join("static/feed.xml"))?;
+    assert!(build()?.status.success());
+    let utc = fs::read_to_string(site.join("dist/feed.xml"))?;
+    assert!(
+        utc.contains("<pubDate>Wed, 16 Sep 2026 23:30:00 +0000</pubDate>"),
+        "{utc}"
+    );
+    Ok(())
+}
+
+#[test]
 fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

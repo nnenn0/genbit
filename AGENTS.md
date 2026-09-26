@@ -31,7 +31,7 @@
 | `src/route.rs` | 記事のURLと出力先の対応、開発サーバーの拡張子なしURL判定、配信URLの衝突・予約領域検査。URL形式の変更時は生成結果と配信を確認する。 |
 | `src/config.rs` | `config.toml` の読み込み後の検証とサイトURL・OGP画像URLの正規化。公開URLの組み立てを担う。 |
 | `src/render.rs` | テンプレート・CSSの読み込み、公開ビュー、Tera描画、HTML圧縮。記事の内部型を直接テンプレートへ渡さない。 |
-| `src/metadata.rs` | JSON-LD、sitemap、robotsの生成。 |
+| `src/metadata.rs` | JSON-LD、sitemap、RSSフィード（`feed.xml`）、robotsの生成。 |
 | `src/input.rs` | サイト入力のパス・ファイル種別を検査し、テキストの読み込みと静的ファイルのコピーを行う。 |
 | `src/build.rs` | 設定・記事・静的素材を読み、描画とメタデータ生成を組み合わせて成果物を公開する。 |
 | `src/output.rs` | 出力計画で衝突を検査し、生成ファイルの書き込みと静的ファイルのコピーをステージングしてから `dist/` を入れ替える。データ保護に関わるため、既存 `dist/` の扱いを変える前にテストを読む。 |
@@ -43,11 +43,11 @@
 
 - 単一のバイナリ。API サーバーや DB 層はない。`dev` の HTTP エンドポイントは静的ファイル配信と `GET /__genbit/reload`（SSE）のみ。
 - `new <name>` は名前を ASCII 英数字・`-`・`_` に検証し、新しいディレクトリへ `config.toml` と `scaffold/` の素材を書き込む。既存のパスは上書きしない。
-- `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
+- `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、任意の `timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
 - 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で任意。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。時差変換はせず、更新日時は作成日時以降にする。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
-- 全記事を作成日時降順、同時刻なら URL 順で並べる。テンプレートに渡す `created_at` は日付だけ。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
+- 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at` は日付だけ。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
 - `static/` の通常ファイルはステージング領域へ直接コピーし、コピー時にも入力パスとファイル種別を検査する。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突に加え、記事・静的ファイルの配信URL衝突と `/__genbit` 配下の使用を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。
 - `dev` はポート確保と監視登録の後に初回ビルドし、既定の `127.0.0.1:3000` で `dist/` を配信する。記事の拡張子なしURLも対応する `.html` から配信する。`config.toml` と `content/`・`templates/`・`styles/`・`static/` の変更通知は容量1で保持し、100 msの静穏期間または500 msの最大待機後に単一の再ビルドを行う。ビルド中の変更は次回に処理し、成功時だけSSEを送る。開発用スクリプトは `build` の出力には入らない。
 

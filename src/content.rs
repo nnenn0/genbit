@@ -1,4 +1,7 @@
-use crate::route::{Route, UNTAGGED_TAG};
+use crate::{
+    config::UtcOffset,
+    route::{Route, UNTAGGED_TAG},
+};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Deserializer, de::Error as _};
 use std::collections::BTreeSet;
@@ -49,6 +52,61 @@ impl LocalDateTime {
     pub(crate) fn date_string(self) -> String {
         self.date.to_string()
     }
+
+    /// Formats the date-time for RSS, e.g. `Wed, 23 Sep 2026 09:30:00 +0900`.
+    pub(crate) fn rfc822(self, offset: UtcOffset) -> String {
+        let Date { year, month, day } = self.date;
+        let weekday = match weekday(year, month, day) {
+            0 => "Sun",
+            1 => "Mon",
+            2 => "Tue",
+            3 => "Wed",
+            4 => "Thu",
+            5 => "Fri",
+            _ => "Sat",
+        };
+        let month_name = match month {
+            1 => "Jan",
+            2 => "Feb",
+            3 => "Mar",
+            4 => "Apr",
+            5 => "May",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Aug",
+            9 => "Sep",
+            10 => "Oct",
+            11 => "Nov",
+            _ => "Dec",
+        };
+        format!(
+            "{weekday}, {day:02} {month_name} {year:04} {:02}:{:02}:00 {}",
+            self.minutes_of_day / 60,
+            self.minutes_of_day % 60,
+            offset.rfc822()
+        )
+    }
+}
+
+/// Returns the day of the week (0 = Sunday) for a Gregorian date.
+fn weekday(year: u16, month: u8, day: u8) -> u32 {
+    // Zeller's congruence, with January and February counted in the previous year.
+    // Weekdays repeat every 400 years, so the shift keeps year 0 from underflowing.
+    let year = u32::from(year) + 400;
+    let (year, month) = if month < 3 {
+        (year - 1, u32::from(month) + 12)
+    } else {
+        (year, u32::from(month))
+    };
+    let (century, year_of_century) = (year / 100, year % 100);
+    let saturday_first = (u32::from(day)
+        + 13 * (month + 1) / 5
+        + year_of_century
+        + year_of_century / 4
+        + century / 4
+        + 5 * century)
+        % 7;
+    (saturday_first + 6) % 7
 }
 
 fn deserialize_created_at<'de, D>(
@@ -348,6 +406,30 @@ mod tests {
                 parse(&source, Path::new("post.md")).is_err(),
                 "accepted {tags}"
             );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn formats_rfc822_dates_with_weekday_and_offset() -> Result<()> {
+        let offset = crate::config::Config::parse(
+            "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'https://example.com/'\nog_image = '/card.png'\ntimezone = '+09:00'\n",
+        )?
+        .timezone;
+        for (source, expected) in [
+            ("2026-09-23 09:05", "Wed, 23 Sep 2026 09:05:00 +0900"),
+            ("2024-02-29 23:59", "Thu, 29 Feb 2024 23:59:00 +0900"),
+            ("2000-01-01 00:00", "Sat, 01 Jan 2000 00:00:00 +0900"),
+            ("1900-03-01 12:00", "Thu, 01 Mar 1900 12:00:00 +0900"),
+            ("0000-01-01 00:00", "Sat, 01 Jan 0000 00:00:00 +0900"),
+        ] {
+            let article = parse(
+                &format!(
+                    "+++\ncreated_at = {source}\nupdated_at = {source}\ndescription = 'Post'\n+++\n"
+                ),
+                Path::new("post.md"),
+            )?;
+            assert_eq!(article.created_at.rfc822(offset), expected, "{source}");
         }
         Ok(())
     }

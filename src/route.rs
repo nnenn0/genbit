@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail, ensure};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
+pub(crate) const FEED_URL: &str = "/feed.xml";
 pub(crate) const TAGS_INDEX_URL: &str = "/tags/";
 pub(crate) const UNTAGGED_TAG: &str = "untagged";
 
