@@ -31,6 +31,7 @@
 | `src/route.rs` | 記事のURLと出力先の対応、開発サーバーの拡張子なしURL判定、配信URLの衝突・予約領域検査。URL形式の変更時は生成結果と配信を確認する。 |
 | `src/config.rs` | `config.toml` の読み込み後の検証とサイトURL・OGP画像URLの正規化。公開URLの組み立てを担う。 |
 | `src/render.rs` | テンプレート・CSSの読み込み、公開ビュー、Tera描画、HTML圧縮。記事の内部型を直接テンプレートへ渡さない。 |
+| `src/tags.rs` | 記事のタグ分けと `untagged` の規則。タグ一覧・タグページ・sitemap・テンプレートの `tags` はここを通す。 |
 | `src/metadata.rs` | JSON-LD、sitemap、RSSフィード（`feed.xml`）、robotsの生成。 |
 | `src/input.rs` | サイト入力のパス・ファイル種別を検査し、テキストの読み込みと静的ファイルのコピーを行う。 |
 | `src/build.rs` | 設定・記事・静的素材を読み、描画とメタデータ生成を組み合わせて成果物を公開する。 |
@@ -44,7 +45,7 @@
 - 単一のバイナリ。API サーバーや DB 層はない。`dev` の HTTP エンドポイントは静的ファイル配信と `GET /__genbit/reload`（SSE）のみ。
 - `new <name>` は名前を ASCII 英数字・`-`・`_` に検証し、新しいディレクトリへ `config.toml` と `scaffold/` の素材を書き込む。既存のパスは上書きしない。
 - `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、任意の `timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
-- 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で任意。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。時差変換はせず、更新日時は作成日時以降にする。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
+- 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で必須。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。時差変換はせず、更新日時は作成日時以降にする。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
 - 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at` は日付だけ。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
@@ -69,7 +70,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 - Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
 - テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
-- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。R10完了時点でユニット24件、結合23件。網羅率の計測設定はない。
+- ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。網羅率の計測設定はない。
 - `.github/workflows/ci.yml` は全ブランチの push と pull request で rustfmt、Clippy、テストを実行する。独立した型チェックコマンドは定義されていない。
 
 ## Environment and Configuration
