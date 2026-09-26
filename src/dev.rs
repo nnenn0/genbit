@@ -59,11 +59,33 @@ pub(crate) async fn run(root: PathBuf, address: SocketAddr) -> Result<()> {
     println!("Server running at http://{actual}");
 
     let rebuild = rebuild_on_changes(change_rx, reload_tx, move || build_site(root.clone()));
+    // 停止のシグナルでは、配信と再ビルドの待機をやめて正常終了する。実行中のビルドは
+    // ランタイムの破棄時に完了を待つため、`dist/` の切り替え途中では終わらない。
     tokio::select! {
         result = axum::serve(listener, app) => result.context("development server failed")?,
         () = rebuild => {}
+        result = shutdown_signal() => {
+            result?;
+            println!("Stopping server");
+        }
     }
     Ok(())
+}
+
+async fn shutdown_signal() -> Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).context("cannot listen for SIGTERM")?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result.context("cannot listen for Ctrl+C"),
+            _ = terminate.recv() => Ok(()),
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c()
+        .await
+        .context("cannot listen for Ctrl+C")
 }
 
 async fn build_site(root: PathBuf) -> Result<usize> {
