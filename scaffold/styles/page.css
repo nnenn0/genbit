@@ -8,7 +8,7 @@ pre { overflow-x: auto; padding: 0.75rem; background: #f3f4f6; }
 .code-block pre { margin: 0; padding-top: 0.25rem; background: transparent; }
 code { font-family: ui-monospace, monospace; }
 img { max-width: 100%; height: auto; }
-.heading-anchor { color: inherit; text-decoration: none; }
+.heading-anchor { color: inherit; }
 @media (prefers-color-scheme: dark) {
   pre { background: #292e36; }
   .code-block { background: #292e36; }
