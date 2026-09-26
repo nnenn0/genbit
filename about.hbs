@@ -1,0 +1,19 @@
+# Third-party licenses
+
+The genbit binary includes code from the crates listed below. The source code
+of each crate is available from crates.io at the listed URL.
+
+{{#each licenses}}
+## {{name}}
+
+Used by:
+
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}: https://crates.io/crates/{{crate.name}}/{{crate.version}}
+{{/each}}
+
+```text
+{{{text}}}
+```
+
+{{/each}}
