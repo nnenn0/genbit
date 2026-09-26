@@ -4,7 +4,7 @@ use std::{
     io::{ErrorKind, Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
-    process::{Child, Command, Output, Stdio},
+    process::{Child, Command, ExitStatus, Output, Stdio},
     thread,
     time::Duration,
 };
@@ -36,12 +36,46 @@ impl DevProcess {
         fs::read_to_string(&self.log)
             .unwrap_or_else(|error| format!("cannot read {}: {error}", self.log.display()))
     }
+
+    fn wait_until_listening(&mut self, address: &str) -> Result<()> {
+        for _ in 0..50 {
+            if TcpStream::connect(address).is_ok() {
+                return Ok(());
+            }
+            ensure!(
+                self.child.try_wait()?.is_none(),
+                "dev exited before listening:\n{}",
+                self.logs()
+            );
+            thread::sleep(Duration::from_millis(100));
+        }
+        bail!("dev did not start:\n{}", self.logs())
+    }
+
+    /// Sends a signal such as `TERM` or `INT` and waits for dev to exit.
+    fn stop(&mut self, signal: &str) -> Result<ExitStatus> {
+        let sent = Command::new("kill")
+            .args([format!("-{signal}"), self.child.id().to_string()])
+            .status()
+            .context("cannot run kill")?;
+        ensure!(sent.success(), "cannot send SIG{signal} to dev");
+        for _ in 0..50 {
+            if let Some(status) = self.child.try_wait()? {
+                return Ok(status);
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        bail!("dev did not stop after SIG{signal}:\n{}", self.logs())
+    }
 }
 
 impl Drop for DevProcess {
+    // Stopping with SIGTERM lets dev exit normally, which also writes coverage data.
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if matches!(self.child.try_wait(), Ok(None)) && self.stop("TERM").is_err() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 
@@ -1056,20 +1090,7 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     drop(listener);
     let mut server = DevProcess::start(&site, port)?;
     let address = format!("127.0.0.1:{port}");
-    let mut ready = false;
-    for _ in 0..50 {
-        if TcpStream::connect(&address).is_ok() {
-            ready = true;
-            break;
-        }
-        assert!(
-            server.child.try_wait()?.is_none(),
-            "dev exited before listening:\n{}",
-            server.logs()
-        );
-        thread::sleep(Duration::from_millis(100));
-    }
-    assert!(ready, "dev did not start:\n{}", server.logs());
+    server.wait_until_listening(&address)?;
 
     let page = http_get(&address, "/")?;
     assert!(page.starts_with("HTTP/1.1 200"), "{page}");
@@ -1131,6 +1152,15 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     read_sse_until(&mut events, &mut data, b"data: reload", &server)?;
     assert_not_found_page(&address, "/about")?;
 
+    // The open SSE connection must not keep dev from stopping.
+    let status = server.stop("TERM")?;
+    assert!(status.success(), "{status}\n{}", server.logs());
+    assert!(
+        server.logs().contains("Stopping server"),
+        "{}",
+        server.logs()
+    );
+
     let build = build_site(&site)?;
     assert!(
         build.status.success(),
@@ -1139,6 +1169,25 @@ fn dev_serves_pages_and_pushes_reloads_after_source_changes() -> Result<()> {
     );
     let production = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(!production.contains("EventSource"), "{production}");
+    Ok(())
+}
+
+#[test]
+fn dev_stops_cleanly_on_ctrl_c() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    let mut server = DevProcess::start(&site, port)?;
+    server.wait_until_listening(&format!("127.0.0.1:{port}"))?;
+
+    let status = server.stop("INT")?;
+    assert!(status.success(), "{status}\n{}", server.logs());
+    assert!(site.join("dist/index.html").is_file());
+    assert!(!fs::read_dir(&site)?.any(|entry| {
+        entry.is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with(".genbit-"))
+    }));
     Ok(())
 }
 
