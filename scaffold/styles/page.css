@@ -2,9 +2,14 @@ article > time { margin-bottom: 1.5rem; }
 .article-dates { margin-bottom: 1.5rem; }
 .article-tags { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; margin: -0.75rem 0 1.5rem; font-size: 0.875rem; }
 pre { overflow-x: auto; padding: 1rem; background: #f3f4f6; }
+.code-block { margin: 1em 0; background: #f3f4f6; }
+.code-language { display: block; padding: 0.5rem 1rem 0; color: #666; font-size: 0.75rem; line-height: 1; text-align: right; }
+.code-block pre { margin: 0; padding-top: 0.5rem; background: transparent; }
 code { font-family: ui-monospace, monospace; }
 img { max-width: 100%; height: auto; }
 .heading-anchor { margin-right: 0.4em; }
 @media (prefers-color-scheme: dark) {
   pre { background: #292e36; }
+  .code-block { background: #292e36; }
+  .code-language { color: #a8afb9; }
 }

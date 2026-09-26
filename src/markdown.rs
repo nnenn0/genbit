@@ -1,4 +1,4 @@
-use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd, html};
 use std::collections::HashSet;
 
 pub(crate) fn render(source: &str) -> String {
@@ -89,8 +89,44 @@ pub(crate) fn render(source: &str) -> String {
         }
     }
     let mut output = String::new();
-    html::push_html(&mut output, anchored.into_iter());
+    html::push_html(&mut output, add_code_labels(anchored).into_iter());
     output
+}
+
+fn add_code_labels(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    let mut labeled = Vec::with_capacity(events.len());
+    let mut has_label = false;
+    for event in events {
+        match event {
+            Event::Start(Tag::CodeBlock(kind)) => {
+                if let Some(label) = code_block_label(&kind) {
+                    labeled.push(Event::Html(label.into()));
+                    has_label = true;
+                }
+                labeled.push(Event::Start(Tag::CodeBlock(kind)));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                labeled.push(Event::End(TagEnd::CodeBlock));
+                if has_label {
+                    labeled.push(Event::Html("</div>".into()));
+                    has_label = false;
+                }
+            }
+            other => labeled.push(other),
+        }
+    }
+    labeled
+}
+
+fn code_block_label(kind: &CodeBlockKind<'_>) -> Option<String> {
+    let CodeBlockKind::Fenced(info) = kind else {
+        return None;
+    };
+    let language = info.split_whitespace().next()?;
+    Some(format!(
+        "<div class=\"code-block\"><span class=\"code-language\">{}</span>",
+        escape_attribute(language)
+    ))
 }
 
 fn heading_text(events: &[Event<'_>]) -> String {
@@ -213,6 +249,41 @@ mod tests {
         assert!(html.contains("<strong>bold</strong>"), "{html}");
         assert!(html.contains("<code>code</code>"), "{html}");
         assert!(html.contains("let x = 1;"), "{html}");
+    }
+
+    #[test]
+    fn shows_fenced_code_language_without_changing_code_markup() {
+        let html = render("```tsx\nconst value = 1;\n```\n\n```js title=example\nalert(1);\n```\n");
+        assert!(
+            html.contains("<span class=\"code-language\">tsx</span>"),
+            "{html}"
+        );
+        assert!(html.contains("<code class=\"language-tsx\">"), "{html}");
+        assert!(
+            html.contains("<span class=\"code-language\">js</span>"),
+            "{html}"
+        );
+        assert!(html.contains("<code class=\"language-js\">"), "{html}");
+        assert_eq!(html.matches("<div class=\"code-block\">").count(), 2);
+        assert_eq!(html.matches("</div>").count(), 2);
+    }
+
+    #[test]
+    fn leaves_code_blocks_without_language_unlabeled() {
+        let html = render("```\nplain\n```\n\n    indented\n");
+        assert!(!html.contains("code-language"), "{html}");
+        assert!(!html.contains("code-block"), "{html}");
+        assert_eq!(html.matches("<pre>").count(), 2);
+    }
+
+    #[test]
+    fn escapes_code_language_as_html_text() {
+        let html = render("```a<b&c\nvalue\n```\n");
+        assert!(html.contains("a&lt;b&amp;c</span>"), "{html}");
+        assert!(
+            !html.contains("<span class=\"code-language\">a<b"),
+            "{html}"
+        );
     }
 
     #[test]
