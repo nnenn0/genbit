@@ -18,15 +18,6 @@
 
 `build` の出力には、開発サーバー用の再読み込みスクリプトを含めません。
 
-## ビルドの確認（`--dry-run`）
-
-`genbit build --dry-run` は、通常のビルドと同じ読み込み・検証・描画を最後まで行い、`dist/` を変更せずに終了します。成功すると `Checked N pages; dist/ was not changed` と表示します。
-
-- 記事とテンプレートの描画、タグページ・404ページ・`feed.xml`・`sitemap.xml` の生成、出力パスとURLの衝突、[サイト内リンク](content.md#サイト内リンクの検証)を検査します。
-- 既存の `dist/` が入れ替えられるか（`.genbit-output` マーカーがあるか）も確かめます。
-- `dist/` を作らず、一時ディレクトリ（`.genbit-build-*`・`.genbit-backup-*`）も作りません。
-- ファイルを書き込まないため、ディスク容量や書き込み権限の不足は確かめられません。`static/` のファイルは一覧を作る時点で検査しますが、コピー直前の再検査は行いません。
-
 ### メタデータ
 
 404ページ以外の全ページに、絶対URLのcanonicalリンクとOpen Graphを出力します。トップページとタグページには `WebSite`、記事には `BlogPosting` のJSON-LDを出力します。記事ごとの画像と著者情報には対応していません。
@@ -37,6 +28,17 @@
 - 作成日時の新しい順に最新20件の記事を載せます。
 - 各 `item` の `link` と `guid` には記事のcanonical URL、`description` には記事の `description`、`pubDate` には `created_at` と設定した `timezone` を使います。`updated_at` は使いません。
 - フィードはsitemapに含めません。
+
+## ビルドの確認（`--dry-run`）
+
+`genbit build --dry-run` は、通常のビルドと同じ読み込み・検証・描画を最後まで行い、`dist/` を変更せずに終了します。成功すると `Checked N pages; dist/ was not changed` と表示します。
+
+- 記事とテンプレートの描画、タグページ・404ページ・`feed.xml`・`sitemap.xml` の生成、出力パスとURLの衝突、[サイト内リンク](content.md#サイト内リンクの検証)を検査します。
+- 既存の `dist/` が入れ替えられるか（`.genbit-output` マーカーがあるか）も確かめます。
+- `dist/` を作らず、一時ディレクトリ（`.genbit-build-*`・`.genbit-backup-*`）も作りません。
+- ファイルを書き込まないため、ディスク容量や書き込み権限の不足は確かめられません。`static/` のファイルは一覧を作る時点で検査しますが、コピー直前の再検査は行いません。
+
+サイトのリポジトリで変更を確かめるCIには `genbit build --dry-run` が向いています。リンク切れや記事の誤りがあれば0以外の終了コードで終了し、成果物を残しません。公開用の `dist/` を作るCIでは `genbit build` を使ってください。同じ検査を行い、失敗すれば `dist/` を作らずに終了するため、前に `--dry-run` を実行する必要はありません。genbitの入れ方は[READMEのインストール](../README.md#インストール)と同じです。
 
 ## `dist/` の保護
 
