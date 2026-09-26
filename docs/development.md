@@ -11,6 +11,15 @@ docker compose run --rm cli test --locked --all-targets --all-features
 
 CIはpull requestと `main` へのpushで動き、Ubuntuでfmt・Clippy・テストを、macOSでテストを実行します。PRを作っていないブランチへのpushではCIは動きません。依存のビルド結果は `main` の実行でキャッシュし、PRはそのキャッシュを使います。
 
+Ubuntuのテストは[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov)でカバレッジを計測しながら実行し、ファイルごとの要約をジョブのSummaryに出します。閾値は設けていないため、カバレッジが下がってもCIは失敗しません。`tests/cli.rs` から起動した `genbit` の子プロセスも計測に含まれますが、プロセスが正常に終了しないと結果が書き出されません。また、`src/*.rs` 内の `#[cfg(test)]` モジュールも集計に含まれます。手元で計測するには、コンテナ内にcargo-llvm-covを入れて実行します。
+
+```sh
+docker compose run --rm --entrypoint sh cli -c '
+  rustup component add llvm-tools-preview &&
+  cargo install cargo-llvm-cov --locked --version 0.9.1 &&
+  cargo llvm-cov --locked --all-targets --all-features --summary-only'
+```
+
 依存は `.github/workflows/deny.yml` がcargo-denyで検査します。設定は `deny.toml` で、脆弱性などの勧告、許可していないライセンス、crates.io以外の取得元があると失敗します。勧告は依存を変えなくても後から出るため、週1回の定期実行でも検査します。影響がないと判断した勧告は、`deny.toml` の `ignore` に理由と一緒に追加してください。
 
 Rustの版は `rust-toolchain.toml` で固定しています。版を上げるときは、`rust-toolchain.toml` の `channel`、`Cargo.toml` の `rust-version`、`Dockerfile` の `FROM rust:<版>-bookworm` を同時に変更してください。3か所が一致しないとCIが失敗します。Dependabotは `Dockerfile` だけを更新するため、その更新PRはCIで止まります。
