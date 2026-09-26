@@ -262,6 +262,8 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(article.contains("prefers-color-scheme"), "{article}");
     assert!(article.contains("<h1>&lt;Hello & world></h1>"), "{article}");
     assert!(article.contains("2026-09-17</time>"), "{article}");
+    assert!(article.contains("公開: 2026-09-17</time>"), "{article}");
+    assert!(article.contains("更新: 2026-09-22</time>"), "{article}");
     assert!(article.contains("<strong>A post</strong>"));
     assert!(article.contains("content=\"A post\""), "{article}");
     assert!(
@@ -282,6 +284,12 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
         "{article}"
     );
     assert!(site.join("dist/entries/posts/another.html").is_file());
+    let unmodified = fs::read_to_string(site.join("dist/entries/posts/another.html"))?;
+    assert!(
+        unmodified.contains("<time datetime=2026-09-16>2026-09-16</time>"),
+        "{unmodified}"
+    );
+    assert!(!unmodified.contains("更新:"), "{unmodified}");
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
     assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
     assert!(site.join("dist/assets/img/favicon.png").is_file());
@@ -411,7 +419,7 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
     fs::create_dir(site.join("content/entries/posts"))?;
     fs::write(
         site.join("content/entries/posts/another.md"),
-        "+++\ncreated_at = 2026-09-17\ndescription = 'Another article'\n+++\nAnother article.\n",
+        "+++\ncreated_at = 2026-09-17\nupdated_at = 2026-09-22\ndescription = 'Another article'\n+++\nAnother article.\n",
     )?;
     let output = build()?;
     assert!(
@@ -455,6 +463,18 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
         assert!(sitemap.contains(&format!("<loc>{url}</loc>")), "{sitemap}");
     }
     assert_eq!(sitemap.matches("<url>").count(), 5);
+    assert!(
+        sitemap.contains(
+            "<loc>https://example.com/entries/hello-world</loc><lastmod>2026-09-17</lastmod>"
+        ),
+        "{sitemap}"
+    );
+    assert!(
+        sitemap.contains(
+            "<loc>https://example.com/entries/posts/another</loc><lastmod>2026-09-22</lastmod>"
+        ),
+        "{sitemap}"
+    );
     assert!(!sitemap.contains(".html"), "{sitemap}");
     Ok(())
 }

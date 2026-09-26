@@ -1,4 +1,5 @@
 article > time { margin-bottom: 1.5rem; }
+.article-dates { margin-bottom: 1.5rem; }
 .article-tags { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; margin: -0.75rem 0 1.5rem; font-size: 0.875rem; }
 pre { overflow-x: auto; padding: 1rem; background: #f3f4f6; }
 code { font-family: ui-monospace, monospace; }

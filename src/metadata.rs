@@ -97,7 +97,13 @@ pub(crate) fn sitemap(
                 .replace('&', "&amp;")
                 .replace('<', "&lt;"),
         );
-        xml.push_str("</loc></url>\n");
+        xml.push_str("</loc><lastmod>");
+        xml.push_str(
+            &article
+                .updated_at
+                .map_or_else(|| article.created_at.date_string(), |date| date.to_string()),
+        );
+        xml.push_str("</lastmod></url>\n");
     }
     for path in
         std::iter::once(TAGS_INDEX_URL.to_owned()).chain(tags.keys().map(|tag| tag_url(tag)))
