@@ -4,14 +4,14 @@
 
 1. この `AGENTS.md` で現行の構成、入出力、検証方法を把握する。
 2. 既知の課題は GitHub Issues で管理する。課題は起票時点の記録なので、着手時には必ず関連する最新コードとテストで再確認する。
-3. 利用者向けの操作とサイト形式は `README.md` でも確認する。
+3. 利用者向けの概要とインストールは `README.md`、設定・記事・テンプレート・出力の仕様は `docs/` で確認する。
 
 ## Project Overview
 
 - genbit は Rust 製の静的サイトジェネレーター CLI（`Cargo.toml` の版は `0.1.0`）。Markdown 記事と Tera テンプレートから HTML を生成する。
 - 主な利用者は、CLI でサイトを新規作成し、自分のサイトの `config.toml`、記事、テンプレート、CSS、静的ファイルを編集・公開する人。サイト作成・ビルド・ローカルプレビューに Node.js は不要。
 - `new` がサイトの初期ファイルをコピーし、`build` が `dist/` を生成し、`dev` が再ビルド付きローカル配信を行う。生成サイトはこのリポジトリとは別ディレクトリで運用する。
-- 現状は基本的な生成・プレビュー機能がある初期段階。`README.md` は画像圧縮とコードのシンタックスハイライトを未実装と明記している。初期CSSはOSの暗色設定に追従するが、手動切り替えはない。公開サービスや管理画面はこのリポジトリにない。
+- 現状は基本的な生成・プレビュー機能がある初期段階。`README.md` は画像の最適化とシンタックスハイライトを未実装と明記している。初期CSSはOSの暗色設定に追従するが、手動切り替えはない。公開サービスや管理画面はこのリポジトリにない。
 
 ## Tech Stack
 
@@ -38,7 +38,8 @@
 | `src/output.rs` | 出力計画で衝突を検査し、生成ファイルの書き込みと静的ファイルのコピーをステージングしてから `dist/` を入れ替える。データ保護に関わるため、既存 `dist/` の扱いを変える前にテストを読む。 |
 | `src/dev.rs` | ポート確保、監視登録、初回ビルド、単一の再ビルド処理、静的配信、SSE リロード。`build` と同じ生成経路を使う。 |
 | `tests/cli.rs` | 一時ディレクトリで実行バイナリを起動する E2E テスト。入出力形式や保護動作を変更するときの主な確認先。 |
-| `README.md`、`.github/workflows/ci.yml`、`.github/workflows/release.yml`、`Dockerfile`、`compose.yaml` | 利用者向け契約、CI、バイナリのリリース、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
+| `README.md`、`docs/` | 利用者向けの概要と仕様。README は概要・インストール・既知の制限、`docs/` は設定・コンテンツ・テンプレート・出力・開発の詳細。`docs/assets/` の画像は README 用。 |
+| `.github/workflows/ci.yml`、`.github/workflows/release.yml`、`Dockerfile`、`compose.yaml` | CI、バイナリのリリース、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
 
 ## Architecture and Data Flow
 
@@ -63,7 +64,7 @@ docker compose run --rm cli clippy --locked --all-targets --all-features -- -D w
 docker compose run --rm cli test --locked --all-targets --all-features
 ```
 
-CLI を試すときは、生成サイトのディレクトリで `genbit new <name>`、`genbit build`、`genbit dev [--host <IP>] [--port <番号>]` を使う。Docker から利用者サイトを動かす bind mount 例は `README.md` を参照。公開は生成された `dist/` を静的ホストへ配置する手順のみが記載され、自動デプロイ設定はない。
+CLI を試すときは、生成サイトのディレクトリで `genbit new <name>`、`genbit build`、`genbit dev [--host <IP>] [--port <番号>]` を使う。Docker から利用者サイトを動かす bind mount 例は `docs/development.md` を参照。公開は生成された `dist/` を静的ホストへ配置する手順のみが記載され、自動デプロイ設定はない。
 
 ## Coding Conventions and Testing
 
@@ -76,7 +77,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 
 ## Environment and Configuration
 
-- CLI 実行に必須の環境変数や外部サービスはコード上ない。`README.md` の `SITE_DIR` は Docker 実行例で使うシェル変数で、genbit の設定ではない。
+- CLI 実行に必須の環境変数や外部サービスはコード上ない。`docs/development.md` の `SITE_DIR` は Docker 実行例で使うシェル変数で、genbit の設定ではない。
 - 利用者サイトには `config.toml`、`content/`、`templates/`、`styles/common.css`、`static/` が必要。`new` がこれらを用意する。CLI の設定はサイト側から読み、リポジトリ側の `scaffold/` は初期値だけを提供する。
 - `dev` はローカル HTTP サーバー。外部公開や認証付き配信の仕組みは確認できない。生成 HTML はルート相対 URL を使うため、サブパス配信には対応していない。
 
@@ -84,7 +85,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 
 - 利用者への説明では、独立した論点・設定・原因を一つにまとめず、それぞれ分けて説明する。各論点が何を決め、何に影響するかを明確にする。
 - 作業前に対象モジュール、呼び出し元、関連する `tests/cli.rs` と `scaffold/` を読む。変更後はドキュメント上の説明と生成結果を照合する。
-- 入力サイトの構造、テンプレート変数、フロントマター、URL、`dist/` の保護は利用者向けの仕様として扱う。変更時は README と初期素材を更新し、エラーとデータ保護のテストを追加する。
+- 入力サイトの構造、テンプレート変数、フロントマター、URL、`dist/` の保護は利用者向けの仕様として扱う。変更時は `docs/`（必要なら README）と初期素材を更新し、エラーとデータ保護のテストを追加する。
 - 必要な範囲だけ変更し、既存の `Result` とパス付きエラー、厳格な lint を維持する。新規依存は用途と既存依存で代替できない理由を確認する。
 - `scaffold/` は公開してよい初期値だけを置く。利用者サイトの実データ、秘密情報、実際の `.env` をこのリポジトリへ追加しない。`Cargo.lock` を管理し、依存更新は意図して行う。
 - Rust コード・依存・ビルド設定を変更したら、関連テストを整備して上記の fmt、Clippy、test を `--locked` で実行する。文書だけの変更なら内容と差分を確認する。実行できなかった検証はそのまま報告する。
