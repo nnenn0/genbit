@@ -1,12 +1,13 @@
 use anyhow::{Context, Result, bail, ensure};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{ErrorKind, Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Output, Stdio},
     thread,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
 
@@ -110,6 +111,43 @@ fn run_genbit(root: &Path, args: &[&str]) -> Result<Output> {
 
 fn build_site(site: &Path) -> Result<Output> {
     run_genbit(site, &["build"])
+}
+
+fn dry_run_site(site: &Path) -> Result<Output> {
+    run_genbit(site, &["build", "--dry-run"])
+}
+
+/// Returns every file under `dir` with its bytes and modification time.
+fn snapshot(dir: &Path) -> Result<BTreeMap<PathBuf, (Vec<u8>, SystemTime)>> {
+    let mut files = BTreeMap::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        for entry in fs::read_dir(&current)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let modified = fs::metadata(&path)?.modified()?;
+                files.insert(
+                    path.strip_prefix(dir)?.to_path_buf(),
+                    (fs::read(&path)?, modified),
+                );
+            }
+        }
+    }
+    Ok(files)
+}
+
+fn assert_no_build_leftovers(site: &Path) -> Result<()> {
+    for entry in fs::read_dir(site)? {
+        let name = entry?.file_name();
+        let name = name.to_string_lossy();
+        ensure!(
+            !name.starts_with(".genbit-build-") && !name.starts_with(".genbit-backup-"),
+            "temporary build directory remains: {name}"
+        );
+    }
+    Ok(())
 }
 
 /// Runs `genbit build` and reports its stderr when the build fails.
@@ -509,7 +547,7 @@ fn article_description_uses_front_matter_instead_of_body() -> Result<()> {
                 "description",
                 Some("'Chosen summary with quotes & friends'"),
             )],
-            "# Heading\n\nShort [linked](other.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
+            "# Heading\n\nShort [linked](../override.md) intro.\n\n- Skip this item\n\nMore detail with \"quotes\" & friends.\n",
         ),
     )?;
     fs::write(
@@ -1033,6 +1071,8 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
             "# Hello\n\n![A & B](photo.png \"Photo\")\n\n```\n  keep spacing\n```\n",
         ),
     )?;
+    fs::create_dir_all(site.join("static/entries"))?;
+    fs::write(site.join("static/entries/photo.png"), [0])?;
     build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("<style>h1{color:red}</style>"), "{html}");
@@ -1556,4 +1596,183 @@ fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
         "body { --nested-css: yes; }"
     );
     Ok(())
+}
+
+#[test]
+fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(
+            &[],
+            concat!(
+                "[next](next.md#details) [abs](/entries/next) [html](/entries/next.html?x=1)\n\n",
+                "[about](../about.md) [home](/) [tags](/tags/) [tag](/tags/untagged) [feed](/feed.xml)\n\n",
+                "![ogp](/assets/img/ogp.png) ![relative](../assets/img/ogp.png) ",
+                "![encoded](/files/%E7%94%BB%E5%83%8F.png) ![raw](/files/画像.png)\n\n",
+                "[web](https://example.com/missing) [plain](http://example.com/missing) ",
+                "[mail](mailto:someone@example.com) [tel](tel:+81-3-0000-0000) ",
+                "[top](#top) <someone@example.com>\n\n",
+                "## [unwrapped](missing.md)\n",
+            ),
+        ),
+    )?;
+    fs::write(
+        site.join("content/entries/next.md"),
+        article_source(&[], "## Details\n"),
+    )?;
+    fs::write(
+        site.join("content/about.md"),
+        article_source(&[], "About\n"),
+    )?;
+    fs::create_dir(site.join("static/files"))?;
+    fs::write(site.join("static/files/画像.png"), [0])?;
+    build_ok(&site)?;
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    assert!(html.contains("href=next#details"), "{html}");
+    assert!(html.contains("href=../about"), "{html}");
+    Ok(())
+}
+
+#[test]
+fn broken_internal_links_fail_and_preserve_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (body, expected) in [
+        (
+            "[missing](/entries/missing)",
+            "/entries/missing resolves to /entries/missing",
+        ),
+        (
+            "[missing](missing.md#x)",
+            "missing#x resolves to /entries/missing",
+        ),
+        (
+            "![missing](/assets/img/missing.png)",
+            "/assets/img/missing.png resolves to /assets/img/missing.png",
+        ),
+        (
+            "![missing](../missing.png)",
+            "../missing.png resolves to /missing.png",
+        ),
+        (
+            "[case](/Entries/Hello-World)",
+            "/Entries/Hello-World resolves to /Entries/Hello-World",
+        ),
+        (
+            "[slash](/entries/hello-world/)",
+            "/entries/hello-world/ resolves to /entries/hello-world/",
+        ),
+    ] {
+        fs::write(
+            site.join("content/entries/hello-world.md"),
+            article_source(&[], body),
+        )?;
+        let stderr = build_err(&site)?;
+        assert!(
+            stderr.contains(&format!(
+                "broken internal link in content/entries/hello-world.md: {expected}, which is not generated"
+            )),
+            "{stderr}"
+        );
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+    }
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], "[bad](a%zz)"),
+    )?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("invalid internal link in content/entries/hello-world.md: a%zz"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("invalid percent-encoding"), "{stderr}");
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    Ok(())
+}
+
+#[test]
+fn dry_run_builds_without_creating_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let output = dry_run_site(&site)?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("dist/ was not changed"), "{stdout}");
+    assert!(!site.join("dist").exists());
+    assert_no_build_leftovers(&site)
+}
+
+#[test]
+fn dry_run_leaves_existing_dist_unchanged() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], "# Changed\n"),
+    )?;
+    fs::write(
+        site.join("content/added.md"),
+        article_source(&[], "Added\n"),
+    )?;
+    let output = dry_run_site(&site)?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    assert_no_build_leftovers(&site)
+}
+
+#[test]
+fn dry_run_fails_with_the_same_errors_as_build() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (body, expected) in [
+        ("+++\ntitle = [\n+++\nInvalid".to_owned(), "cannot parse"),
+        (
+            article_source(&[], "[missing](/entries/missing)"),
+            "broken internal link",
+        ),
+    ] {
+        fs::write(site.join("content/entries/hello-world.md"), body)?;
+        let output = dry_run_site(&site)?;
+        assert!(!output.status.success());
+        let dry_run_stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(dry_run_stderr.contains(expected), "{dry_run_stderr}");
+        assert_eq!(dry_run_stderr, build_err(&site)?);
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+        assert_no_build_leftovers(&site)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn dry_run_refuses_unrecognized_dist_like_build() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::create_dir(site.join("dist"))?;
+    fs::write(site.join("dist/keep.txt"), "user file")?;
+    let before = snapshot(&site.join("dist"))?;
+    let output = dry_run_site(&site)?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("refusing to replace unrecognized dist directory"),
+        "{stderr}"
+    );
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    assert_no_build_leftovers(&site)
 }

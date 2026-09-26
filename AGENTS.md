@@ -51,6 +51,8 @@
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
 - 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at` は日付だけ。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
+- 記事のリンクと画像の参照先は `markdown.rs` が出力するとおりに集め、`OutputPlan` が確定した配信URLの集合と `route.rs` で照合する。相対パスは記事URLを基準にブラウザーと同じく解決し、スキーム付きURL・同一ページ内リンクは対象外。
+- `build --dry-run` は通常の `build` と同じ経路で `OutputPlan` の作成とリンク検証まで行い、`dist/` の所有チェックだけして公開（ステージング・入れ替え）をしない。
 - `static/` の通常ファイルはステージング領域へ直接コピーし、コピー時にも入力パスとファイル種別を検査する。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突に加え、記事・静的ファイルの配信URL衝突と `/__genbit` 配下の使用を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。
 - `dev` はポート確保と監視登録の後に初回ビルドし、既定の `127.0.0.1:3000` で `dist/` を配信する。記事の拡張子なしURLも対応する `.html` から配信する。`config.toml` と `content/`・`templates/`・`styles/`・`static/` の変更通知は容量1で保持し、100 msの静穏期間または500 msの最大待機後に単一の再ビルドを行う。ビルド中の変更は次回に処理し、成功時だけSSEを送る。SIGINT・SIGTERM では実行中のビルドの完了を待って正常終了する。開発用スクリプトは `build` の出力には入らない。
 

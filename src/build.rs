@@ -3,22 +3,23 @@ use crate::{
     content::{self, Article},
     input::SiteInput,
     metadata,
-    output::{Artifact, OutputPlan},
+    output::{self, Artifact, OutputPlan},
     render::Renderer,
+    route,
     tags::TagIndex,
 };
 use anyhow::{Context as _, Result};
 use std::path::Path;
 
-pub(crate) fn run(root: &Path) -> Result<usize> {
-    run_with_reload(root, None)
+pub(crate) fn run(root: &Path, dry_run: bool) -> Result<usize> {
+    run_with_reload(root, None, dry_run)
 }
 
 pub(crate) fn run_dev(root: &Path, reload_script: &str) -> Result<usize> {
-    run_with_reload(root, Some(reload_script))
+    run_with_reload(root, Some(reload_script), false)
 }
 
-fn run_with_reload(root: &Path, reload_script: Option<&str>) -> Result<usize> {
+fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> Result<usize> {
     let input = SiteInput::new(root);
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
@@ -61,7 +62,20 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>) -> Result<usize> {
         })
         .collect::<Result<Vec<_>>>()?;
     artifacts.extend(assets);
-    OutputPlan::new(artifacts)?.publish(&input)?;
+    let plan = OutputPlan::new(artifacts)?;
+    for article in &articles {
+        route::validate_links(
+            article.route.url(),
+            &article.links,
+            &article.source,
+            plan.urls(),
+        )?;
+    }
+    if dry_run {
+        output::check_destination(&input)?;
+    } else {
+        plan.publish(&input)?;
+    }
     Ok(page_count)
 }
 
