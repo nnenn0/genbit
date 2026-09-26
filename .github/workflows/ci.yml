@@ -39,9 +39,6 @@ jobs:
           grep -qx "rust-version = \"$toolchain\"" Cargo.toml
           grep -qx "FROM rust:$toolchain-bookworm" Dockerfile
 
-      - name: Check license lists match
-        run: python3 scripts/check-license-lists.py
-
       - name: Check shell scripts
         run: shellcheck scripts/*.sh
 

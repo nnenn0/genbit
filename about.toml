@@ -1,6 +1,6 @@
 # cargo-about の設定。配布アーカイブに同梱する THIRD_PARTY_LICENSES.md を
 # scripts/third-party-licenses.sh で生成する。
-# 許可するライセンスは deny.toml の [licenses] の allow と同じにそろえる。CI が一致を検査する。
+# 許可するライセンスは deny.toml の [licenses] の allow と同じにそろえる。tests/license_lists.rs が一致を検査する。
 accepted = [
     "0BSD",
     "Apache-2.0",
