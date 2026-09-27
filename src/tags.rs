@@ -76,7 +76,6 @@ mod tests {
             ),
             Path::new(&format!("{name}.md")),
             &TimeZone::UTC,
-            &crate::image_size::ImageSizes::default(),
         )
     }
 

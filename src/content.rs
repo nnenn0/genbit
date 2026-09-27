@@ -1,4 +1,3 @@
-use crate::image_size::ImageSizes;
 use crate::route::{Route, UNTAGGED_TAG};
 use anyhow::{Context, Result, bail, ensure};
 use jiff::{Zoned, civil::DateTime, tz::TimeZone};
@@ -65,12 +64,7 @@ pub(crate) struct Article {
     pub(crate) source: PathBuf,
 }
 
-pub(crate) fn parse(
-    source: &str,
-    relative: &Path,
-    timezone: &TimeZone,
-    image_sizes: &ImageSizes,
-) -> Result<Article> {
+pub(crate) fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Result<Article> {
     let (metadata, body) = split_front_matter(source)?;
     let route = Route::from_content_path(relative)?;
     let created_at = timestamp(metadata.created_at, "created_at", timezone)?;
@@ -117,10 +111,7 @@ pub(crate) fn parse(
             && !template.contains('\\'),
         "template must be a relative path inside templates/"
     );
-    let rendered = crate::markdown::render(body, |link| {
-        image_sizes.find(route.url(), link)
-    })
-    .map_err(|error| {
+    let rendered = crate::markdown::render(body).map_err(|error| {
         let line = line_number(source, source.len() - body.len() + error.offset);
         anyhow::anyhow!(
             "raw HTML is not allowed in Markdown at line {line}; write it with Markdown syntax, or use a code span or `\\<` to show it as text"
@@ -285,14 +276,9 @@ mod tests {
                 "description is required",
             ),
         ] {
-            let error = parse(
-                source,
-                Path::new("post.md"),
-                &TimeZone::UTC,
-                &ImageSizes::default(),
-            )
-            .err()
-            .context(format!("accepted {source:?}"))?;
+            let error = parse(source, Path::new("post.md"), &TimeZone::UTC)
+                .err()
+                .context(format!("accepted {source:?}"))?;
             assert!(
                 format!("{error:#}").contains(reason),
                 "{source:?}: expected {reason:?}, got {error:#}"
@@ -318,7 +304,6 @@ mod tests {
                 ),
                 Path::new("post.md"),
                 &TimeZone::UTC,
-                &ImageSizes::default(),
             )?;
             assert_eq!(rfc3339(&article.created_at), expected_created);
             assert_eq!(rfc3339(&article.updated_at), expected_updated);
@@ -329,18 +314,12 @@ mod tests {
     #[test]
     fn validates_tags() -> Result<()> {
         let source = "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = ['react', 'react-19', 'web-security']\n+++\nBody";
-        let article = parse(
-            source,
-            Path::new("post.md"),
-            &TimeZone::UTC,
-            &ImageSizes::default(),
-        )?;
+        let article = parse(source, Path::new("post.md"), &TimeZone::UTC)?;
         assert_eq!(article.tags, ["react", "react-19", "web-security"]);
         let untagged = parse(
             "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\n+++\nBody",
             Path::new("post.md"),
             &TimeZone::UTC,
-            &ImageSizes::default(),
         )?;
         assert!(untagged.tags.is_empty());
         for tags in [
@@ -359,13 +338,7 @@ mod tests {
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\nBody"
             );
             assert!(
-                parse(
-                    &source,
-                    Path::new("post.md"),
-                    &TimeZone::UTC,
-                    &ImageSizes::default()
-                )
-                .is_err(),
+                parse(&source, Path::new("post.md"), &TimeZone::UTC).is_err(),
                 "accepted {tags}"
             );
         }
@@ -386,7 +359,6 @@ mod tests {
                 ),
                 Path::new("post.md"),
                 &timezone,
-                &ImageSizes::default(),
             )?;
             assert_eq!(rfc3339(&article.created_at), expected, "{source}");
         }
@@ -416,14 +388,9 @@ mod tests {
                 8,
             ),
         ] {
-            let error = parse(
-                &source,
-                Path::new("post.md"),
-                &TimeZone::UTC,
-                &ImageSizes::default(),
-            )
-            .err()
-            .context(format!("accepted {source:?}"))?;
+            let error = parse(&source, Path::new("post.md"), &TimeZone::UTC)
+                .err()
+                .context(format!("accepted {source:?}"))?;
             let expected = format!("raw HTML is not allowed in Markdown at line {line};");
             assert!(
                 format!("{error:#}").contains(&expected),
