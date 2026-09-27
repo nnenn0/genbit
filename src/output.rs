@@ -117,6 +117,8 @@ impl StagedOutput {
 
 fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
     let mut paths = BTreeMap::new();
+    // Directories are shared by name on case-insensitive filesystems, so each needs one spelling.
+    let mut directories = BTreeMap::new();
     for artifact in artifacts {
         ensure!(
             !artifact.path.as_os_str().is_empty()
@@ -127,18 +129,31 @@ fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
             "invalid output path {}",
             artifact.path.display()
         );
-        // Case-insensitive comparison keeps generated sites portable to common macOS/Windows filesystems.
-        let key = artifact
+        let spelled = artifact
             .path
             .to_str()
             .context("output path must be UTF-8")?
-            .replace('\\', "/")
-            .to_lowercase();
+            .replace('\\', "/");
+        // Case-insensitive comparison keeps generated sites portable to common macOS/Windows filesystems.
+        let key = spelled.to_lowercase();
         ensure!(
             key != MARKER && !key.starts_with(&format!("{MARKER}/")),
             "reserved output path {}",
             artifact.path.display()
         );
+        for (offset, _) in spelled.match_indices('/') {
+            let directory = spelled
+                .get(..offset)
+                .context("invalid output path boundary")?;
+            let (previous, previous_source) = directories
+                .entry(directory.to_lowercase())
+                .or_insert((directory.to_owned(), &artifact.source));
+            ensure!(
+                previous == directory,
+                "output directory case collision: {previous} from {previous_source} and {directory} from {}",
+                artifact.source
+            );
+        }
         if let Some(previous) = paths.insert(key, &artifact.source) {
             bail!(
                 "output collision at {}: {previous} and {}",
@@ -197,6 +212,25 @@ mod tests {
         fs,
         path::{Path, PathBuf},
     };
+
+    #[test]
+    fn rejects_directories_spelled_with_different_case() -> Result<()> {
+        let error = OutputPlan::new(vec![
+            Artifact::generated(PathBuf::from("Docs/a/post.html"), Vec::new(), "first"),
+            Artifact::generated(PathBuf::from("docs/a/image.svg"), Vec::new(), "second"),
+        ])
+        .err()
+        .context("accepted directory case collision")?;
+        assert_eq!(
+            error.to_string(),
+            "output directory case collision: Docs from first and docs from second"
+        );
+        OutputPlan::new(vec![
+            Artifact::generated(PathBuf::from("docs/a/post.html"), Vec::new(), "first"),
+            Artifact::generated(PathBuf::from("docs/b/image.svg"), Vec::new(), "second"),
+        ])?;
+        Ok(())
+    }
 
     #[test]
     fn missing_static_file_after_listing_preserves_previous_dist() -> Result<()> {

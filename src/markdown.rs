@@ -10,66 +10,39 @@ pub(crate) struct Rendered {
 }
 
 pub(crate) fn render(source: &str) -> Rendered {
-    let mut events = Parser::new_ext(source, Options::ENABLE_TABLES);
-    let mut external_link = false;
-    let mut in_linked_heading = false;
+    let parsed = Parser::new_ext(source, Options::ENABLE_TABLES).map(rewrite_article_link);
     let mut links = Vec::new();
-    let collected = &mut links;
-    let mut transformed = std::iter::from_fn(move || {
-        let event = events.next()?;
-        match event {
-            Event::Start(Tag::Heading { level, .. }) => {
-                in_linked_heading = is_linked_heading(level);
-                Some(event)
-            }
-            Event::End(TagEnd::Heading(_)) => {
-                in_linked_heading = false;
-                Some(event)
-            }
-            Event::Start(Tag::Image {
-                dest_url, title, ..
-            }) => {
-                collected.push(dest_url.to_string());
-                Some(Event::Html(
-                    image_html(&mut events, &dest_url, &title).into(),
-                ))
-            }
-            Event::Start(Tag::Link {
-                link_type,
-                dest_url,
-                title,
-                id,
-            }) => {
-                if dest_url.starts_with("https://")
-                    || dest_url.starts_with("http://")
-                    || dest_url.starts_with("//")
-                {
-                    external_link = true;
-                    Some(Event::Html(external_anchor(&dest_url, &title).into()))
-                } else {
-                    let dest_url = article_url(&dest_url).map_or(dest_url, Into::into);
-                    // Links inside linked headings are unwrapped, and email autolinks have no mailto: yet.
-                    if !in_linked_heading && link_type != LinkType::Email {
-                        collected.push(dest_url.to_string());
-                    }
-                    Some(Event::Start(Tag::Link {
-                        link_type,
-                        dest_url,
-                        title,
-                        id,
-                    }))
-                }
-            }
-            Event::End(TagEnd::Link) if external_link => {
-                external_link = false;
-                Some(Event::Html("</a>".into()))
-            }
-            other => Some(other),
-        }
-    });
+    let events = to_html_events(anchor_headings(parsed), &mut links);
+    let mut output = String::new();
+    html::push_html(&mut output, events.into_iter());
+    Rendered {
+        html: output,
+        links,
+    }
+}
+
+fn rewrite_article_link(event: Event<'_>) -> Event<'_> {
+    match event {
+        Event::Start(Tag::Link {
+            link_type,
+            dest_url,
+            title,
+            id,
+        }) => Event::Start(Tag::Link {
+            link_type,
+            dest_url: article_url(&dest_url).map_or(dest_url, Into::into),
+            title,
+            id,
+        }),
+        other => other,
+    }
+}
+
+/// Makes each second- and third-level heading a link to itself, keeping the typed events of its content.
+fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
     let mut anchored = Vec::new();
     let mut used_ids = HashSet::new();
-    while let Some(event) = transformed.next() {
+    while let Some(event) = events.next() {
         match event {
             Event::Start(Tag::Heading {
                 level,
@@ -77,13 +50,10 @@ pub(crate) fn render(source: &str) -> Rendered {
                 attrs,
                 ..
             }) if is_linked_heading(level) => {
-                let mut heading = Vec::new();
-                for inner in transformed.by_ref() {
-                    if matches!(inner, Event::End(TagEnd::Heading(_))) {
-                        break;
-                    }
-                    heading.push(inner);
-                }
+                let heading = events
+                    .by_ref()
+                    .take_while(|inner| !matches!(inner, Event::End(TagEnd::Heading(_))))
+                    .collect::<Vec<_>>();
                 let id = unique_heading_id(&heading_text(&heading), &mut used_ids);
                 anchored.push(Event::Start(Tag::Heading {
                     level,
@@ -91,23 +61,97 @@ pub(crate) fn render(source: &str) -> Rendered {
                     classes,
                     attrs,
                 }));
-                anchored.push(Event::Html(
-                    format!("<a class=\"heading-anchor\" href=\"#{id}\">").into(),
-                ));
-                anchored.extend(heading.into_iter().filter(|event| !is_link_boundary(event)));
-                anchored.push(Event::Html("</a>".into()));
+                // Raw HTML may contain its own links, and anchors cannot nest.
+                if heading
+                    .iter()
+                    .any(|inner| matches!(inner, Event::InlineHtml(_)))
+                {
+                    anchored.extend(heading);
+                } else {
+                    anchored.push(Event::Html(
+                        format!("<a class=\"heading-anchor\" href=\"#{id}\">").into(),
+                    ));
+                    anchored.extend(heading.into_iter().filter(|inner| {
+                        !matches!(
+                            inner,
+                            Event::Start(Tag::Link { .. }) | Event::End(TagEnd::Link)
+                        )
+                    }));
+                    anchored.push(Event::Html("</a>".into()));
+                }
                 anchored.push(Event::End(TagEnd::Heading(level)));
             }
             other => anchored.push(other),
         }
     }
-    drop(transformed);
-    let mut output = String::new();
-    html::push_html(&mut output, add_code_labels(anchored).into_iter());
-    Rendered {
-        html: output,
-        links,
+    anchored
+}
+
+/// Replaces events that need attributes pulldown-cmark cannot write, collecting link and image targets in document order.
+fn to_html_events<'a>(events: Vec<Event<'a>>, links: &mut Vec<String>) -> Vec<Event<'a>> {
+    let mut converted = Vec::with_capacity(events.len());
+    let mut events = events.into_iter();
+    let mut external_link = false;
+    let mut has_label = false;
+    while let Some(event) = events.next() {
+        match event {
+            Event::Start(Tag::Image {
+                dest_url, title, ..
+            }) => {
+                links.push(dest_url.to_string());
+                converted.push(Event::Html(
+                    image_html(&mut events, &dest_url, &title).into(),
+                ));
+            }
+            Event::Start(Tag::Link {
+                dest_url, title, ..
+            }) if is_external(&dest_url) => {
+                external_link = true;
+                converted.push(Event::Html(external_anchor(&dest_url, &title).into()));
+            }
+            Event::End(TagEnd::Link) if external_link => {
+                external_link = false;
+                converted.push(Event::Html("</a>".into()));
+            }
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => {
+                // Email autolinks have no mailto: yet.
+                if link_type != LinkType::Email {
+                    links.push(dest_url.to_string());
+                }
+                converted.push(Event::Start(Tag::Link {
+                    link_type,
+                    dest_url,
+                    title,
+                    id,
+                }));
+            }
+            Event::Start(Tag::CodeBlock(kind)) => {
+                if let Some(label) = code_block_label(&kind) {
+                    converted.push(Event::Html(label.into()));
+                    has_label = true;
+                }
+                converted.push(Event::Start(Tag::CodeBlock(kind)));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                converted.push(Event::End(TagEnd::CodeBlock));
+                if has_label {
+                    converted.push(Event::Html("</div>".into()));
+                    has_label = false;
+                }
+            }
+            other => converted.push(other),
+        }
     }
+    converted
+}
+
+fn is_external(url: &str) -> bool {
+    url.starts_with("https://") || url.starts_with("http://") || url.starts_with("//")
 }
 
 fn external_anchor(url: &str, title: &str) -> String {
@@ -128,40 +172,6 @@ fn is_linked_heading(level: HeadingLevel) -> bool {
     matches!(level, HeadingLevel::H2 | HeadingLevel::H3)
 }
 
-/// 見出し全体をリンクにするため、見出し内のリンクはテキストだけ残す。
-fn is_link_boundary(event: &Event<'_>) -> bool {
-    match event {
-        Event::Start(Tag::Link { .. }) | Event::End(TagEnd::Link) => true,
-        Event::Html(html) => html.as_ref() == "</a>" || html.starts_with("<a href="),
-        _ => false,
-    }
-}
-
-fn add_code_labels(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
-    let mut labeled = Vec::with_capacity(events.len());
-    let mut has_label = false;
-    for event in events {
-        match event {
-            Event::Start(Tag::CodeBlock(kind)) => {
-                if let Some(label) = code_block_label(&kind) {
-                    labeled.push(Event::Html(label.into()));
-                    has_label = true;
-                }
-                labeled.push(Event::Start(Tag::CodeBlock(kind)));
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                labeled.push(Event::End(TagEnd::CodeBlock));
-                if has_label {
-                    labeled.push(Event::Html("</div>".into()));
-                    has_label = false;
-                }
-            }
-            other => labeled.push(other),
-        }
-    }
-    labeled
-}
-
 fn code_block_label(kind: &CodeBlockKind<'_>) -> Option<String> {
     let CodeBlockKind::Fenced(info) = kind else {
         return None;
@@ -173,12 +183,16 @@ fn code_block_label(kind: &CodeBlockKind<'_>) -> Option<String> {
     ))
 }
 
+/// Reads the visible heading text for its ID, leaving out image alt text.
 fn heading_text(events: &[Event<'_>]) -> String {
     let mut text = String::new();
+    let mut image_depth = 0_usize;
     for event in events {
         match event {
-            Event::Text(value) | Event::Code(value) => text.push_str(value),
-            Event::SoftBreak | Event::HardBreak => text.push(' '),
+            Event::Start(Tag::Image { .. }) => image_depth += 1,
+            Event::End(TagEnd::Image) => image_depth = image_depth.saturating_sub(1),
+            Event::Text(value) | Event::Code(value) if image_depth == 0 => text.push_str(value),
+            Event::SoftBreak | Event::HardBreak if image_depth == 0 => text.push(' '),
             _ => {}
         }
     }
@@ -378,6 +392,31 @@ mod tests {
             ),
             "{html}"
         );
+    }
+
+    #[test]
+    fn keeps_raw_html_headings_unwrapped_so_anchors_do_not_nest() {
+        let rendered = render("## <a href=\"/feed.xml\">RSS</a> and [more](more.md)\n");
+        assert!(
+            rendered.html.contains(
+                "<h2 id=\"rss-and-more\"><a href=\"/feed.xml\">RSS</a> and <a href=\"more\">more</a></h2>"
+            ),
+            "{}",
+            rendered.html
+        );
+        assert!(
+            !rendered.html.contains("heading-anchor"),
+            "{}",
+            rendered.html
+        );
+        assert_eq!(rendered.links, ["more"]);
+    }
+
+    #[test]
+    fn leaves_image_alt_text_out_of_heading_ids() {
+        let html = render_html("## ![icon](icon.png) Title\n");
+        assert!(html.contains("<h2 id=\"title\">"), "{html}");
+        assert!(html.contains("alt=\"icon\""), "{html}");
     }
 
     #[test]

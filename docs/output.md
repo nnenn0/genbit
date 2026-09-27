@@ -51,6 +51,8 @@
 
 2つの出力が同じURLで配信される構成は、ビルド時に拒否し、`dist/` を更新しません。たとえば `content/foo.md` と `static/foo` はどちらも `/foo` を使い、`static/foo/index.html` も `/foo` に応答します。`.html` の直接URLと、開発サーバーで使う拡張子なしURLの両方を検査します。`static/feed.xml` のように生成ファイルと衝突するパスも拒否します。
 
+大文字と小文字だけが異なる出力も拒否します。ファイル名に加えてディレクトリ名も対象です。たとえば `content/Docs/post.md` と `static/docs/image.svg` は、`dist/Docs/` と `dist/docs/` を作ることになるので拒否します。macOSやWindowsの一般的なファイルシステムでは両者が1つのディレクトリにまとまり、公開先によってリンクが切れるためです。
+
 `/__genbit` とその配下は開発サーバー用の予約URLです。
 
 ## 公開先の条件

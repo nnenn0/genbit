@@ -1460,6 +1460,30 @@ fn rejects_output_collisions_without_touching_dist() -> Result<()> {
 }
 
 #[test]
+fn directory_case_collisions_fail_and_preserve_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    fs::create_dir_all(site.join("content/Docs"))?;
+    fs::write(
+        site.join("content/Docs/post.md"),
+        article_source(&[], "![image](/docs/image.svg)\n"),
+    )?;
+    fs::create_dir_all(site.join("static/docs"))?;
+    fs::write(site.join("static/docs/image.svg"), "<svg/>")?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("output directory case collision")
+            && stderr.contains("Docs")
+            && stderr.contains("docs"),
+        "{stderr}"
+    );
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    Ok(())
+}
+
+#[test]
 fn rejects_served_url_collisions_and_reserved_paths_without_touching_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

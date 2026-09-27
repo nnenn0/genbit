@@ -113,34 +113,24 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
     for &(relative, content) in FILES {
         write_new(&root.join(relative), content)?;
     }
-    write_new_bytes(
+    write_new(
         &root.join("static/assets/img/ogp.png"),
         include_bytes!("../scaffold/static/assets/img/ogp.png"),
     )?;
-    write_new_bytes(
+    write_new(
         &root.join("static/assets/img/favicon.png"),
         include_bytes!("../scaffold/static/assets/img/favicon.png"),
     )?;
     Ok(())
 }
 
-fn write_new_bytes(path: &Path, content: &[u8]) -> Result<()> {
+fn write_new(path: &Path, content: impl AsRef<[u8]>) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .with_context(|| format!("cannot create {}", path.display()))?;
-    file.write_all(content)
-        .with_context(|| format!("cannot write {}", path.display()))
-}
-
-fn write_new(path: &Path, content: &str) -> Result<()> {
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .with_context(|| format!("cannot create {}", path.display()))?;
-    file.write_all(content.as_bytes())
+    file.write_all(content.as_ref())
         .with_context(|| format!("cannot write {}", path.display()))
 }
 
