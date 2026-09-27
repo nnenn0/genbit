@@ -34,10 +34,8 @@ struct ArticleStructuredData<'a> {
     description: &'a str,
     url: &'a str,
     image: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    date_published: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    date_modified: Option<&'a str>,
+    date_published: &'a str,
+    date_modified: &'a str,
 }
 
 pub(crate) fn website_json_ld(config: &Config) -> Result<String> {
@@ -61,8 +59,8 @@ pub(crate) fn article_json_ld(config: &Config, article: &Article, url: &str) -> 
         description: &article.description,
         url,
         image: &config.og_image,
-        date_published: Some(&published),
-        date_modified: Some(&modified),
+        date_published: &published,
+        date_modified: &modified,
     })
 }
 
