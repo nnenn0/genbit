@@ -40,7 +40,7 @@
 | `tests/cli.rs` | 一時ディレクトリで実行バイナリを起動する E2E テスト。入出力形式や保護動作を変更するときの主な確認先。 |
 | `tests/license_lists.rs` | `deny.toml` の `allow` と `about.toml` の `accepted` が同じライセンスの一覧であることを検査する。 |
 | `README.md`、`docs/` | 利用者向けの概要と仕様。README は概要・インストール・既知の制限、`docs/` は設定・コンテンツ・テンプレート・出力・開発の詳細。`docs/assets/` の画像は README 用。 |
-| `.github/workflows/ci.yml`、`.github/workflows/deny.yml`、`.github/workflows/release.yml`、`scripts/`、`deny.toml`、`about.toml`、`about.hbs`、`Dockerfile`、`compose.yaml` | CI、依存の検査、バイナリのリリース、配布物の smoke test と依存のライセンス一覧の生成、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
+| `.github/workflows/ci.yml`、`.github/workflows/deny.yml`、`.github/workflows/release.yml`、`scripts/`、`deny.toml`、`about.toml`、`about.hbs`、`Dockerfile`、`compose.yaml` | CI、依存の検査、バイナリのリリース、配布物の smoke test と依存のライセンス一覧の生成、README のスクリーンショットの撮影（`scripts/readme-screenshots.sh` と素材の `scripts/readme-screenshots/`）、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
 
 ## Architecture and Data Flow
 
