@@ -11,6 +11,9 @@ use std::{
 };
 use tempfile::TempDir;
 
+const PNG_300X200: &[u8] = include_bytes!("fixtures/images/basic.png");
+const PNG_40X30: &[u8] = include_bytes!("fixtures/images/small.png");
+
 struct Workspace(TempDir);
 
 struct DevProcess {
@@ -447,7 +450,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
             "# Another\n",
         ),
     )?;
-    fs::write(site.join("static/logo.png"), [0, 1, 2, 255])?;
+    fs::write(site.join("static/logo.png"), PNG_300X200)?;
     build_ok(&site)?;
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("<style>"));
@@ -507,7 +510,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let unmodified = fs::read_to_string(site.join("dist/entries/posts/another.html"))?;
     let date = "<time datetime=2026-09-16T00:00:00+09:00>2026-09-16</time>";
     assert_eq!(unmodified.matches(date).count(), 2, "{unmodified}");
-    assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
+    assert_eq!(fs::read(site.join("dist/logo.png"))?, PNG_300X200);
     assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
     assert!(site.join("dist/assets/img/favicon.png").is_file());
     assert!(site.join("dist/assets/img/ogp.png").is_file());
@@ -1085,12 +1088,14 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
         ),
     )?;
     fs::create_dir_all(site.join("static/entries"))?;
-    fs::write(site.join("static/entries/photo.png"), [0])?;
+    fs::write(site.join("static/entries/photo.png"), PNG_300X200)?;
     build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("<style>h1{color:red}</style>"), "{html}");
     assert!(html.contains("src=photo.png"), "{html}");
     assert!(html.contains("alt=\"A & B\""), "{html}");
+    let image = img_tag(&html, "photo.png").context("missing photo.png")?;
+    assert!(has_size(image, 300, 200), "{image}");
     assert!(html.contains("loading=lazy"), "{html}");
     assert!(html.contains("decoding=async"), "{html}");
     assert!(html.contains("  keep spacing"), "{html}");
@@ -1260,6 +1265,30 @@ fn dev_keeps_the_last_output_when_raw_html_is_added() -> Result<()> {
         fs::read_to_string(site.join("dist/entries/hello-world.html"))?,
         before
     );
+    Ok(())
+}
+
+#[test]
+fn dev_updates_image_sizes_after_an_image_changes() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let photo = site.join("static/assets/img/photo.png");
+    fs::write(&photo, PNG_300X200)?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], "![photo](/assets/img/photo.png)\n"),
+    )?;
+    let (server, address) = DevProcess::start_listening(&site)?;
+    let mut events = open_reload_stream(&address, &server)?;
+    let before = http_get(&address, "/entries/hello-world")?;
+    let image = img_tag(&before, "/assets/img/photo.png").context("missing image")?;
+    assert!(has_size(image, 300, 200), "{before}");
+
+    fs::write(&photo, PNG_40X30)?;
+    read_sse_until(&mut events, &mut Vec::new(), b"data: reload", &server)?;
+    let updated = http_get(&address, "/entries/hello-world")?;
+    let image = img_tag(&updated, "/assets/img/photo.png").context("missing image")?;
+    assert!(has_size(image, 40, 30), "{updated}");
     Ok(())
 }
 
@@ -1712,7 +1741,7 @@ fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
         article_source(&[], "About\n"),
     )?;
     fs::create_dir(site.join("static/files"))?;
-    fs::write(site.join("static/files/画像.png"), [0])?;
+    fs::write(site.join("static/files/画像.png"), PNG_300X200)?;
     build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("href=next#details"), "{html}");
@@ -1865,6 +1894,135 @@ fn articles_show_html_notation_as_text_and_keep_generated_markup() -> Result<()>
     }
     for raw in ["<details>", "<kbd>", "<br>", "<!-- memo", "<picture>"] {
         assert!(!html.contains(raw), "{raw}: {html}");
+    }
+    Ok(())
+}
+
+/// Returns the `<img>` tag whose `src` is exactly `src` in minified HTML, which sorts attributes.
+fn img_tag<'a>(html: &'a str, src: &str) -> Option<&'a str> {
+    let attribute = html
+        .match_indices(&format!(" src={src}"))
+        .map(|(index, _)| index)
+        .find(|&index| {
+            html.get(index + 5 + src.len()..)
+                .is_some_and(|rest| rest.starts_with([' ', '>']))
+        })?;
+    let start = html.get(..attribute)?.rfind("<img ")?;
+    let end = attribute + html.get(attribute..)?.find('>')?;
+    html.get(start..=end)
+}
+
+/// Returns whether an `<img>` tag states the given intrinsic size.
+fn has_size(tag: &str, width: u32, height: u32) -> bool {
+    tag.contains(&format!(" width={width}")) && tag.contains(&format!(" height={height}"))
+}
+
+#[test]
+fn static_images_get_their_intrinsic_sizes() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let images = site.join("static/img");
+    fs::create_dir_all(&images)?;
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images");
+    for name in [
+        "basic.png",
+        "basic.gif",
+        "lossy.webp",
+        "lossless.webp",
+        "alpha.webp",
+        "animated.webp",
+        "exif.png",
+        "exif.webp",
+    ] {
+        fs::write(images.join(name), fs::read(fixtures.join(name))?)?;
+    }
+    // Formats outside PNG, GIF, and WebP are copied without being read.
+    fs::write(images.join("photo.jpg"), [0])?;
+    fs::write(
+        images.join("diagram.svg"),
+        "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+    )?;
+    let sized = [
+        "/img/basic.png",
+        "../img/basic.gif",
+        "/img/lossy.webp",
+        "/img/lossless.webp",
+        "/img/alpha.webp",
+        "/img/animated.webp",
+    ];
+    let without_size = [
+        "/img/exif.png",
+        "/img/exif.webp",
+        "/img/photo.jpg",
+        "/img/diagram.svg",
+        "https://example.com/a.png",
+    ];
+    let body = sized
+        .iter()
+        .chain(&without_size)
+        .map(|src| format!("![image]({src})\n\n"))
+        .collect::<Vec<_>>()
+        .concat();
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], &body),
+    )?;
+    build_ok(&site)?;
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    for src in sized {
+        let tag = img_tag(&html, src).with_context(|| format!("missing {src}: {html}"))?;
+        assert!(has_size(tag, 300, 200), "{tag}");
+    }
+    for src in without_size {
+        let tag = img_tag(&html, src).with_context(|| format!("missing {src}: {html}"))?;
+        assert!(!tag.contains("width=") && !tag.contains("height="), "{tag}");
+    }
+    Ok(())
+}
+
+#[test]
+fn article_images_scale_with_any_template() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::copy(
+        site.join("templates/page.html"),
+        site.join("templates/note.html"),
+    )?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[("template", Some("'note.html'"))], "Body\n"),
+    )?;
+    build_ok(&site)?;
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    assert!(html.contains("img{max-width:100%;height:auto}"), "{html}");
+    Ok(())
+}
+
+#[test]
+fn unreadable_static_images_fail_and_preserve_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (name, bytes) in [
+        ("broken.png", b"not a png".as_slice()),
+        ("renamed.webp", PNG_300X200),
+        ("short.gif", b"GIF89a\x2c\x01".as_slice()),
+    ] {
+        let path = site.join("static/assets/img").join(name);
+        fs::write(&path, bytes)?;
+        let stderr = build_err(&site)?;
+        assert!(
+            stderr.contains("cannot read the image size of")
+                && stderr.contains(&format!("static/assets/img/{name}")),
+            "{stderr}"
+        );
+        let output = dry_run_site(&site)?;
+        assert!(!output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stderr), stderr);
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+        assert_no_build_leftovers(&site)?;
+        fs::remove_file(&path)?;
     }
     Ok(())
 }

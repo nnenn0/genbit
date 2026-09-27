@@ -1,3 +1,4 @@
+use crate::image_size::Size;
 use pulldown_cmark::{
     CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd, html,
 };
@@ -16,7 +17,11 @@ pub(crate) struct RawHtml {
     pub(crate) offset: usize,
 }
 
-pub(crate) fn render(source: &str) -> Result<Rendered, RawHtml> {
+/// Renders `source`, giving each image the intrinsic size `image_size` returns for its URL.
+pub(crate) fn render(
+    source: &str,
+    image_size: impl Fn(&str) -> Option<Size>,
+) -> Result<Rendered, RawHtml> {
     // Checked before any rewriting, because the later steps emit HTML events of their own.
     let parsed = Parser::new_ext(source, Options::ENABLE_TABLES)
         .into_offset_iter()
@@ -28,7 +33,7 @@ pub(crate) fn render(source: &str) -> Result<Rendered, RawHtml> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut links = Vec::new();
-    let events = to_html_events(anchor_headings(parsed.into_iter()), &mut links);
+    let events = to_html_events(anchor_headings(parsed.into_iter()), &mut links, &image_size);
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
     Ok(Rendered {
@@ -97,7 +102,11 @@ fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event
 }
 
 /// Replaces events that need attributes pulldown-cmark cannot write, collecting link and image targets in document order.
-fn to_html_events<'a>(events: Vec<Event<'a>>, links: &mut Vec<String>) -> Vec<Event<'a>> {
+fn to_html_events<'a>(
+    events: Vec<Event<'a>>,
+    links: &mut Vec<String>,
+    image_size: &impl Fn(&str) -> Option<Size>,
+) -> Vec<Event<'a>> {
     let mut converted = Vec::with_capacity(events.len());
     let mut events = events.into_iter();
     let mut external_link = false;
@@ -109,7 +118,7 @@ fn to_html_events<'a>(events: Vec<Event<'a>>, links: &mut Vec<String>) -> Vec<Ev
             }) => {
                 links.push(dest_url.to_string());
                 converted.push(Event::Html(
-                    image_html(&mut events, &dest_url, &title).into(),
+                    image_html(&mut events, &dest_url, &title, image_size(&dest_url)).into(),
                 ));
             }
             Event::Start(Tag::Link {
@@ -247,6 +256,7 @@ fn image_html<'a>(
     events: &mut impl Iterator<Item = Event<'a>>,
     source: &str,
     title: &str,
+    size: Option<Size>,
 ) -> String {
     let mut alt = String::new();
     let mut image_depth = 1;
@@ -264,8 +274,11 @@ fn image_html<'a>(
             _ => {}
         }
     }
+    let size = size.map_or_else(String::new, |Size { width, height }| {
+        format!(" width=\"{width}\" height=\"{height}\"")
+    });
     let mut image = format!(
-        "<img src=\"{}\" alt=\"{}\" loading=\"lazy\" decoding=\"async\"",
+        "<img src=\"{}\" alt=\"{}\"{size} loading=\"lazy\" decoding=\"async\"",
         escape_attribute(source),
         escape_attribute(&alt)
     );
@@ -295,10 +308,15 @@ fn escape_attribute(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{RawHtml, render};
+    use super::{RawHtml, Rendered, render};
+    use crate::image_size::Size;
+
+    fn render_without_sizes(source: &str) -> Result<Rendered, RawHtml> {
+        render(source, |_| None)
+    }
 
     fn render_html(source: &str) -> Result<String, RawHtml> {
-        Ok(render(source)?.html)
+        Ok(render_without_sizes(source)?.html)
     }
 
     #[test]
@@ -329,7 +347,8 @@ mod tests {
 
     #[test]
     fn collects_internal_links_inside_tables() -> Result<(), RawHtml> {
-        let rendered = render("| Page |\n| --- |\n| [Top](/) |\n| [Next](next.md) |\n")?;
+        let rendered =
+            render_without_sizes("| Page |\n| --- |\n| [Top](/) |\n| [Next](next.md) |\n")?;
         assert_eq!(rendered.links, ["/", "next"]);
         Ok(())
     }
@@ -478,7 +497,7 @@ mod tests {
 
     #[test]
     fn collects_rendered_internal_link_and_image_targets() -> Result<(), RawHtml> {
-        let rendered = render(concat!(
+        let rendered = render_without_sizes(concat!(
             "[next](next.md#x) ![photo](../img/a.png) [abs](/about) [top](#top)\n\n",
             "[web](https://example.com) <https://example.com/auto> <someone@example.com> ",
             "[mail](mailto:a@example.com)\n\n",
@@ -501,7 +520,7 @@ mod tests {
     }
 
     fn rejected_offset(source: &str) -> Option<usize> {
-        render(source).err().map(|error| error.offset)
+        render_without_sizes(source).err().map(|error| error.offset)
     }
 
     #[test]
@@ -572,6 +591,37 @@ mod tests {
             html.contains("<a href=\"mailto:someone@example.com\">someone@example.com</a>"),
             "{html}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn writes_the_intrinsic_size_of_known_images() -> Result<(), RawHtml> {
+        let size = |url: &str| {
+            (url == "a.png").then_some(Size {
+                width: 300,
+                height: 200,
+            })
+        };
+        let rendered = render(
+            "![A & B](a.png \"T\") [![linked](a.png)](next.md) ![other](b.png)\n\n## ![icon](a.png) Title\n",
+            size,
+        )?;
+        let html = rendered.html;
+        assert!(
+            html.contains("<img src=\"a.png\" alt=\"A &amp; B\" width=\"300\" height=\"200\" loading=\"lazy\" decoding=\"async\" title=\"T\">"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<a href=\"next\"><img src=\"a.png\" alt=\"linked\" width=\"300\" height=\"200\" loading=\"lazy\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("<img src=\"b.png\" alt=\"other\" loading=\"lazy\""),
+            "{html}"
+        );
+        assert!(html.contains("<h2 id=\"title\">"), "{html}");
+        assert_eq!(html.matches("width=\"300\"").count(), 3, "{html}");
+        assert_eq!(rendered.links, ["a.png", "next", "a.png", "b.png", "a.png"]);
         Ok(())
     }
 }
