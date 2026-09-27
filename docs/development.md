@@ -62,3 +62,13 @@ docker compose run --rm \
 ```
 
 ファイルの作成・編集とSSEによる再読み込みは、この環境でも動作します。
+
+## READMEのスクリーンショットを撮り直す
+
+READMEの `docs/assets/screenshot-light.png` と `docs/assets/screenshot-dark.png` は、初期素材で生成したサイトの記事一覧と記事ページを並べた画像です。`scaffold/` のテンプレートやCSSで見た目を変えたら、撮り直してください。
+
+```sh
+scripts/readme-screenshots.sh
+```
+
+スクリプトは、Docker Compose内で `new` したサイトに `scripts/readme-screenshots/` の `config.toml` と記事を入れてビルドし、`frame.html` で2つのページを並べてホストのGoogle Chromeで撮影します。ライトとダークの2枚を、それぞれの配色で上書きします。Chromeの場所は、環境変数 `CHROME` で変えられます（既定はmacOSの `/Applications/Google Chrome.app`）。
