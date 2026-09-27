@@ -1,3 +1,4 @@
+use crate::image_size::Size;
 use pulldown_cmark::{
     CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd, html,
 };
@@ -12,11 +13,15 @@ pub(crate) struct Rendered {
 /// Raw HTML written in the Markdown source, which articles may not contain.
 #[derive(Debug)]
 pub(crate) struct RawHtml {
-    /// Byte offset of the first raw HTML in the source passed to `render`.
+    /// Byte offset of the first raw HTML in the source passed to `parse`.
     pub(crate) offset: usize,
 }
 
-pub(crate) fn render(source: &str) -> Result<Rendered, RawHtml> {
+pub(crate) struct Parsed<'a> {
+    events: Vec<Event<'a>>,
+}
+
+pub(crate) fn parse(source: &str) -> Result<Parsed<'_>, RawHtml> {
     // Checked before any rewriting, because the later steps emit HTML events of their own.
     let parsed = Parser::new_ext(source, Options::ENABLE_TABLES)
         .into_offset_iter()
@@ -27,14 +32,27 @@ pub(crate) fn render(source: &str) -> Result<Rendered, RawHtml> {
             other => Ok(rewrite_article_link(other)),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut links = Vec::new();
-    let events = to_html_events(anchor_headings(parsed.into_iter()), &mut links);
-    let mut output = String::new();
-    html::push_html(&mut output, events.into_iter());
-    Ok(Rendered {
-        html: output,
-        links,
-    })
+    Ok(Parsed { events: parsed })
+}
+
+impl Parsed<'_> {
+    pub(crate) fn render(
+        self,
+        mut image_size: impl FnMut(&str) -> anyhow::Result<Option<Size>>,
+    ) -> anyhow::Result<Rendered> {
+        let mut links = Vec::new();
+        let events = to_html_events(
+            anchor_headings(self.events.into_iter()),
+            &mut links,
+            &mut image_size,
+        )?;
+        let mut output = String::new();
+        html::push_html(&mut output, events.into_iter());
+        Ok(Rendered {
+            html: output,
+            links,
+        })
+    }
 }
 
 fn rewrite_article_link(event: Event<'_>) -> Event<'_> {
@@ -97,7 +115,11 @@ fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event
 }
 
 /// Replaces events that need attributes pulldown-cmark cannot write, collecting link and image targets in document order.
-fn to_html_events<'a>(events: Vec<Event<'a>>, links: &mut Vec<String>) -> Vec<Event<'a>> {
+fn to_html_events<'a>(
+    events: Vec<Event<'a>>,
+    links: &mut Vec<String>,
+    image_size: &mut impl FnMut(&str) -> anyhow::Result<Option<Size>>,
+) -> anyhow::Result<Vec<Event<'a>>> {
     let mut converted = Vec::with_capacity(events.len());
     let mut events = events.into_iter();
     let mut external_link = false;
@@ -109,7 +131,7 @@ fn to_html_events<'a>(events: Vec<Event<'a>>, links: &mut Vec<String>) -> Vec<Ev
             }) => {
                 links.push(dest_url.to_string());
                 converted.push(Event::Html(
-                    image_html(&mut events, &dest_url, &title).into(),
+                    image_html(&mut events, &dest_url, &title, image_size(&dest_url)?).into(),
                 ));
             }
             Event::Start(Tag::Link {
@@ -156,7 +178,7 @@ fn to_html_events<'a>(events: Vec<Event<'a>>, links: &mut Vec<String>) -> Vec<Ev
             other => converted.push(other),
         }
     }
-    converted
+    Ok(converted)
 }
 
 fn is_external(url: &str) -> bool {
@@ -247,6 +269,7 @@ fn image_html<'a>(
     events: &mut impl Iterator<Item = Event<'a>>,
     source: &str,
     title: &str,
+    size: Option<Size>,
 ) -> String {
     let mut alt = String::new();
     let mut image_depth = 1;
@@ -269,6 +292,11 @@ fn image_html<'a>(
         escape_attribute(source),
         escape_attribute(&alt)
     );
+    if let Some(Size { width, height }) = size {
+        use std::fmt::Write as _;
+        // Writing to a String is infallible.
+        let _ = write!(image, " width=\"{width}\" height=\"{height}\"");
+    }
     if !title.is_empty() {
         image.push_str(" title=\"");
         image.push_str(&escape_attribute(title));
@@ -295,14 +323,46 @@ fn escape_attribute(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{RawHtml, render};
+    use super::Rendered;
+    use crate::image_size::Size;
+    use anyhow::{Result, anyhow};
 
-    fn render_html(source: &str) -> Result<String, RawHtml> {
+    fn render(source: &str) -> Result<Rendered> {
+        super::parse(source)
+            .map_err(|error| anyhow!("raw HTML at {}", error.offset))?
+            .render(|_| Ok(None))
+    }
+
+    fn render_html(source: &str) -> Result<String> {
         Ok(render(source)?.html)
     }
 
     #[test]
-    fn adds_image_attributes_and_escapes_alt_text() -> Result<(), RawHtml> {
+    fn only_emitted_images_request_dimensions_and_errors_propagate() -> Result<()> {
+        let source = "![outer ![inner](/inner.png)](/outer.png)";
+        let mut requested = Vec::new();
+        let parsed = super::parse(source).map_err(|_| anyhow::anyhow!("invalid test Markdown"))?;
+        let rendered = parsed.render(|url| {
+            requested.push(url.to_owned());
+            Ok(Some(Size {
+                width: 300,
+                height: 200,
+            }))
+        })?;
+        assert_eq!(requested, ["/outer.png"]);
+        assert!(rendered.html.contains("width=\"300\" height=\"200\""));
+        let parsed = super::parse(source).map_err(|_| anyhow::anyhow!("invalid test Markdown"))?;
+        assert!(
+            parsed
+                .render(|_| anyhow::bail!("cannot read image"))
+                .is_err()
+        );
+        assert!(super::parse("![photo](/photo.png) <kbd>bad</kbd>").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn adds_image_attributes_and_escapes_alt_text() -> Result<()> {
         let html = render_html("![a **bold** & &lt;bad&gt; \\<too>](image.png \"A title\")")?;
         assert!(html.contains("src=\"image.png\""), "{html}");
         assert!(
@@ -316,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_tables_with_alignment() -> Result<(), RawHtml> {
+    fn renders_tables_with_alignment() -> Result<()> {
         let html = render_html("| Page | Size |\n| --- | ---: |\n| Top | 1,098 |\n")?;
         assert!(html.contains("<table>"), "{html}");
         assert!(html.contains("<th>Page</th>"), "{html}");
@@ -328,14 +388,14 @@ mod tests {
     }
 
     #[test]
-    fn collects_internal_links_inside_tables() -> Result<(), RawHtml> {
+    fn collects_internal_links_inside_tables() -> Result<()> {
         let rendered = render("| Page |\n| --- |\n| [Top](/) |\n| [Next](next.md) |\n")?;
         assert_eq!(rendered.links, ["/", "next"]);
         Ok(())
     }
 
     #[test]
-    fn preserves_non_image_markdown() -> Result<(), RawHtml> {
+    fn preserves_non_image_markdown() -> Result<()> {
         let html = render_html("**bold** and `code`\n\n```rust\nlet x = 1;\n```\n")?;
         assert!(html.contains("<strong>bold</strong>"), "{html}");
         assert!(html.contains("<code>code</code>"), "{html}");
@@ -344,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn shows_fenced_code_language_without_changing_code_markup() -> Result<(), RawHtml> {
+    fn shows_fenced_code_language_without_changing_code_markup() -> Result<()> {
         let html =
             render_html("```tsx\nconst value = 1;\n```\n\n```js title=example\nalert(1);\n```\n")?;
         assert!(
@@ -363,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn leaves_code_blocks_without_language_unlabeled() -> Result<(), RawHtml> {
+    fn leaves_code_blocks_without_language_unlabeled() -> Result<()> {
         let html = render_html("```\nplain\n```\n\n    indented\n")?;
         assert!(!html.contains("code-language"), "{html}");
         assert!(!html.contains("code-block"), "{html}");
@@ -372,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn escapes_code_language_as_html_text() -> Result<(), RawHtml> {
+    fn escapes_code_language_as_html_text() -> Result<()> {
         let html = render_html("```a<b&c\nvalue\n```\n")?;
         assert!(html.contains("a&lt;b&amp;c</span>"), "{html}");
         assert!(
@@ -383,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn adds_links_to_second_and_third_level_headings() -> Result<(), RawHtml> {
+    fn adds_links_to_second_and_third_level_headings() -> Result<()> {
         let html = render_html("# Title\n\n## Fiberとは\n\n### `useState` と Fiber\n")?;
         assert!(html.contains("<h1>Title</h1>"), "{html}");
         assert!(html.contains("<h2 id=\"fiberとは\">"), "{html}");
@@ -402,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn unwraps_links_inside_headings() -> Result<(), RawHtml> {
+    fn unwraps_links_inside_headings() -> Result<()> {
         let html = render_html("## [内部](other.md) と [外部](https://example.com)\n")?;
         assert!(
             html.contains(
@@ -414,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn leaves_image_alt_text_out_of_heading_ids() -> Result<(), RawHtml> {
+    fn leaves_image_alt_text_out_of_heading_ids() -> Result<()> {
         let html = render_html("## ![icon](icon.png) Title\n")?;
         assert!(html.contains("<h2 id=\"title\">"), "{html}");
         assert!(html.contains("alt=\"icon\""), "{html}");
@@ -422,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_heading_ids_unique_after_normalization() -> Result<(), RawHtml> {
+    fn keeps_heading_ids_unique_after_normalization() -> Result<()> {
         let html = render_html("## A B\n\n## A B\n\n### A-B\n\n## !!!\n\n## !!!\n")?;
         for id in ["a-b", "a-b-2", "a-b-3", "section", "section-2"] {
             assert!(html.contains(&format!("id=\"{id}\"")), "{html}");
@@ -432,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn rewrites_relative_article_links_without_changing_other_urls() -> Result<(), RawHtml> {
+    fn rewrites_relative_article_links_without_changing_other_urls() -> Result<()> {
         for (url, expected) in [
             ("other.md", "other"),
             ("../other.md#section", "../other#section"),
@@ -459,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn opens_external_links_in_new_tabs() -> Result<(), RawHtml> {
+    fn opens_external_links_in_new_tabs() -> Result<()> {
         let html = render_html(
             "[web](https://example.com/?a=1&b=2 \"A & B\") [cdn](//cdn.example.com) [local](next.md) [section](#top)",
         )?;
@@ -477,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn collects_rendered_internal_link_and_image_targets() -> Result<(), RawHtml> {
+    fn collects_rendered_internal_link_and_image_targets() -> Result<()> {
         let rendered = render(concat!(
             "[next](next.md#x) ![photo](../img/a.png) [abs](/about) [top](#top)\n\n",
             "[web](https://example.com) <https://example.com/auto> <someone@example.com> ",
@@ -501,7 +561,7 @@ mod tests {
     }
 
     fn rejected_offset(source: &str) -> Option<usize> {
-        render(source).err().map(|error| error.offset)
+        super::parse(source).err().map(|error| error.offset)
     }
 
     #[test]
@@ -537,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn shows_html_written_as_code_or_escaped_text() -> Result<(), RawHtml> {
+    fn shows_html_written_as_code_or_escaped_text() -> Result<()> {
         let html = render_html(concat!(
             "Use `<div>` and `<!-- -->`.\n\n",
             "```html\n<picture><img src=\"a.png\"></picture>\n<!-- note -->\n```\n\n",
@@ -560,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_url_and_email_autolinks() -> Result<(), RawHtml> {
+    fn keeps_url_and_email_autolinks() -> Result<()> {
         let html = render_html("<https://example.com/a> <someone@example.com>\n")?;
         assert!(
             html.contains(

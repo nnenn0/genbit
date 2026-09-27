@@ -13,6 +13,7 @@ h2 { margin: 2.5rem 0 0.75rem; font-size: 1.25rem; }
 a { color: #1557b0; text-underline-offset: 0.2em; }
 p { margin: 0; }
 p + p { margin-top: 1.25em; }
+img { display: block; max-width: 100%; height: auto; }
 .entry-list { margin: 0; padding: 0; list-style: none; }
 .entry-list li + li { margin-top: 1rem; }
 time { display: block; color: #666; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
