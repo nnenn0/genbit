@@ -138,7 +138,8 @@ tags = ["rust", "web"]
 - 公開先はドメインのルートに限ります。サブパス（例: `https://example.com/blog/`）への配置には対応していません。
 - 公開先が、生成した `.html` ファイルを拡張子なしのURLで配信できる必要があります。
 - 初期テンプレートとサンプル記事は日本語で、`<html lang="ja">` を出力します。他の言語で使う場合は `templates/base.html` を編集してください。
-- 画像の最適化は行いません。画像は外部ツールで事前に処理してください（[docs/content.md](docs/content.md#画像)）。
+- 画像の最適化は行いません。画像は外部ツールで事前に処理してください（[docs/content.md](docs/content.md#画像の事前処理)）。
+- 画像の寸法（`width`・`height`）を付けるのは、`static/` のPNG・GIF・WebPだけです。JPEG・AVIF・SVGや外部URLの画像には付かず、読み込み時にレイアウトシフトが起きることがあります（[docs/content.md](docs/content.md#画像の寸法)）。
 - シンタックスハイライトは行いません。
 - ビルド済みバイナリはLinux x86_64とmacOS Apple Siliconだけです。Windowsには対応していません。
 

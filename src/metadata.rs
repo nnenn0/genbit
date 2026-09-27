@@ -246,6 +246,7 @@ mod tests {
                     ),
                     Path::new(&format!("entries/post-{day}.md")),
                     &config.timezone,
+&crate::image_size::ImageSizes::default(),
                 )
             })
             .collect::<Result<Vec<_>>>()?;

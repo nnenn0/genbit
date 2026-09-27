@@ -33,11 +33,13 @@
 | `src/render.rs` | テンプレート・CSSの読み込み、公開ビュー、Tera描画、HTML圧縮。記事の内部型を直接テンプレートへ渡さない。 |
 | `src/tags.rs` | 記事のタグ分けと `untagged` の規則。タグ一覧・タグページ・sitemap・テンプレートの `tags` はここを通す。 |
 | `src/metadata.rs` | JSON-LD、sitemap、RSSフィード（`feed.xml`）、robotsの生成。 |
+| `src/image_size.rs` | PNG・GIF・WebP のヘッダーから画像の寸法を読む処理と、配信URLから寸法を引く `ImageSizes`。EXIF を含む画像は対象外にする。対象形式を増やすときは、実エンコーダーで作った `tests/fixtures/images/` の画像とブラウザーの `naturalWidth`・`naturalHeight` で確かめる。 |
 | `src/input.rs` | サイト入力のパス・ファイル種別を検査し、テキストの読み込みと静的ファイルのコピーを行う。 |
 | `src/build.rs` | 設定・記事・静的素材を読み、描画とメタデータ生成を組み合わせて成果物を公開する。 |
 | `src/output.rs` | 出力計画で衝突を検査し、生成ファイルの書き込みと静的ファイルのコピーをステージングしてから `dist/` を入れ替える。データ保護に関わるため、既存 `dist/` の扱いを変える前にテストを読む。 |
 | `src/dev.rs` | ポート確保、監視登録、初回ビルド、単一の再ビルド処理、静的配信、SSE リロード。`build` と同じ生成経路を使う。 |
 | `tests/cli.rs` | 一時ディレクトリで実行バイナリを起動する E2E テスト。入出力形式や保護動作を変更するときの主な確認先。 |
+| `tests/fixtures/images/` | ImageMagick・`cwebp`・`img2webp`・`exiftool` で生成した単色の画像（300×200 と 40×30、EXIF 付きを含む）。`image_size.rs` のユニットテストと `tests/cli.rs` が使う。 |
 | `tests/license_lists.rs` | `deny.toml` の `allow` と `about.toml` の `accepted` が同じライセンスの一覧であることを検査する。 |
 | `README.md`、`docs/` | 利用者向けの概要と仕様。README は概要・インストール・既知の制限、`docs/` は設定・コンテンツ・テンプレート・出力・開発の詳細。`docs/assets/` の画像は README 用。 |
 | `.github/workflows/ci.yml`、`.github/workflows/deny.yml`、`.github/workflows/release.yml`、`scripts/`、`deny.toml`、`about.toml`、`about.hbs`、`Dockerfile`、`compose.yaml` | CI、依存の検査、バイナリのリリース、配布物の smoke test と依存のライセンス一覧の生成、README のスクリーンショットの撮影（`scripts/readme-screenshots.sh` と素材の `scripts/readme-screenshots/`）、開発用コンテナ設定。`target/` は生成物で Git 管理外。 |
@@ -51,7 +53,7 @@
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
 - 記事本文の生 HTML は禁止する。`markdown.rs` はパーサー直後の位置情報付きイベントで `Event::Html`・`Event::InlineHtml`（コメントを含む）を検査し、最初の箇所の本文内バイト位置をエラーで返す。見出し・画像などの加工は検査を通ったイベント列だけに行い、加工で genbit 自身が生成する `Event::Html` は検査しない。`content.rs` がその位置を記事ファイル全体の1始まりの行番号（BOM・フロントマター・CRLF を含む）に変換する。コードスパン・コードブロック・エスケープ・文字参照・オートリンクは許可する。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
-- 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at`・`updated_at` は `datetime`（時差付き RFC 3339）・`date`・`time` を持つオブジェクトで、JSON-LD と sitemap も同じ時差付き日時を使う。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
+- 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at`・`updated_at` は `datetime`（時差付き RFC 3339）・`date`・`time` を持つオブジェクトで、JSON-LD と sitemap も同じ時差付き日時を使う。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`build.rs` は記事より先に `static/` の `.png`・`.gif`・`.webp` のヘッダーを読んで `ImageSizes` を作り（読めなければビルドエラー）、`content.rs` が記事URLを基準に `route::resolve_link` で解決した参照先の寸法を `markdown::render` に渡して `width`・`height` 属性にする。`markdown.rs` 自体はファイルを読まない。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
 - 記事のリンクと画像の参照先は `markdown.rs` が出力するとおりに集め、`OutputPlan` が確定した配信URLの集合と `route.rs` で照合する。相対パスは記事URLを基準にブラウザーと同じく解決し、スキーム付きURL・同一ページ内リンクは対象外。
 - `build --dry-run` は通常の `build` と同じ経路で `OutputPlan` の作成とリンク検証まで行い、`dist/` の所有チェックだけして公開（ステージング・入れ替え）をしない。
 - `static/` の通常ファイルはステージング領域へ直接コピーし、コピー時にも入力パスとファイル種別を検査する。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突に加え、記事・静的ファイルの配信URL衝突と `/__genbit` 配下の使用を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。

@@ -356,6 +356,7 @@ mod tests {
             "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
             Path::new("post.md"),
             &site.timezone,
+            &crate::image_size::ImageSizes::default(),
         )?];
         let entries = articles.iter().map(PublicArticle::from).collect::<Vec<_>>();
         let home = Context::from_serialize(&HomeView {
