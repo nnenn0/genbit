@@ -1242,6 +1242,28 @@ fn dev_keeps_serving_after_failed_rebuild_and_reloads_after_fix() -> Result<()> 
 }
 
 #[test]
+fn dev_keeps_the_last_output_when_raw_html_is_added() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let (server, address) = DevProcess::start_listening(&site)?;
+    let mut events = open_reload_stream(&address, &server)?;
+    let before = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], "Text\n\n<div>raw</div>\n"),
+    )?;
+    assert_sse_silent(&mut events, Duration::from_millis(500), &server)?;
+    server.wait_for_log("raw HTML is not allowed in Markdown at line 8")?;
+    assert!(http_get(&address, "/entries/hello-world")?.contains(&before));
+    assert_eq!(
+        fs::read_to_string(site.join("dist/entries/hello-world.html"))?,
+        before
+    );
+    Ok(())
+}
+
+#[test]
 fn dev_reloads_after_an_article_is_removed() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
@@ -1758,6 +1780,96 @@ fn broken_internal_links_fail_and_preserve_dist() -> Result<()> {
 }
 
 #[test]
+fn raw_html_in_articles_fails_with_its_line_and_preserves_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    let crlf = article_source(
+        &[],
+        "# 見出し\n\n本文 <kbd>Ctrl</kbd>\n\n<div>second</div>\n",
+    )
+    .replace('\n', "\r\n");
+    for (source, line) in [
+        (
+            article_source(&[], "<details>\n<summary>More</summary>\n</details>\n"),
+            6,
+        ),
+        (article_source(&[], "Text\n\nPress <kbd>Ctrl</kbd>\n"), 8),
+        (article_source(&[], "Text\n\n<!-- draft -->\n"), 8),
+        (article_source(&[], "## 見出し <span>x</span>\n"), 6),
+        (
+            article_source(&[], "段落\n\n![画像 <b>x</b>](/assets/img/ogp.png)\n"),
+            8,
+        ),
+        (format!("\u{feff}{crlf}"), 8),
+    ] {
+        fs::write(site.join("content/entries/hello-world.md"), &source)?;
+        let stderr = build_err(&site)?;
+        assert!(
+            stderr.contains("content/entries/hello-world.md"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains(&format!(
+                "raw HTML is not allowed in Markdown at line {line};"
+            )),
+            "{source:?}: {stderr}"
+        );
+        let output = dry_run_site(&site)?;
+        assert!(!output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stderr), stderr);
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+        assert_no_build_leftovers(&site)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn articles_show_html_notation_as_text_and_keep_generated_markup() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(
+            &[],
+            concat!(
+                "## `<details>` の使い方\n\n",
+                "`<kbd>` と \\<br> と &lt;!-- memo --&gt;\n\n",
+                "```html\n<picture></picture>\n```\n\n",
+                "<https://example.com/a> <someone@example.com> [外部](https://example.com/b)\n\n",
+                "![ロゴ](/assets/img/ogp.png)\n",
+            ),
+        ),
+    )?;
+    build_ok(&site)?;
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    for expected in [
+        "id=details-の使い方",
+        "class=heading-anchor href=#details-の使い方",
+        "<code>&lt;details></code>",
+        "<code>&lt;kbd></code>",
+        "&lt;br>",
+        "&lt;!-- memo -->",
+        "class=code-language>html</span>",
+        "&lt;picture>&lt;/picture>",
+        "href=https://example.com/a",
+        "href=mailto:someone@example.com",
+        "href=https://example.com/b",
+        "target=_blank",
+        "src=/assets/img/ogp.png",
+        "loading=lazy",
+        "decoding=async",
+    ] {
+        assert!(html.contains(expected), "{expected}: {html}");
+    }
+    for raw in ["<details>", "<kbd>", "<br>", "<!-- memo", "<picture>"] {
+        assert!(!html.contains(raw), "{raw}: {html}");
+    }
+    Ok(())
+}
+
+#[test]
 fn dry_run_builds_without_creating_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
@@ -1808,6 +1920,10 @@ fn dry_run_fails_with_the_same_errors_as_build() -> Result<()> {
         (
             article_source(&[], "[missing](/entries/missing)"),
             "broken internal link",
+        ),
+        (
+            article_source(&[], "<div>raw</div>\n"),
+            "raw HTML is not allowed in Markdown at line 6",
         ),
     ] {
         fs::write(site.join("content/entries/hello-world.md"), body)?;

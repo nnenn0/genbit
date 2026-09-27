@@ -48,6 +48,8 @@
 
 記事の本文は `{{ content | safe }}` で挿入します。本文は自分で書いたMarkdownから生成するので、信頼できる入力として扱います。
 
+記事のMarkdownにはHTMLを直接書けません（[HTMLの禁止](content.md#htmlの禁止)）。`content` に含まれるHTMLは、genbitがMarkdownから生成したものだけです。テンプレートにはこの制限がなく、HTMLを自由に書けます。
+
 ## 初期テンプレート
 
 - `base.html` はタイトル、meta description、canonicalリンク、Open Graph、JSON-LD、favicon、RSSの自動検出用リンクを出力します。子テンプレートはこのブロックを上書きします。
