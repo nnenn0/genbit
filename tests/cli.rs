@@ -1981,6 +1981,24 @@ fn static_images_get_their_intrinsic_sizes() -> Result<()> {
 }
 
 #[test]
+fn article_images_scale_with_any_template() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::copy(
+        site.join("templates/page.html"),
+        site.join("templates/note.html"),
+    )?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[("template", Some("'note.html'"))], "Body\n"),
+    )?;
+    build_ok(&site)?;
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    assert!(html.contains("img{max-width:100%;height:auto}"), "{html}");
+    Ok(())
+}
+
+#[test]
 fn unreadable_static_images_fail_and_preserve_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

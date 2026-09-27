@@ -48,7 +48,7 @@
 
 記事の本文は `{{ content | safe }}` で挿入します。本文は自分で書いたMarkdownから生成するので、信頼できる入力として扱います。
 
-`content` の画像には、元画像の寸法を `width`・`height` 属性として付けることがあります（[画像の寸法](content.md#画像の寸法)）。記事テンプレートのCSSには `img { max-width: 100%; height: auto; }` を指定してください。`height: auto` がないと、画像を縮小したときに縦横比が崩れます。
+`content` の画像には、元画像の寸法を `width`・`height` 属性として付けることがあります（[画像の寸法](content.md#画像の寸法)）。記事を描画するすべてのテンプレートのCSSに `img { max-width: 100%; height: auto; }` が必要です。初期CSSは、全ページに適用する `styles/common.css` にこの指定を置いています。`height: auto` がないと、画像を縮小したときに縦横比が崩れます。
 
 記事のMarkdownにはHTMLを直接書けません（[HTMLの禁止](content.md#htmlの禁止)）。`content` に含まれるHTMLは、genbitがMarkdownから生成したものだけです。テンプレートにはこの制限がなく、HTMLを自由に書けます。
 
