@@ -1,5 +1,6 @@
 use crate::{input::SiteInput, route};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail, ensure};
+use imagesize::{ImageError, ImageType};
 use std::{
     collections::BTreeMap,
     io::{self, BufRead, BufReader, ErrorKind, Seek},
@@ -12,7 +13,7 @@ pub(crate) struct Size {
     pub(crate) height: usize,
 }
 
-/// A build-local cache, including unsuccessful probes. Only rendered images are read.
+/// A build-local cache, including files that are not images. Only rendered images are read.
 pub(crate) struct ImageSizes<'a> {
     input: SiteInput<'a>,
     files: BTreeMap<String, PathBuf>,
@@ -53,75 +54,105 @@ impl<'a> ImageSizes<'a> {
             return Ok(*size);
         }
         let file = self.input.open_file(path)?;
-        let size = probe(&mut BufReader::new(file)).with_context(|| {
-            format!(
-                "cannot read image metadata {}",
-                self.input.root().join(path).display()
-            )
-        })?;
+        let size =
+            probe(&mut BufReader::new(file), has_image_extension(path)).with_context(|| {
+                format!(
+                    "cannot get the size of image {}",
+                    self.input.root().join(path).display()
+                )
+            })?;
         self.sizes.insert(path.clone(), size);
         Ok(size)
     }
 }
 
-/// Reads dimensions without decoding pixels. Metadata errors are optional; filesystem errors are not.
-fn probe(reader: &mut (impl BufRead + Seek)) -> io::Result<Option<Size>> {
+fn has_image_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            ["png", "jpg", "jpeg", "gif", "webp"]
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        })
+}
+
+/// Reads dimensions without decoding pixels. Every PNG, JPEG, GIF, or WebP image must yield a size,
+/// so that no local image in these formats is left without one; other files return `None`.
+fn probe(reader: &mut (impl BufRead + Seek), image_extension: bool) -> Result<Option<Size>> {
     let format = match imagesize::reader_type(&mut *reader) {
-        Ok(format) => format,
-        Err(imagesize::ImageError::IoError(error)) => return invalid_metadata(error),
-        Err(_) => return Ok(None),
+        Ok(format @ (ImageType::Png | ImageType::Jpeg | ImageType::Gif | ImageType::Webp)) => {
+            Some(format)
+        }
+        Ok(_) | Err(ImageError::NotSupported | ImageError::CorruptedImage) => None,
+        Err(ImageError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => None,
+        Err(ImageError::IoError(error)) => return Err(error.into()),
     };
-    if !matches!(
-        format,
-        imagesize::ImageType::Png
-            | imagesize::ImageType::Jpeg
-            | imagesize::ImageType::Gif
-            | imagesize::ImageType::Webp
-    ) {
+    let Some(format) = format else {
+        ensure!(
+            !image_extension,
+            "the file name has an image extension, but the content is not a PNG, JPEG, GIF, or WebP image; export the image again"
+        );
         return Ok(None);
-    }
+    };
     reader.rewind()?;
     let dimensions = match imagesize::reader_size(&mut *reader) {
         Ok(size) => size,
-        Err(imagesize::ImageError::IoError(error)) => return invalid_metadata(error),
-        Err(_) => return Ok(None),
+        Err(ImageError::IoError(error)) if !is_invalid_data(&error) => return Err(error.into()),
+        Err(_) => bail!("the image header is truncated or invalid; export the image again"),
     };
-    if dimensions.width == 0 || dimensions.height == 0 {
-        return Ok(None);
-    }
+    ensure!(
+        dimensions.width > 0 && dimensions.height > 0,
+        "the image has no width or height; export the image again"
+    );
     let mut size = Size {
         width: dimensions.width,
         height: dimensions.height,
     };
-    if format != imagesize::ImageType::Gif {
-        reader.rewind()?;
-        match exif::Reader::new().read_from_container(reader) {
-            Ok(metadata) => {
-                if let Some(field) = metadata.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-                    match field.value.get_uint(0) {
-                        Some(1..=4) => {}
-                        Some(5..=8) if format == imagesize::ImageType::Jpeg => {
-                            std::mem::swap(&mut size.width, &mut size.height);
-                        }
-                        // PNG/WebP metadata may follow pixel data and be ignored by browsers.
-                        // Avoid promising a ratio without implementing container-order parsing.
-                        _ => return Ok(None),
-                    }
-                }
-            }
-            Err(exif::Error::NotFound(_)) => {}
-            Err(exif::Error::Io(error)) => return invalid_metadata(error),
-            Err(_) => return Ok(None),
+    if format == ImageType::Gif {
+        return Ok(Some(size));
+    }
+    reader.rewind()?;
+    let metadata = match exif::Reader::new().read_from_container(reader) {
+        Ok(metadata) => metadata,
+        Err(exif::Error::NotFound(_)) => return Ok(Some(size)),
+        Err(exif::Error::Io(error)) if !is_invalid_data(&error) => return Err(error.into()),
+        Err(_) => bail!(
+            "the EXIF metadata is truncated or invalid; export the image again or remove its EXIF metadata"
+        ),
+    };
+    let Some(field) = metadata.get_field(exif::Tag::Orientation, exif::In::PRIMARY) else {
+        return Ok(Some(size));
+    };
+    match field.value.get_uint(0) {
+        Some(1..=4) => {}
+        Some(5..=8) if format == ImageType::Jpeg => {
+            std::mem::swap(&mut size.width, &mut size.height);
         }
+        // Browsers ignore PNG and WebP EXIF that follows the pixel data, and they disagree on
+        // WebP, so no single width and height matches every browser.
+        Some(orientation @ 5..=8) => bail!(
+            "{} images with EXIF Orientation {orientation} are displayed differently by each browser; remove the EXIF metadata or convert the image to JPEG",
+            if format == ImageType::Png {
+                "PNG"
+            } else {
+                "WebP"
+            }
+        ),
+        Some(orientation) => bail!(
+            "EXIF Orientation {orientation} is not between 1 and 8; export the image again or remove its EXIF metadata"
+        ),
+        None => bail!(
+            "EXIF Orientation is not an integer; export the image again or remove its EXIF metadata"
+        ),
     }
     Ok(Some(size))
 }
 
-fn invalid_metadata(error: io::Error) -> io::Result<Option<Size>> {
-    match error.kind() {
-        ErrorKind::UnexpectedEof | ErrorKind::InvalidData | ErrorKind::InvalidInput => Ok(None),
-        _ => Err(error),
-    }
+fn is_invalid_data(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        ErrorKind::UnexpectedEof | ErrorKind::InvalidData | ErrorKind::InvalidInput
+    )
 }
 
 #[cfg(test)]
@@ -174,30 +205,71 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                probe(&mut Cursor::new(bytes))?,
+                probe(&mut Cursor::new(bytes), true)?,
                 Some(Size { width, height })
             );
         }
         Ok(())
     }
 
+    fn probe_error(bytes: &[u8], image_extension: bool) -> Result<String> {
+        let error = probe(&mut Cursor::new(bytes), image_extension)
+            .err()
+            .context("accepted a broken image")?;
+        Ok(format!("{error:#}"))
+    }
+
     #[test]
-    fn corrupt_and_unsupported_images_are_optional() -> Result<()> {
+    fn files_that_are_not_images_have_no_size() -> Result<()> {
         for bytes in [
             b"".as_slice(),
             b"not an image",
             b"<svg width='300' height='200'></svg>",
-            include_bytes!("../tests/fixtures/images/exif.png").as_slice(),
-            include_bytes!("../tests/fixtures/images/exif.webp").as_slice(),
         ] {
-            assert_eq!(probe(&mut Cursor::new(bytes))?, None);
+            assert_eq!(probe(&mut Cursor::new(bytes), false)?, None);
         }
-        // A truncated PNG chunk must not hide a failed EXIF scan.
+        Ok(())
+    }
+
+    #[test]
+    fn broken_images_and_unsupported_orientations_are_errors() -> Result<()> {
         let png = include_bytes!("../tests/fixtures/images/basic.png");
-        assert_eq!(
-            probe(&mut Cursor::new(png.get(..40).context("short fixture")?))?,
-            None
-        );
+        for (bytes, image_extension, expected) in [
+            (
+                b"".as_slice(),
+                true,
+                "the content is not a PNG, JPEG, GIF, or WebP image",
+            ),
+            (
+                b"not an image",
+                true,
+                "the content is not a PNG, JPEG, GIF, or WebP image",
+            ),
+            (
+                png.get(..20).context("short fixture")?,
+                false,
+                "the image header is truncated or invalid",
+            ),
+            // The size is in the header, but the EXIF scan reaches the end of the file.
+            (
+                png.get(..40).context("short fixture")?,
+                false,
+                "the EXIF metadata is truncated or invalid",
+            ),
+            (
+                include_bytes!("../tests/fixtures/images/exif.png").as_slice(),
+                false,
+                "PNG images with EXIF Orientation 6 are displayed differently by each browser",
+            ),
+            (
+                include_bytes!("../tests/fixtures/images/exif.webp").as_slice(),
+                false,
+                "WebP images with EXIF Orientation 6 are displayed differently by each browser",
+            ),
+        ] {
+            let error = probe_error(bytes, image_extension)?;
+            assert!(error.contains(expected), "{error}");
+        }
         Ok(())
     }
 
@@ -207,14 +279,16 @@ mod tests {
         let static_root = root.path().join("static");
         fs::create_dir(&static_root)?;
         let image = static_root.join("image.png");
+        let data = static_root.join("notes.data");
         let broken = static_root.join("broken.png");
         let unused = static_root.join("unused.png");
         fs::write(&image, include_bytes!("../tests/fixtures/images/basic.png"))?;
+        fs::write(&data, b"notes")?;
         fs::write(&broken, b"broken")?;
         fs::write(&unused, b"unused")?;
         let mut images = ImageSizes::new(
             root.path(),
-            &[image.clone(), broken.clone(), unused.clone()],
+            &[image.clone(), data.clone(), broken.clone(), unused.clone()],
         )?;
         fs::remove_file(unused)?;
         assert_eq!(
@@ -224,9 +298,20 @@ mod tests {
                 height: 200
             })
         );
-        assert_eq!(images.get("/entries/post", "/broken.png")?, None);
+        assert_eq!(images.get("/entries/post", "/notes.data")?, None);
+        let error = images
+            .get("/entries/post", "/broken.png")
+            .err()
+            .context("accepted a broken PNG")?;
+        assert!(
+            format!("{error:#}").contains(&format!(
+                "cannot get the size of image {}",
+                broken.display()
+            )),
+            "{error:#}"
+        );
         fs::remove_file(image)?;
-        fs::remove_file(broken)?;
+        fs::remove_file(data)?;
         assert_eq!(
             images.get("/elsewhere", "/%69mage.png")?,
             Some(Size {
@@ -234,7 +319,7 @@ mod tests {
                 height: 200
             })
         );
-        assert_eq!(images.get("/elsewhere", "/broken.png?x=2")?, None);
+        assert_eq!(images.get("/elsewhere", "/notes.data?x=2")?, None);
         for url in [
             "https://example.com/image.png",
             "//example.com/image.png",
@@ -246,6 +331,22 @@ mod tests {
         }
         assert_eq!(images.sizes.len(), 2);
         Ok(())
+    }
+
+    #[test]
+    fn recognizes_image_extensions_case_insensitively() {
+        for (name, expected) in [
+            ("a.png", true),
+            ("a.JPG", true),
+            ("a.jpeg", true),
+            ("a.Gif", true),
+            ("a.webp", true),
+            ("a.svg", false),
+            ("a.avif", false),
+            ("png", false),
+        ] {
+            assert_eq!(has_image_extension(Path::new(name)), expected, "{name}");
+        }
     }
 
     #[test]
@@ -261,25 +362,34 @@ mod tests {
             *bytes
                 .get_mut(offset + 8)
                 .context("short orientation field")? = orientation;
-            let expected = match orientation {
-                1..=4 => Some(Size {
-                    width: 300,
-                    height: 200,
-                }),
-                5..=8 => Some(Size {
-                    width: 200,
-                    height: 300,
-                }),
-                _ => None,
+            let (width, height) = match orientation {
+                1..=4 => (300, 200),
+                5..=8 => (200, 300),
+                _ => {
+                    let error = probe_error(&bytes, true)?;
+                    assert!(
+                        error.contains(&format!(
+                            "EXIF Orientation {orientation} is not between 1 and 8"
+                        )),
+                        "{error}"
+                    );
+                    continue;
+                }
             };
-            assert_eq!(probe(&mut Cursor::new(bytes))?, expected);
+            assert_eq!(
+                probe(&mut Cursor::new(bytes), true)?,
+                Some(Size { width, height })
+            );
         }
         let mut invalid = fixture.to_vec();
         *invalid
             .get_mut(offset + 2)
             .context("short orientation field")? = 2; // ASCII, not an integer
-        assert_eq!(probe(&mut Cursor::new(invalid))?, None);
-        assert!(invalid_metadata(io::Error::from(ErrorKind::PermissionDenied)).is_err());
+        let error = probe_error(&invalid, true)?;
+        assert!(error.contains("EXIF"), "{error}");
+        assert!(!is_invalid_data(&io::Error::from(
+            ErrorKind::PermissionDenied
+        )));
         Ok(())
     }
 

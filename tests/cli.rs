@@ -1085,7 +1085,10 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
         ),
     )?;
     fs::create_dir_all(site.join("static/entries"))?;
-    fs::write(site.join("static/entries/photo.png"), [0])?;
+    fs::write(
+        site.join("static/entries/photo.png"),
+        include_bytes!("fixtures/images/basic.png"),
+    )?;
     build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("<style>h1{color:red}</style>"), "{html}");
@@ -1105,13 +1108,13 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
     let image = site.join("static/photo.data");
     let original = include_bytes!("fixtures/images/basic.png");
     fs::write(&image, original)?;
-    fs::write(site.join("static/broken.png"), b"broken")?;
+    fs::write(site.join("static/notes.data"), b"notes")?;
     fs::write(site.join("static/icon.svg"), "<svg/>")?;
     fs::write(
         site.join("content/entries/hello-world.md"),
         article_source(
             &[],
-            "![local](../%70hoto.data?v=1#part)\n\n![again](/photo.data)\n\n![broken](/broken.png)\n\n![svg](/icon.svg)\n\n![remote](https://example.invalid/photo.png)",
+            "![local](../%70hoto.data?v=1#part)\n\n![again](/photo.data)\n\n![data](/notes.data)\n\n![svg](/icon.svg)\n\n![remote](https://example.invalid/photo.png)",
         ),
     )?;
     build_ok(&site)?;
@@ -1143,6 +1146,41 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
     fs::remove_file(image)?;
     assert!(build_err(&site)?.contains("photo.data"));
     assert_eq!(snapshot(&site.join("dist"))?, before);
+    assert_no_build_leftovers(&site)?;
+    Ok(())
+}
+
+#[test]
+fn broken_images_fail_the_build_without_touching_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("images")?;
+    let article = site.join("content/entries/hello-world.md");
+    fs::write(&article, article_source(&[], "![photo](/photo.png)"))?;
+    fs::write(
+        site.join("static/photo.png"),
+        include_bytes!("fixtures/images/basic.png"),
+    )?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (bytes, expected) in [
+        (
+            b"not an image".as_slice(),
+            "the content is not a PNG, JPEG, GIF, or WebP image",
+        ),
+        (
+            include_bytes!("fixtures/images/exif.webp").as_slice(),
+            "remove the EXIF metadata or convert the image to JPEG",
+        ),
+    ] {
+        fs::write(site.join("static/photo.png"), bytes)?;
+        let error = build_err(&site)?;
+        assert!(error.contains("hello-world.md"), "{error}");
+        assert!(error.contains("static/photo.png"), "{error}");
+        assert!(error.contains(expected), "{error}");
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+    }
+    fs::write(&article, article_source(&[], "text"))?;
+    build_ok(&site)?;
     assert_no_build_leftovers(&site)?;
     Ok(())
 }
@@ -1761,7 +1799,10 @@ fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
         article_source(&[], "About\n"),
     )?;
     fs::create_dir(site.join("static/files"))?;
-    fs::write(site.join("static/files/画像.png"), [0])?;
+    fs::write(
+        site.join("static/files/画像.png"),
+        include_bytes!("fixtures/images/basic.png"),
+    )?;
     build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("href=next#details"), "{html}");
