@@ -43,12 +43,17 @@ impl Route {
         Ok(Self::from_segments(&segments))
     }
 
+    /// Decodes each segment as link validation does, so every validated link is also served.
     pub(crate) fn from_request_path(path: &str) -> Option<Self> {
         let relative = path.strip_prefix('/')?;
         if relative.is_empty() {
             return None;
         }
-        let segments = relative.split('/').collect::<Vec<_>>();
+        let segments = relative
+            .split('/')
+            .map(|segment| percent_decode(segment).ok())
+            .collect::<Option<Vec<_>>>()?;
+        let segments = segments.iter().map(String::as_str).collect::<Vec<_>>();
         segments
             .iter()
             .all(|segment| valid_segment(segment))
@@ -240,6 +245,19 @@ mod tests {
     }
 
     #[test]
+    fn request_paths_are_percent_decoded_like_validated_links() -> Result<()> {
+        let request = Route::from_request_path("/entries/%68ello-world")
+            .context("rejected percent-encoded request path")?;
+        assert_eq!(request.url(), "/entries/hello-world");
+        assert_eq!(request.output(), Path::new("entries/hello-world.html"));
+        assert_eq!(
+            resolve_link("/", "/entries/%68ello-world")?.as_deref(),
+            Some(request.url())
+        );
+        Ok(())
+    }
+
+    #[test]
     fn rejects_unsupported_content_and_request_paths() {
         for path in [
             "../escape.md",
@@ -255,7 +273,19 @@ mod tests {
             );
         }
         for path in [
-            "", "/", "foo", "//foo", "/foo/", "/a//b", "/a.html", "/a?x=1", "/あ",
+            "",
+            "/",
+            "foo",
+            "//foo",
+            "/foo/",
+            "/a//b",
+            "/a.html",
+            "/a?x=1",
+            "/あ",
+            "/a%2Fb",
+            "/a%2e",
+            "/a%zz",
+            "/%E3%81%82",
         ] {
             assert!(Route::from_request_path(path).is_none(), "accepted {path}");
         }

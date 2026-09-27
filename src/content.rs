@@ -88,6 +88,8 @@ pub(crate) fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Resul
         .trim()
         .to_owned();
     ensure!(!description.is_empty(), "description must not be empty");
+    crate::metadata::ensure_publishable_text(&title, "title")?;
+    crate::metadata::ensure_publishable_text(&description, "description")?;
     let template = metadata.template.unwrap_or_else(|| "page.html".to_owned());
     let mut seen_tags = BTreeSet::new();
     for tag in &metadata.tags {

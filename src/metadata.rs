@@ -176,6 +176,20 @@ fn push_element(xml: &mut String, indent: &str, name: &str, text: &str) {
     xml.push_str(">\n");
 }
 
+/// Rejects characters that XML cannot represent even when escaped and that HTML treats as parse errors.
+pub(crate) fn ensure_publishable_text(text: &str, field: &str) -> Result<()> {
+    if let Some(character) = text.chars().find(|&character| {
+        (character.is_control() && !matches!(character, '\t' | '\n' | '\r'))
+            || matches!(character, '\u{fffe}' | '\u{ffff}')
+    }) {
+        anyhow::bail!(
+            "{field} must not contain control characters: U+{:04X}",
+            u32::from(character)
+        );
+    }
+    Ok(())
+}
+
 fn xml_escape(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for character in text.chars() {
@@ -205,7 +219,7 @@ pub(crate) fn robots(base: &SiteUrl) -> Artifact {
 
 #[cfg(test)]
 mod tests {
-    use super::{feed_xml, json_ld};
+    use super::{ensure_publishable_text, feed_xml, json_ld};
     use crate::{config::Config, content};
     use anyhow::Result;
     use std::path::Path;
@@ -264,6 +278,21 @@ mod tests {
         let newest = xml.find("Post 20").unwrap_or(usize::MAX);
         let older = xml.find("Post 19").unwrap_or(0);
         assert!(newest < older, "{xml}");
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_text_that_xml_cannot_represent() -> Result<()> {
+        ensure_publishable_text("tab\tline\ncarriage\r and ✓", "title")?;
+        for text in ["a\u{1}b", "a\u{b}b", "a\u{7f}b", "a\u{85}b", "a\u{fffe}b"] {
+            let error = ensure_publishable_text(text, "title")
+                .err()
+                .ok_or_else(|| anyhow::anyhow!("accepted {text:?}"))?;
+            assert!(
+                error.to_string().starts_with("title must not contain"),
+                "{error}"
+            );
+        }
         Ok(())
     }
 }

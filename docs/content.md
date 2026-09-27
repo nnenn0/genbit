@@ -26,7 +26,7 @@ tags = ["react", "web-security"]
 | `template` | 任意 | `templates/` 以下のテンプレート。省略時は `page.html`。 |
 | `tags` | 任意 | タグの配列。[タグ](#タグ)を参照。 |
 
-未知のフィールドはエラーになります。
+未知のフィールドはエラーになります。`title` と `description` には制御文字（タブ・改行を除く）を使えません。RSSフィードやHTMLを壊さないためです。
 
 ### 日時
 
