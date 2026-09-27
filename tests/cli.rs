@@ -1099,6 +1099,31 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
 }
 
 #[test]
+fn default_css_stacks_images_and_only_shrinks_them() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], "![a](/a.png) ![b](/b.png)\n"),
+    )?;
+    fs::write(site.join("static/a.png"), [0])?;
+    fs::write(site.join("static/b.png"), [0])?;
+    build_ok(&site)?;
+    for page in ["dist/entries/hello-world.html", "dist/index.html"] {
+        let html = fs::read_to_string(site.join(page))?;
+        let image_css = html
+            .split("img{")
+            .nth(1)
+            .and_then(|css| css.split('}').next())
+            .context("missing image CSS")?;
+        for declaration in ["display:block", "max-width:100%", "height:auto"] {
+            assert!(image_css.contains(declaration), "{page}: {image_css}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn inlines_common_and_template_specific_css() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
