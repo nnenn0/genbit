@@ -712,6 +712,9 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
         "https://example.com/blog/",
         "https://example.com/?q=1",
         "https://example.com/#fragment",
+        "https://example.com:abc/",
+        "https://example.com:99999/",
+        "https://exa_mple.com/",
     ] {
         write_config(&site, &[("site_url", Some(&format!("'{invalid_url}'")))])?;
         let stderr = build_err(&site).with_context(|| format!("accepted {invalid_url}"))?;
@@ -1184,6 +1187,7 @@ fn dev_serves_clean_urls_static_files_and_not_found_page() -> Result<()> {
     assert!(http_get(&address, "/about?view=full")?.contains("About page"));
     assert!(http_get(&address, "/entries/posts/nested?view=full")?.contains("Nested page"));
     assert!(http_get(&address, "/entries/posts/nested.html")?.contains("Nested page"));
+    assert!(http_get(&address, "/entries/posts/%6Eested")?.contains("Nested page"));
     assert!(http_get(&address, "/asset.txt")?.contains("static asset"));
     assert_not_found_page(&address, "/missing/path")?;
     Ok(())
@@ -1353,6 +1357,28 @@ fn bad_input_preserves_previous_output_and_rebuild_removes_stale_pages() -> Resu
     fs::remove_file(site.join("content/stale.md"))?;
     build_ok(&site)?;
     assert!(!site.join("dist/stale.html").exists());
+    Ok(())
+}
+
+#[test]
+fn control_characters_in_feed_text_fail_and_preserve_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (field, value) in [("title", "\"a\\u0001b\""), ("description", "\"a\\u001Fb\"")] {
+        fs::write(
+            site.join("content/entries/hello-world.md"),
+            article_source(&[(field, Some(value))], "# Body\n"),
+        )?;
+        let stderr = build_err(&site)?;
+        assert!(
+            stderr.contains("content/entries/hello-world.md")
+                && stderr.contains(&format!("{field} must not contain control characters")),
+            "{stderr}"
+        );
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+    }
     Ok(())
 }
 

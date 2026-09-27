@@ -120,8 +120,8 @@ async fn serve_clean_url(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
-    if !is_reserved_url(path)
-        && let Some(route) = Route::from_request_path(path)
+    if let Some(route) = Route::from_request_path(path)
+        && !is_reserved_url(route.url())
         && dist.join(route.output()).is_file()
     {
         let suffix = request

@@ -2,6 +2,7 @@ use anyhow::{Context, Result, ensure};
 use http::Uri;
 use jiff::tz::TimeZone;
 use serde::{Deserialize, Serialize};
+use std::net::Ipv6Addr;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +47,8 @@ impl TryFrom<RawConfig> for Config {
             !raw.description.trim().is_empty(),
             "config.toml: description must not be empty"
         );
+        crate::metadata::ensure_publishable_text(&raw.title, "config.toml: title")?;
+        crate::metadata::ensure_publishable_text(&raw.description, "config.toml: description")?;
         let site_url = SiteUrl::parse(&raw.site_url)?;
         let og_image = validate_og_image(&raw.og_image, &site_url)?;
         let timezone = TimeZone::get(&raw.timezone).with_context(|| {
@@ -129,8 +132,40 @@ fn parse_http_url(value: &str, field: &str) -> Result<HttpUrl> {
         !authority.host().is_empty() && !authority.as_str().contains('@'),
         "config.toml: {field} must have a host without credentials"
     );
+    ensure!(
+        valid_host(authority.host()),
+        "config.toml: {field} must have a valid host name or IP address: {}",
+        authority.host()
+    );
+    // `Uri` accepts any text after the colon, but only a port number is usable.
+    let port = authority
+        .as_str()
+        .strip_prefix(authority.host())
+        .unwrap_or(authority.as_str());
+    ensure!(
+        port.is_empty() || authority.port_u16().is_some_and(|number| number != 0),
+        "config.toml: {field} must have a port number from 1 to 65535: {port}"
+    );
     let origin = format!("{}://{authority}", scheme.to_ascii_lowercase());
     Ok(HttpUrl { uri, origin })
+}
+
+fn valid_host(host: &str) -> bool {
+    if let Some(address) = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        return address.parse::<Ipv6Addr>().is_ok();
+    }
+    host.len() <= 253
+        && host.split('.').all(|label| {
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 #[cfg(test)]
@@ -188,6 +223,14 @@ mod tests {
                 valid.replace("description = 'Posts'", "description = '  '"),
                 "description",
             ),
+            (
+                valid.replace("title = 'Blog'", "title = \"a\\u0001b\""),
+                "title must not contain control characters",
+            ),
+            (
+                valid.replace("description = 'Posts'", "description = \"a\\u007Fb\""),
+                "description must not contain control characters",
+            ),
             (format!("{valid}unknown = true\n"), "unknown"),
             (
                 valid.replace("https://example.com/", "https://example.com/blog/"),
@@ -196,6 +239,42 @@ mod tests {
             (
                 valid.replace("https://example.com/", "https://example.com/?q=1"),
                 "site_url",
+            ),
+            (
+                valid.replace("https://example.com/", "https://example.com:abc/"),
+                "port",
+            ),
+            (
+                valid.replace("https://example.com/", "https://example.com:99999/"),
+                "port",
+            ),
+            (
+                valid.replace("https://example.com/", "https://example.com:0/"),
+                "port",
+            ),
+            (
+                valid.replace("https://example.com/", "https://example.com:/"),
+                "port",
+            ),
+            (
+                valid.replace("https://example.com/", "https://exa_mple.com/"),
+                "host",
+            ),
+            (
+                valid.replace("https://example.com/", "https://-example.com/"),
+                "host",
+            ),
+            (
+                valid.replace("https://example.com/", "https://example..com/"),
+                "host",
+            ),
+            (
+                valid.replace("https://example.com/", "https://[::g]/"),
+                "host",
+            ),
+            (
+                valid.replace("/images/card.png", "https://example.com:99999/card.png"),
+                "og_image",
             ),
             (
                 valid.replace("/images/card.png", "//example.com/card.png"),
@@ -218,6 +297,25 @@ mod tests {
                 format!("{error:#}").contains(reason),
                 "{source:?}: {error:#}"
             );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_host_names_ip_addresses_and_ports() -> Result<()> {
+        for (site_url, expected) in [
+            ("http://127.0.0.1:3000", "http://127.0.0.1:3000/"),
+            ("http://[::1]:8080/", "http://[::1]:8080/"),
+            (
+                "https://sub-1.example.com:443/",
+                "https://sub-1.example.com:443/",
+            ),
+            ("https://localhost", "https://localhost/"),
+        ] {
+            let config = Config::parse(&format!(
+                "title = 'Blog'\ndescription = 'Posts'\nsite_url = '{site_url}'\nog_image = '/card.png'\ntimezone = 'Asia/Tokyo'\n"
+            ))?;
+            assert_eq!(config.site_url.as_str(), expected);
         }
         Ok(())
     }
