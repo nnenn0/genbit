@@ -1123,14 +1123,6 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
     assert_eq!(html.matches("width=300").count(), 2, "{html}");
     assert_eq!(html.matches("height=200").count(), 2, "{html}");
     assert_eq!(html.matches("loading=lazy").count(), 5, "{html}");
-    let image_css = html
-        .split("img{")
-        .nth(1)
-        .and_then(|css| css.split('}').next())
-        .context("missing image CSS")?;
-    for declaration in ["display:block", "max-width:100%", "height:auto"] {
-        assert!(image_css.contains(declaration), "{image_css}");
-    }
     assert_eq!(fs::read(site.join("dist/photo.data"))?, original);
     let before = snapshot(&site.join("dist"))?;
     let rotated = include_bytes!("fixtures/images/exif.jpg");
@@ -1147,6 +1139,35 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
     assert!(build_err(&site)?.contains("photo.data"));
     assert_eq!(snapshot(&site.join("dist"))?, before);
     assert_no_build_leftovers(&site)?;
+    Ok(())
+}
+
+#[test]
+fn default_css_stacks_images_and_only_shrinks_them() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(&[], "![a](/a.png) ![b](/b.png)\n"),
+    )?;
+    for name in ["a.png", "b.png"] {
+        fs::write(
+            site.join("static").join(name),
+            include_bytes!("fixtures/images/basic.png"),
+        )?;
+    }
+    build_ok(&site)?;
+    for page in ["dist/entries/hello-world.html", "dist/index.html"] {
+        let html = fs::read_to_string(site.join(page))?;
+        let image_css = html
+            .split("img{")
+            .nth(1)
+            .and_then(|css| css.split('}').next())
+            .context("missing image CSS")?;
+        for declaration in ["display:block", "max-width:100%", "height:auto"] {
+            assert!(image_css.contains(declaration), "{page}: {image_css}");
+        }
+    }
     Ok(())
 }
 
