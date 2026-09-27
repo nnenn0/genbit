@@ -9,16 +9,32 @@ pub(crate) struct Rendered {
     pub(crate) links: Vec<String>,
 }
 
-pub(crate) fn render(source: &str) -> Rendered {
-    let parsed = Parser::new_ext(source, Options::ENABLE_TABLES).map(rewrite_article_link);
+/// Raw HTML written in the Markdown source, which articles may not contain.
+#[derive(Debug)]
+pub(crate) struct RawHtml {
+    /// Byte offset of the first raw HTML in the source passed to `render`.
+    pub(crate) offset: usize,
+}
+
+pub(crate) fn render(source: &str) -> Result<Rendered, RawHtml> {
+    // Checked before any rewriting, because the later steps emit HTML events of their own.
+    let parsed = Parser::new_ext(source, Options::ENABLE_TABLES)
+        .into_offset_iter()
+        .map(|(event, range)| match event {
+            Event::Html(_) | Event::InlineHtml(_) => Err(RawHtml {
+                offset: range.start,
+            }),
+            other => Ok(rewrite_article_link(other)),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut links = Vec::new();
-    let events = to_html_events(anchor_headings(parsed), &mut links);
+    let events = to_html_events(anchor_headings(parsed.into_iter()), &mut links);
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
-    Rendered {
+    Ok(Rendered {
         html: output,
         links,
-    }
+    })
 }
 
 fn rewrite_article_link(event: Event<'_>) -> Event<'_> {
@@ -61,24 +77,17 @@ fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event
                     classes,
                     attrs,
                 }));
-                // Raw HTML may contain its own links, and anchors cannot nest.
-                if heading
-                    .iter()
-                    .any(|inner| matches!(inner, Event::InlineHtml(_)))
-                {
-                    anchored.extend(heading);
-                } else {
-                    anchored.push(Event::Html(
-                        format!("<a class=\"heading-anchor\" href=\"#{id}\">").into(),
-                    ));
-                    anchored.extend(heading.into_iter().filter(|inner| {
-                        !matches!(
-                            inner,
-                            Event::Start(Tag::Link { .. }) | Event::End(TagEnd::Link)
-                        )
-                    }));
-                    anchored.push(Event::Html("</a>".into()));
-                }
+                anchored.push(Event::Html(
+                    format!("<a class=\"heading-anchor\" href=\"#{id}\">").into(),
+                ));
+                // Anchors cannot nest, so links inside the heading keep only their text.
+                anchored.extend(heading.into_iter().filter(|inner| {
+                    !matches!(
+                        inner,
+                        Event::Start(Tag::Link { .. }) | Event::End(TagEnd::Link)
+                    )
+                }));
+                anchored.push(Event::Html("</a>".into()));
                 anchored.push(Event::End(TagEnd::Heading(level)));
             }
             other => anchored.push(other),
@@ -250,9 +259,7 @@ fn image_html<'a>(
                     break;
                 }
             }
-            Event::Text(text) | Event::Code(text) | Event::Html(text) | Event::InlineHtml(text) => {
-                alt.push_str(&text);
-            }
+            Event::Text(text) | Event::Code(text) => alt.push_str(&text),
             Event::SoftBreak | Event::HardBreak => alt.push(' '),
             _ => {}
         }
@@ -288,51 +295,58 @@ fn escape_attribute(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render;
+    use super::{RawHtml, render};
 
-    fn render_html(source: &str) -> String {
-        render(source).html
+    fn render_html(source: &str) -> Result<String, RawHtml> {
+        Ok(render(source)?.html)
     }
 
     #[test]
-    fn adds_image_attributes_and_escapes_alt_text() {
-        let html = render_html("![a **bold** & <bad>](image.png \"A title\")");
+    fn adds_image_attributes_and_escapes_alt_text() -> Result<(), RawHtml> {
+        let html = render_html("![a **bold** & &lt;bad&gt; \\<too>](image.png \"A title\")")?;
         assert!(html.contains("src=\"image.png\""), "{html}");
-        assert!(html.contains("alt=\"a bold &amp; &lt;bad&gt;\""), "{html}");
+        assert!(
+            html.contains("alt=\"a bold &amp; &lt;bad&gt; &lt;too&gt;\""),
+            "{html}"
+        );
         assert!(html.contains("loading=\"lazy\""), "{html}");
         assert!(html.contains("decoding=\"async\""), "{html}");
         assert!(html.contains("title=\"A title\""), "{html}");
+        Ok(())
     }
 
     #[test]
-    fn renders_tables_with_alignment() {
-        let html = render_html("| Page | Size |\n| --- | ---: |\n| Top | 1,098 |\n");
+    fn renders_tables_with_alignment() -> Result<(), RawHtml> {
+        let html = render_html("| Page | Size |\n| --- | ---: |\n| Top | 1,098 |\n")?;
         assert!(html.contains("<table>"), "{html}");
         assert!(html.contains("<th>Page</th>"), "{html}");
         assert!(
             html.contains("<td style=\"text-align: right\">1,098</td>"),
             "{html}"
         );
+        Ok(())
     }
 
     #[test]
-    fn collects_internal_links_inside_tables() {
-        let rendered = render("| Page |\n| --- |\n| [Top](/) |\n| [Next](next.md) |\n");
+    fn collects_internal_links_inside_tables() -> Result<(), RawHtml> {
+        let rendered = render("| Page |\n| --- |\n| [Top](/) |\n| [Next](next.md) |\n")?;
         assert_eq!(rendered.links, ["/", "next"]);
+        Ok(())
     }
 
     #[test]
-    fn preserves_non_image_markdown() {
-        let html = render_html("**bold** and `code`\n\n```rust\nlet x = 1;\n```\n");
+    fn preserves_non_image_markdown() -> Result<(), RawHtml> {
+        let html = render_html("**bold** and `code`\n\n```rust\nlet x = 1;\n```\n")?;
         assert!(html.contains("<strong>bold</strong>"), "{html}");
         assert!(html.contains("<code>code</code>"), "{html}");
         assert!(html.contains("let x = 1;"), "{html}");
+        Ok(())
     }
 
     #[test]
-    fn shows_fenced_code_language_without_changing_code_markup() {
+    fn shows_fenced_code_language_without_changing_code_markup() -> Result<(), RawHtml> {
         let html =
-            render_html("```tsx\nconst value = 1;\n```\n\n```js title=example\nalert(1);\n```\n");
+            render_html("```tsx\nconst value = 1;\n```\n\n```js title=example\nalert(1);\n```\n")?;
         assert!(
             html.contains("<span class=\"code-language\">tsx</span>"),
             "{html}"
@@ -345,29 +359,32 @@ mod tests {
         assert!(html.contains("<code class=\"language-js\">"), "{html}");
         assert_eq!(html.matches("<div class=\"code-block\">").count(), 2);
         assert_eq!(html.matches("</div>").count(), 2);
+        Ok(())
     }
 
     #[test]
-    fn leaves_code_blocks_without_language_unlabeled() {
-        let html = render_html("```\nplain\n```\n\n    indented\n");
+    fn leaves_code_blocks_without_language_unlabeled() -> Result<(), RawHtml> {
+        let html = render_html("```\nplain\n```\n\n    indented\n")?;
         assert!(!html.contains("code-language"), "{html}");
         assert!(!html.contains("code-block"), "{html}");
         assert_eq!(html.matches("<pre>").count(), 2);
+        Ok(())
     }
 
     #[test]
-    fn escapes_code_language_as_html_text() {
-        let html = render_html("```a<b&c\nvalue\n```\n");
+    fn escapes_code_language_as_html_text() -> Result<(), RawHtml> {
+        let html = render_html("```a<b&c\nvalue\n```\n")?;
         assert!(html.contains("a&lt;b&amp;c</span>"), "{html}");
         assert!(
             !html.contains("<span class=\"code-language\">a<b"),
             "{html}"
         );
+        Ok(())
     }
 
     #[test]
-    fn adds_links_to_second_and_third_level_headings() {
-        let html = render_html("# Title\n\n## Fiberとは\n\n### `useState` と Fiber\n");
+    fn adds_links_to_second_and_third_level_headings() -> Result<(), RawHtml> {
+        let html = render_html("# Title\n\n## Fiberとは\n\n### `useState` と Fiber\n")?;
         assert!(html.contains("<h1>Title</h1>"), "{html}");
         assert!(html.contains("<h2 id=\"fiberとは\">"), "{html}");
         assert!(html.contains("href=\"#fiberとは\""), "{html}");
@@ -381,55 +398,41 @@ mod tests {
             html.contains("href=\"#usestate-と-fiber\"><code>useState</code> と Fiber</a></h3>"),
             "{html}"
         );
+        Ok(())
     }
 
     #[test]
-    fn unwraps_links_inside_headings() {
-        let html = render_html("## [内部](other.md) と [外部](https://example.com)\n");
+    fn unwraps_links_inside_headings() -> Result<(), RawHtml> {
+        let html = render_html("## [内部](other.md) と [外部](https://example.com)\n")?;
         assert!(
             html.contains(
                 "<a class=\"heading-anchor\" href=\"#内部-と-外部\">内部 と 外部</a></h2>"
             ),
             "{html}"
         );
+        Ok(())
     }
 
     #[test]
-    fn keeps_raw_html_headings_unwrapped_so_anchors_do_not_nest() {
-        let rendered = render("## <a href=\"/feed.xml\">RSS</a> and [more](more.md)\n");
-        assert!(
-            rendered.html.contains(
-                "<h2 id=\"rss-and-more\"><a href=\"/feed.xml\">RSS</a> and <a href=\"more\">more</a></h2>"
-            ),
-            "{}",
-            rendered.html
-        );
-        assert!(
-            !rendered.html.contains("heading-anchor"),
-            "{}",
-            rendered.html
-        );
-        assert_eq!(rendered.links, ["more"]);
-    }
-
-    #[test]
-    fn leaves_image_alt_text_out_of_heading_ids() {
-        let html = render_html("## ![icon](icon.png) Title\n");
+    fn leaves_image_alt_text_out_of_heading_ids() -> Result<(), RawHtml> {
+        let html = render_html("## ![icon](icon.png) Title\n")?;
         assert!(html.contains("<h2 id=\"title\">"), "{html}");
         assert!(html.contains("alt=\"icon\""), "{html}");
+        Ok(())
     }
 
     #[test]
-    fn keeps_heading_ids_unique_after_normalization() {
-        let html = render_html("## A B\n\n## A B\n\n### A-B\n\n## !!!\n\n## !!!\n");
+    fn keeps_heading_ids_unique_after_normalization() -> Result<(), RawHtml> {
+        let html = render_html("## A B\n\n## A B\n\n### A-B\n\n## !!!\n\n## !!!\n")?;
         for id in ["a-b", "a-b-2", "a-b-3", "section", "section-2"] {
             assert!(html.contains(&format!("id=\"{id}\"")), "{html}");
             assert!(html.contains(&format!("href=\"#{id}\"")), "{html}");
         }
+        Ok(())
     }
 
     #[test]
-    fn rewrites_relative_article_links_without_changing_other_urls() {
+    fn rewrites_relative_article_links_without_changing_other_urls() -> Result<(), RawHtml> {
         for (url, expected) in [
             ("other.md", "other"),
             ("../other.md#section", "../other#section"),
@@ -447,18 +450,19 @@ mod tests {
             ("#section", "#section"),
             ("other.html", "other.html"),
         ] {
-            let html = render_html(&format!("[article]({url})"));
+            let html = render_html(&format!("[article]({url})"))?;
             assert!(html.contains(&format!("href=\"{expected}\"")), "{html}");
         }
-        let image = render_html("![image](other.md)");
+        let image = render_html("![image](other.md)")?;
         assert!(image.contains("src=\"other.md\""), "{image}");
+        Ok(())
     }
 
     #[test]
-    fn opens_external_links_in_new_tabs() {
+    fn opens_external_links_in_new_tabs() -> Result<(), RawHtml> {
         let html = render_html(
             "[web](https://example.com/?a=1&b=2 \"A & B\") [cdn](//cdn.example.com) [local](next.md) [section](#top)",
-        );
+        )?;
         assert!(html.contains("href=\"https://example.com/?a=1&amp;b=2\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"A &amp; B\""), "{html}");
         assert!(
             html.contains(
@@ -469,17 +473,18 @@ mod tests {
         assert!(html.contains("href=\"next\""), "{html}");
         assert!(html.contains("href=\"#top\""), "{html}");
         assert_eq!(html.matches("target=\"_blank\"").count(), 2, "{html}");
+        Ok(())
     }
 
     #[test]
-    fn collects_rendered_internal_link_and_image_targets() {
+    fn collects_rendered_internal_link_and_image_targets() -> Result<(), RawHtml> {
         let rendered = render(concat!(
             "[next](next.md#x) ![photo](../img/a.png) [abs](/about) [top](#top)\n\n",
             "[web](https://example.com) <https://example.com/auto> <someone@example.com> ",
             "[mail](mailto:a@example.com)\n\n",
             "## [heading](gone.md) ![icon](icon.png)\n\n",
             "# [title](kept.md)\n",
-        ));
+        ))?;
         assert_eq!(
             rendered.links,
             [
@@ -492,5 +497,81 @@ mod tests {
                 "kept"
             ]
         );
+        Ok(())
+    }
+
+    fn rejected_offset(source: &str) -> Option<usize> {
+        render(source).err().map(|error| error.offset)
+    }
+
+    #[test]
+    fn rejects_raw_html_at_its_source_offset() {
+        for (source, offset) in [
+            ("<div>block</div>\n", 0),
+            (
+                "Text\n\n<details>\n<summary>More</summary>\n</details>\n",
+                6,
+            ),
+            ("Press <kbd>Ctrl</kbd> now\n", 6),
+            ("Line<br>next\n", 4),
+            ("<!-- note -->\n", 0),
+            ("Text <!-- note --> more\n", 5),
+            ("## Title <span>x</span>\n", 9),
+            ("### <a href=\"/feed.xml\">RSS</a>\n", 4),
+            ("![alt <b>bold</b>](a.png)\n", 6),
+            ("| A |\n| --- |\n| <i>x</i> |\n", 16),
+            ("> quoted <em>x</em>\n", 9),
+            ("- item\n\n  <div>x</div>\n", 10),
+            ("日本語<b>太字</b>\n", 9),
+        ] {
+            assert_eq!(rejected_offset(source), Some(offset), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn reports_the_first_raw_html() {
+        assert_eq!(
+            rejected_offset("Plain\n\nfirst <i>x</i>\n\n<div>second</div>\n"),
+            Some(13)
+        );
+    }
+
+    #[test]
+    fn shows_html_written_as_code_or_escaped_text() -> Result<(), RawHtml> {
+        let html = render_html(concat!(
+            "Use `<div>` and `<!-- -->`.\n\n",
+            "```html\n<picture><img src=\"a.png\"></picture>\n<!-- note -->\n```\n\n",
+            "    <details>indented</details>\n\n",
+            "\\<kbd>Ctrl\\</kbd> &lt;br&gt; &#60;span&#62;\n",
+        ))?;
+        for expected in [
+            "<code>&lt;div&gt;</code>",
+            "<code>&lt;!-- --&gt;</code>",
+            "&lt;picture&gt;&lt;img src=\"a.png\"&gt;&lt;/picture&gt;\n&lt;!-- note --&gt;",
+            "&lt;details&gt;indented&lt;/details&gt;",
+            "&lt;kbd&gt;Ctrl&lt;/kbd&gt; &lt;br&gt; &lt;span&gt;",
+        ] {
+            assert!(html.contains(expected), "{expected}: {html}");
+        }
+        for tag in ["<div>", "<picture>", "<details>", "<kbd>", "<br>", "<span>"] {
+            assert!(!html.contains(tag), "{tag}: {html}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_url_and_email_autolinks() -> Result<(), RawHtml> {
+        let html = render_html("<https://example.com/a> <someone@example.com>\n")?;
+        assert!(
+            html.contains(
+                "<a href=\"https://example.com/a\" target=\"_blank\" rel=\"noopener noreferrer\">https://example.com/a</a>"
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains("<a href=\"mailto:someone@example.com\">someone@example.com</a>"),
+            "{html}"
+        );
+        Ok(())
     }
 }

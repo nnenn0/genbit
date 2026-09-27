@@ -111,7 +111,12 @@ pub(crate) fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Resul
             && !template.contains('\\'),
         "template must be a relative path inside templates/"
     );
-    let rendered = crate::markdown::render(body);
+    let rendered = crate::markdown::render(body).map_err(|error| {
+        let line = line_number(source, source.len() - body.len() + error.offset);
+        anyhow::anyhow!(
+            "raw HTML is not allowed in Markdown at line {line}; write it with Markdown syntax, or use a code span or `\\<` to show it as text"
+        )
+    })?;
     Ok(Article {
         title,
         description,
@@ -124,6 +129,19 @@ pub(crate) fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Resul
         links: rendered.links,
         source: relative.to_path_buf(),
     })
+}
+
+/// Returns the 1-based line of a byte offset, counting CRLF, LF, and lone CR as line breaks like Markdown parsers do.
+fn line_number(source: &str, offset: usize) -> usize {
+    let before = source.as_bytes().get(..offset).unwrap_or_default();
+    let breaks = before
+        .iter()
+        .enumerate()
+        .filter(|&(index, &byte)| {
+            byte == b'\n' || (byte == b'\r' && source.as_bytes().get(index + 1) != Some(&b'\n'))
+        })
+        .count();
+    breaks + 1
 }
 
 fn valid_tag(tag: &str) -> bool {
@@ -345,5 +363,48 @@ mod tests {
             assert_eq!(rfc3339(&article.created_at), expected, "{source}");
         }
         Ok(())
+    }
+
+    #[test]
+    fn reports_the_file_line_of_raw_html() -> Result<()> {
+        let front = "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\n+++\n";
+        let crlf_front = front.replace('\n', "\r\n");
+        for (source, line) in [
+            (format!("{front}<div>x</div>\n"), 6),
+            (
+                format!("{front}# Title\n\nText <b>bold</b>\n\n<div>second</div>\n"),
+                8,
+            ),
+            (
+                format!("\u{feff}{front}\n本文です。\n\n日本語<!-- メモ -->\n"),
+                9,
+            ),
+            (
+                format!("{crlf_front}# 見出し\r\n\r\n## 日本語 <span>x</span>\r\n"),
+                8,
+            ),
+            (
+                format!("\u{feff}{crlf_front}段落\r\n\r\n![画像 <i>x</i>](a.png)\r\n"),
+                8,
+            ),
+        ] {
+            let error = parse(&source, Path::new("post.md"), &TimeZone::UTC)
+                .err()
+                .context(format!("accepted {source:?}"))?;
+            let expected = format!("raw HTML is not allowed in Markdown at line {line};");
+            assert!(
+                format!("{error:#}").contains(&expected),
+                "{source:?}: expected line {line}, got {error:#}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn counts_every_commonmark_line_ending() {
+        let source = "a\nb\r\nc\rd\r\n\re";
+        for (offset, line) in [(0, 1), (2, 2), (5, 3), (7, 4), (10, 5), (11, 6)] {
+            assert_eq!(line_number(source, offset), line, "offset {offset}");
+        }
     }
 }

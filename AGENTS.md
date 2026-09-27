@@ -49,6 +49,7 @@
 - `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、`timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
 - 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で必須。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。日時は `timezone`（IANA 名のみ）の地域の時刻として jiff の `Zoned` に変換し、更新日時は作成日時以降にする。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
+- 記事本文の生 HTML は禁止する。`markdown.rs` はパーサー直後の位置情報付きイベントで `Event::Html`・`Event::InlineHtml`（コメントを含む）を検査し、最初の箇所の本文内バイト位置をエラーで返す。見出し・画像などの加工は検査を通ったイベント列だけに行い、加工で genbit 自身が生成する `Event::Html` は検査しない。`content.rs` がその位置を記事ファイル全体の1始まりの行番号（BOM・フロントマター・CRLF を含む）に変換する。コードスパン・コードブロック・エスケープ・文字参照・オートリンクは許可する。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
 - 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at`・`updated_at` は `datetime`（時差付き RFC 3339）・`date`・`time` を持つオブジェクトで、JSON-LD と sitemap も同じ時差付き日時を使う。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
 - 記事のリンクと画像の参照先は `markdown.rs` が出力するとおりに集め、`OutputPlan` が確定した配信URLの集合と `route.rs` で照合する。相対パスは記事URLを基準にブラウザーと同じく解決し、スキーム付きURL・同一ページ内リンクは対象外。
@@ -73,7 +74,7 @@ CLI を試すときは、生成サイトのディレクトリで `genbit new <na
 
 - Rust ファイル・関数は snake_case、型は PascalCase。モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` を使う。
 - 失敗し得る処理は `anyhow::Result`、`?`、`Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
-- テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
+- テンプレートは Tera、本文は Markdown の生成 HTML を `safe` で挿入する。本文の生 HTML は禁止しているため、`content` の HTML は genbit が生成したものだけ。テンプレートには HTML を書ける。`safe` の扱いを変える際は、既存サイトのテンプレートと信頼する記事入力の範囲を確認する。
 - ユニットテストは各 `src/*.rs` の `#[cfg(test)]` 内、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。一時サイトは `tempfile::TempDir` で作り、CLI の終了状態・エラー・生成内容・旧出力の保護を検証している。`tests/cli.rs` ではビルドの成否を `build_ok` / `build_err`（失敗時の stderr を返す）で確認し、記事は既定のフロントマターに差分を重ねる `article_source` で組み立てる。網羅率は CI で計測するが、閾値はない。
 - `.github/workflows/ci.yml` は pull request と `main` への push で、次のジョブを並列に実行する。`lint` は版の一致・`scripts/*.sh` の shellcheck・rustfmt・Clippy、`test-linux` は Ubuntu での cargo-llvm-cov によるカバレッジ計測付きテスト（要約をジョブの Summary に出し、閾値はない）、`test-macos` は macOS のテスト、`smoke-test` は Ubuntu の release ビルドでの `scripts/smoke-test.sh`、`third-party-licenses` は `scripts/third-party-licenses.sh`。ジョブ名は main の ruleset の必須チェック名なので、変えるときは ruleset も合わせて更新する。PR ブランチへの push だけでは動かない。PR では新しい push で古い実行を取り消す。依存のビルド結果は `Swatinem/rust-cache` でキャッシュし、保存は `main` の実行だけが行う。独立した型チェックコマンドは定義されていない。
 - `.github/workflows/deny.yml` は pull request、`main` への push、週 1 回の定期実行で、`deny.toml` に従って cargo-deny を実行する。ジョブは勧告を見る `deny-advisories` と、ライセンス・取得元・禁止クレートを見る `deny-policy` に分かれ、必須チェックは `deny-policy` だけ。脆弱性・保守終了・yank の勧告、許可リスト外のライセンス、crates.io 以外の取得元を拒否する。勧告を無視するときは `deny.toml` の `ignore` に理由を書く。
