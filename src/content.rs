@@ -64,7 +64,12 @@ pub(crate) struct Article {
     pub(crate) source: PathBuf,
 }
 
-pub(crate) fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Result<Article> {
+pub(crate) fn parse(
+    source: &str,
+    relative: &Path,
+    timezone: &TimeZone,
+    mut image_size: impl FnMut(&str, &str) -> Result<Option<crate::image_size::Size>>,
+) -> Result<Article> {
     let (metadata, body) = split_front_matter(source)?;
     let route = Route::from_content_path(relative)?;
     let created_at = timestamp(metadata.created_at, "created_at", timezone)?;
@@ -111,12 +116,13 @@ pub(crate) fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Resul
             && !template.contains('\\'),
         "template must be a relative path inside templates/"
     );
-    let rendered = crate::markdown::render(body).map_err(|error| {
+    let parsed = crate::markdown::parse(body).map_err(|error| {
         let line = line_number(source, source.len() - body.len() + error.offset);
         anyhow::anyhow!(
             "raw HTML is not allowed in Markdown at line {line}; write it with Markdown syntax, or use a code span or `\\<` to show it as text"
         )
     })?;
+    let rendered = parsed.render(|url| image_size(route.url(), url))?;
     Ok(Article {
         title,
         description,
@@ -182,6 +188,10 @@ fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Result<Article> {
+        super::parse(source, relative, timezone, |_, _| Ok(None))
+    }
 
     #[test]
     fn preserves_plain_and_front_matter_bodies() -> Result<()> {

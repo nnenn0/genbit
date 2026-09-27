@@ -1099,6 +1099,55 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
 }
 
 #[test]
+fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("images")?;
+    let image = site.join("static/photo.data");
+    let original = include_bytes!("fixtures/images/basic.png");
+    fs::write(&image, original)?;
+    fs::write(site.join("static/broken.png"), b"broken")?;
+    fs::write(site.join("static/icon.svg"), "<svg/>")?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(
+            &[],
+            "![local](../%70hoto.data?v=1#part)\n\n![again](/photo.data)\n\n![broken](/broken.png)\n\n![svg](/icon.svg)\n\n![remote](https://example.invalid/photo.png)",
+        ),
+    )?;
+    build_ok(&site)?;
+    let output = site.join("dist/entries/hello-world.html");
+    let html = fs::read_to_string(&output)?;
+    assert_eq!(html.matches("width=300").count(), 2, "{html}");
+    assert_eq!(html.matches("height=200").count(), 2, "{html}");
+    assert_eq!(html.matches("loading=lazy").count(), 5, "{html}");
+    let image_css = html
+        .split("img{")
+        .nth(1)
+        .and_then(|css| css.split('}').next())
+        .context("missing image CSS")?;
+    for declaration in ["display:block", "max-width:100%", "height:auto"] {
+        assert!(image_css.contains(declaration), "{image_css}");
+    }
+    assert_eq!(fs::read(site.join("dist/photo.data"))?, original);
+    let before = snapshot(&site.join("dist"))?;
+    let rotated = include_bytes!("fixtures/images/exif.jpg");
+    fs::write(&image, rotated)?;
+    assert!(dry_run_site(&site)?.status.success());
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    build_ok(&site)?;
+    let html = fs::read_to_string(&output)?;
+    assert_eq!(html.matches("width=200").count(), 2, "{html}");
+    assert_eq!(html.matches("height=300").count(), 2, "{html}");
+    assert_eq!(fs::read(site.join("dist/photo.data"))?, rotated);
+    let before = snapshot(&site.join("dist"))?;
+    fs::remove_file(image)?;
+    assert!(build_err(&site)?.contains("photo.data"));
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    assert_no_build_leftovers(&site)?;
+    Ok(())
+}
+
+#[test]
 fn inlines_common_and_template_specific_css() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

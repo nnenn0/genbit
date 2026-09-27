@@ -23,6 +23,11 @@ impl<'a> SiteInput<'a> {
         fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))
     }
 
+    pub(crate) fn open_file(&self, relative: &Path) -> Result<fs::File> {
+        let path = self.required_file(relative)?;
+        fs::File::open(&path).with_context(|| format!("cannot read {}", path.display()))
+    }
+
     pub(crate) fn read_optional_text(&self, relative: &Path) -> Result<Option<String>> {
         self.checked_file(relative)?
             .map(|path| {

@@ -13,8 +13,9 @@ anyhow = "1"
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
 http = "1"
+imagesize = { version = "0.15", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"] }
-
+kamadak-exif = "0.6"
 minify-html = "0.18"
 notify = "8"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

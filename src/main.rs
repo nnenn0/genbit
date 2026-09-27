@@ -2,6 +2,7 @@ mod build;
 mod config;
 mod content;
 mod dev;
+mod image_size;
 mod input;
 mod markdown;
 mod metadata;

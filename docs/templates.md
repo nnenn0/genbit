@@ -46,6 +46,8 @@
 
 `<time>` 要素の `datetime` 属性には `datetime`、画面の表示には `date` や `time` を使います（例: `<time datetime="{{ article.created_at.datetime }}">{{ article.created_at.date }}</time>`）。
 
+本文のローカル画像には、取得できた場合に `width`・`height` 属性が付きます。初期の `styles/common.css` は `img { display: block; max-width: 100%; height: auto; }` で縦横比を保ち、1枚ずつ縦に配置します。独自のCSSでも縦横比を保つために `height: auto` を指定してください。
+
 記事の本文は `{{ content | safe }}` で挿入します。本文は自分で書いたMarkdownから生成するので、信頼できる入力として扱います。
 
 記事のMarkdownにはHTMLを直接書けません（[HTMLの禁止](content.md#htmlの禁止)）。`content` に含まれるHTMLは、genbitがMarkdownから生成したものだけです。テンプレートにはこの制限がなく、HTMLを自由に書けます。

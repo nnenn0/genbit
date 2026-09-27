@@ -76,6 +76,7 @@ mod tests {
             ),
             Path::new(&format!("{name}.md")),
             &TimeZone::UTC,
+            |_, _| Ok(None),
         )
     }
 

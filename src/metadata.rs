@@ -246,6 +246,7 @@ mod tests {
                     ),
                     Path::new(&format!("entries/post-{day}.md")),
                     &config.timezone,
+                    |_, _| Ok(None),
                 )
             })
             .collect::<Result<Vec<_>>>()?;

@@ -1,6 +1,7 @@
 use crate::{
     config::Config,
     content::{self, Article},
+    image_size::ImageSizes,
     input::SiteInput,
     metadata,
     output::{self, Artifact, OutputPlan},
@@ -25,7 +26,9 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let mut articles = load_articles(&input, &config.timezone)?;
+    let static_files = input.files(Path::new("static"))?;
+    let mut images = ImageSizes::new(root, &static_files)?;
+    let mut articles = load_articles(&input, &config.timezone, &mut images)?;
     articles.sort_by(|left, right| {
         right
             .created_at
@@ -52,8 +55,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     artifacts.push(metadata::feed(&config, &articles));
     artifacts.push(metadata::robots(&config.site_url));
     let static_root = root.join("static");
-    let assets = input
-        .files(Path::new("static"))?
+    let assets = static_files
         .into_iter()
         .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
         .map(|path| {
@@ -80,7 +82,11 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     Ok(page_count)
 }
 
-fn load_articles(input: &SiteInput<'_>, timezone: &TimeZone) -> Result<Vec<Article>> {
+fn load_articles(
+    input: &SiteInput<'_>,
+    timezone: &TimeZone,
+    images: &mut ImageSizes<'_>,
+) -> Result<Vec<Article>> {
     let content_root = input.root().join("content");
     input
         .files(Path::new("content"))?
@@ -89,8 +95,13 @@ fn load_articles(input: &SiteInput<'_>, timezone: &TimeZone) -> Result<Vec<Artic
         .map(|path| {
             let relative = path.strip_prefix(&content_root)?;
             let site_relative = path.strip_prefix(input.root())?;
-            content::parse(&input.read_text(site_relative)?, relative, timezone)
-                .with_context(|| format!("cannot parse {}", path.display()))
+            content::parse(
+                &input.read_text(site_relative)?,
+                relative,
+                timezone,
+                |page, url| images.get(page, url),
+            )
+            .with_context(|| format!("cannot parse {}", path.display()))
         })
         .collect()
 }
