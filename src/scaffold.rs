@@ -107,7 +107,7 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
     }
     // The validated name contains only TOML-safe ASCII.
     let config = format!(
-        "title = \"{name}\"\ndescription = \"{name} で公開している記事の一覧です。\"\nsite_url = \"http://127.0.0.1:3000/\"\nog_image = \"/assets/img/ogp.png\"\n"
+        "title = \"{name}\"\ndescription = \"{name} で公開している記事の一覧です。\"\nsite_url = \"http://127.0.0.1:3000/\"\nog_image = \"/assets/img/ogp.png\"\ntimezone = \"Asia/Tokyo\"\n"
     );
     write_new(&root.join("config.toml"), &config)?;
     for &(relative, content) in FILES {

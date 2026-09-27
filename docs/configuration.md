@@ -7,7 +7,7 @@ title = "My notes"
 description = "小さなツール作りについてのメモです。"
 site_url = "https://example.com/"
 og_image = "/assets/img/ogp.png"
-timezone = "+09:00"
+timezone = "Asia/Tokyo"
 ```
 
 未知のキーはエラーになります。書き間違いが無視されず、ビルドの失敗として分かります。
@@ -20,7 +20,7 @@ timezone = "+09:00"
 | `description` | 必須 | トップページの説明文。空にはできません。RSSのチャンネルの説明にも使います。`genbit new` が入れる文章は仮のものなので、公開前に書き換えてください。 |
 | `site_url` | 必須 | サイトのルートの公開URL（例: `https://example.com/`）。 |
 | `og_image` | 必須 | トップページと全記事で共通のOGP画像。 |
-| `timezone` | 任意 | 記事の日時のUTCオフセット（例: `+09:00`、`-05:00`）。省略時は `+00:00`。 |
+| `timezone` | 必須 | 記事の日時を書いた地域のIANAタイムゾーン名（例: `Asia/Tokyo`、`America/New_York`）。`genbit new` は `Asia/Tokyo` を設定します。 |
 
 ### `site_url`
 
@@ -41,7 +41,12 @@ timezone = "+09:00"
 
 ### `timezone`
 
-記事の日時はオフセットなしのローカル時刻で書き、genbitは時差変換をしません。`timezone` のオフセットは、RSSフィードの `pubDate` に付けるだけです。
+記事の日時は時差を書かないローカル時刻で書き、`timezone` の地域の時刻として扱います。RSSフィードの `pubDate`、JSON-LD、sitemapの `<lastmod>`、テンプレートに渡す `datetime` には、その日時に有効な時差を付けます。夏時間のある地域では、日付によって時差が変わります。
+
+- `+09:00` のような固定の時差や `Tokyo` のような略称は受け付けません。
+- 時差 `+00:00` で扱う場合は `UTC` を指定します。
+- タイムゾーンのデータはgenbitに同梱しています。OSの設定には依存しません。
+- 夏時間の切り替えで存在しない時刻（時計が進む1時間）は、切り替え後の時刻として扱います。
 
 ## 作成済みのサイト
 

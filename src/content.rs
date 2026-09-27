@@ -1,17 +1,10 @@
-use crate::{
-    config::UtcOffset,
-    route::{Route, UNTAGGED_TAG},
-};
+use crate::route::{Route, UNTAGGED_TAG};
 use anyhow::{Context, Result, bail, ensure};
-use serde::{Deserialize, Deserializer, de::Error as _};
+use jiff::{Zoned, civil::DateTime, tz::TimeZone};
+use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
-use toml::value::{Date, Datetime};
-
-const CREATED_AT_FORMAT: &str =
-    "created_at must be a TOML local date-time with minute precision (YYYY-MM-DD HH:MM)";
-const UPDATED_AT_FORMAT: &str =
-    "updated_at must be a TOML local date-time with minute precision (YYYY-MM-DD HH:MM)";
+use toml::value::{Datetime, Value};
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,122 +14,49 @@ struct FrontMatter {
     template: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default, deserialize_with = "deserialize_created_at")]
-    created_at: Option<Datetime>,
-    #[serde(default, deserialize_with = "deserialize_updated_at")]
-    updated_at: Option<Datetime>,
+    created_at: Option<Value>,
+    updated_at: Option<Value>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) struct LocalDateTime {
-    date: Date,
-    minutes_of_day: u16,
+/// Formats a date-time for JSON-LD, sitemaps, and templates, e.g. `2026-09-23T09:30:00+09:00`.
+pub(crate) fn rfc3339(value: &Zoned) -> String {
+    value.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string()
 }
 
-impl LocalDateTime {
-    fn from_datetime(value: Datetime, format: &'static str) -> Result<Self> {
-        ensure!(value.offset.is_none(), "{format}");
-        let date = value.date.context(format)?;
-        let time = value.time.context(format)?;
-        ensure!(
-            time.second.is_none() && time.nanosecond.is_none(),
-            "{format}"
-        );
-        let minutes_of_day = u16::from(time.hour) * 60 + u16::from(time.minute);
-        Ok(Self {
-            date,
-            minutes_of_day,
-        })
-    }
-
-    pub(crate) fn date_string(self) -> String {
-        self.date.to_string()
-    }
-
-    /// Formats the date-time for RSS, e.g. `Wed, 23 Sep 2026 09:30:00 +0900`.
-    pub(crate) fn rfc822(self, offset: UtcOffset) -> String {
-        let Date { year, month, day } = self.date;
-        let weekday = match weekday(year, month, day) {
-            0 => "Sun",
-            1 => "Mon",
-            2 => "Tue",
-            3 => "Wed",
-            4 => "Thu",
-            5 => "Fri",
-            _ => "Sat",
-        };
-        let month_name = match month {
-            1 => "Jan",
-            2 => "Feb",
-            3 => "Mar",
-            4 => "Apr",
-            5 => "May",
-            6 => "Jun",
-            7 => "Jul",
-            8 => "Aug",
-            9 => "Sep",
-            10 => "Oct",
-            11 => "Nov",
-            _ => "Dec",
-        };
-        format!(
-            "{weekday}, {day:02} {month_name} {year:04} {:02}:{:02}:00 {}",
-            self.minutes_of_day / 60,
-            self.minutes_of_day % 60,
-            offset.rfc822()
-        )
-    }
-}
-
-/// Returns the day of the week (0 = Sunday) for a Gregorian date.
-fn weekday(year: u16, month: u8, day: u8) -> u32 {
-    // Zeller's congruence, with January and February counted in the previous year.
-    // Weekdays repeat every 400 years, so the shift keeps year 0 from underflowing.
-    let year = u32::from(year) + 400;
-    let (year, month) = if month < 3 {
-        (year - 1, u32::from(month) + 12)
-    } else {
-        (year, u32::from(month))
+/// Reads a front matter date-time written as a TOML local date-time with minute precision.
+fn timestamp(value: Option<Value>, field: &str, timezone: &TimeZone) -> Result<Zoned> {
+    let value = value.with_context(|| format!("{field} is required for articles"))?;
+    let format = || {
+        format!("{field} must be a TOML local date-time with minute precision (YYYY-MM-DD HH:MM)")
     };
-    let (century, year_of_century) = (year / 100, year % 100);
-    let saturday_first = (u32::from(day)
-        + 13 * (month + 1) / 5
-        + year_of_century
-        + year_of_century / 4
-        + century / 4
-        + 5 * century)
-        % 7;
-    (saturday_first + 6) % 7
-}
-
-fn deserialize_created_at<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Datetime>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Datetime::deserialize(deserializer)
-        .map(Some)
-        .map_err(|_| D::Error::custom(CREATED_AT_FORMAT))
-}
-
-fn deserialize_updated_at<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Datetime>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Datetime::deserialize(deserializer)
-        .map(Some)
-        .map_err(|_| D::Error::custom(UPDATED_AT_FORMAT))
+    let Value::Datetime(Datetime {
+        date: Some(date),
+        time: Some(time),
+        offset: None,
+    }) = value
+    else {
+        bail!(format());
+    };
+    ensure!(time.second.is_none() && time.nanosecond.is_none(), format());
+    DateTime::new(
+        i16::try_from(date.year)?,
+        i8::try_from(date.month)?,
+        i8::try_from(date.day)?,
+        i8::try_from(time.hour)?,
+        i8::try_from(time.minute)?,
+        0,
+        0,
+    )?
+    .to_zoned(timezone.clone())
+    .map_err(Into::into)
 }
 
 pub(crate) struct Article {
     pub(crate) title: String,
     pub(crate) description: String,
     pub(crate) route: Route,
-    pub(crate) created_at: LocalDateTime,
-    pub(crate) updated_at: LocalDateTime,
+    pub(crate) created_at: Zoned,
+    pub(crate) updated_at: Zoned,
     pub(crate) template: String,
     pub(crate) tags: Vec<String>,
     pub(crate) html: String,
@@ -144,17 +64,11 @@ pub(crate) struct Article {
     pub(crate) source: PathBuf,
 }
 
-pub(crate) fn parse(source: &str, relative: &Path) -> Result<Article> {
+pub(crate) fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Result<Article> {
     let (metadata, body) = split_front_matter(source)?;
     let route = Route::from_content_path(relative)?;
-    let created_at = metadata
-        .created_at
-        .context("created_at is required for articles")
-        .and_then(|value| LocalDateTime::from_datetime(value, CREATED_AT_FORMAT))?;
-    let updated_at = metadata
-        .updated_at
-        .context("updated_at is required for articles")
-        .and_then(|value| LocalDateTime::from_datetime(value, UPDATED_AT_FORMAT))?;
+    let created_at = timestamp(metadata.created_at, "created_at", timezone)?;
+    let updated_at = timestamp(metadata.updated_at, "updated_at", timezone)?;
     ensure!(
         updated_at >= created_at,
         "updated_at must not precede created_at"
@@ -342,7 +256,7 @@ mod tests {
                 "description is required",
             ),
         ] {
-            let error = parse(source, Path::new("post.md"))
+            let error = parse(source, Path::new("post.md"), &TimeZone::UTC)
                 .err()
                 .context(format!("accepted {source:?}"))?;
             assert!(
@@ -350,43 +264,42 @@ mod tests {
                 "{source:?}: expected {reason:?}, got {error:#}"
             );
         }
-        let article = parse(
-            "+++\ncreated_at = 2026-09-17 00:00\ndescription = 'Post description'\nupdated_at = 2026-09-22 00:00\n+++\n# Post",
-            Path::new("post.md"),
-        )?;
-        assert_eq!(article.created_at.date_string(), "2026-09-17");
-        assert_eq!(article.created_at.minutes_of_day, 0);
-        assert_eq!(article.updated_at.date_string(), "2026-09-22");
-        assert_eq!(article.updated_at.minutes_of_day, 0);
-        let article = parse(
-            "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
-            Path::new("post.md"),
-        )?;
-        assert_eq!(article.created_at.date_string(), "2026-09-17");
-        assert_eq!(article.created_at.minutes_of_day, 10 * 60 + 30);
-        let article = parse(
-            "+++\ncreated_at = 2026-09-17T10:30\ndescription = 'Post description'\nupdated_at = 2026-09-17 10:31\n+++\n# Post",
-            Path::new("post.md"),
-        )?;
-        assert_eq!(article.created_at.date_string(), "2026-09-17");
-        assert_eq!(article.created_at.minutes_of_day, 10 * 60 + 30);
-        assert_eq!(article.updated_at.minutes_of_day, 10 * 60 + 31);
-        let midnight = parse(
-            "+++\ncreated_at = 2026-09-17T00:00\nupdated_at = 2026-09-17T00:00\ndescription = 'Post description'\n+++\n# Post",
-            Path::new("midnight.md"),
-        )?;
-        assert_eq!(midnight.created_at.minutes_of_day, 0);
+        for (created_at, updated_at, expected_created, expected_updated) in [
+            (
+                "2026-09-17 00:00",
+                "2026-09-22 00:00",
+                "2026-09-17T00:00:00+00:00",
+                "2026-09-22T00:00:00+00:00",
+            ),
+            (
+                "2026-09-17T10:30",
+                "2026-09-17 10:31",
+                "2026-09-17T10:30:00+00:00",
+                "2026-09-17T10:31:00+00:00",
+            ),
+        ] {
+            let article = parse(
+                &format!(
+                    "+++\ncreated_at = {created_at}\nupdated_at = {updated_at}\ndescription = 'Post'\n+++\n"
+                ),
+                Path::new("post.md"),
+                &TimeZone::UTC,
+            )?;
+            assert_eq!(rfc3339(&article.created_at), expected_created);
+            assert_eq!(rfc3339(&article.updated_at), expected_updated);
+        }
         Ok(())
     }
 
     #[test]
     fn validates_tags() -> Result<()> {
         let source = "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = ['react', 'react-19', 'web-security']\n+++\nBody";
-        let article = parse(source, Path::new("post.md"))?;
+        let article = parse(source, Path::new("post.md"), &TimeZone::UTC)?;
         assert_eq!(article.tags, ["react", "react-19", "web-security"]);
         let untagged = parse(
             "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\n+++\nBody",
             Path::new("post.md"),
+            &TimeZone::UTC,
         )?;
         assert!(untagged.tags.is_empty());
         for tags in [
@@ -405,7 +318,7 @@ mod tests {
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\nBody"
             );
             assert!(
-                parse(&source, Path::new("post.md")).is_err(),
+                parse(&source, Path::new("post.md"), &TimeZone::UTC).is_err(),
                 "accepted {tags}"
             );
         }
@@ -413,25 +326,21 @@ mod tests {
     }
 
     #[test]
-    fn formats_rfc822_dates_with_weekday_and_offset() -> Result<()> {
-        let offset = crate::config::Config::parse(
-            "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'https://example.com/'\nog_image = '/card.png'\ntimezone = '+09:00'\n",
-        )?
-        .timezone;
+    fn applies_the_time_zone_offset_in_effect_on_each_date() -> Result<()> {
+        let timezone = TimeZone::get("America/New_York")?;
         for (source, expected) in [
-            ("2026-09-23 09:05", "Wed, 23 Sep 2026 09:05:00 +0900"),
-            ("2024-02-29 23:59", "Thu, 29 Feb 2024 23:59:00 +0900"),
-            ("2000-01-01 00:00", "Sat, 01 Jan 2000 00:00:00 +0900"),
-            ("1900-03-01 12:00", "Thu, 01 Mar 1900 12:00:00 +0900"),
-            ("0000-01-01 00:00", "Sat, 01 Jan 0000 00:00:00 +0900"),
+            ("2026-01-15 09:00", "2026-01-15T09:00:00-05:00"),
+            ("2026-07-15 09:00", "2026-07-15T09:00:00-04:00"),
+            ("2026-03-08 02:30", "2026-03-08T03:30:00-04:00"),
         ] {
             let article = parse(
                 &format!(
                     "+++\ncreated_at = {source}\nupdated_at = {source}\ndescription = 'Post'\n+++\n"
                 ),
                 Path::new("post.md"),
+                &timezone,
             )?;
-            assert_eq!(article.created_at.rfc822(offset), expected, "{source}");
+            assert_eq!(rfc3339(&article.created_at), expected, "{source}");
         }
         Ok(())
     }

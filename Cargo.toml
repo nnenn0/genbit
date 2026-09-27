@@ -13,6 +13,7 @@ anyhow = "1"
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
 http = "1"
+jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"] }
 
 minify-html = "0.18"
 notify = "8"

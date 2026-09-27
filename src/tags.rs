@@ -66,6 +66,7 @@ mod tests {
     use super::{TagIndex, article_tags};
     use crate::content::{self, Article};
     use anyhow::Result;
+    use jiff::tz::TimeZone;
     use std::path::Path;
 
     fn article(name: &str, tags: &str) -> Result<Article> {
@@ -74,6 +75,7 @@ mod tests {
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\n"
             ),
             Path::new(&format!("{name}.md")),
+            &TimeZone::UTC,
         )
     }
 

@@ -1,5 +1,6 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use http::Uri;
+use jiff::tz::TimeZone;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -9,7 +10,7 @@ struct RawConfig {
     description: String,
     site_url: String,
     og_image: String,
-    timezone: Option<String>,
+    timezone: String,
 }
 
 #[derive(Serialize)]
@@ -19,18 +20,12 @@ pub(crate) struct Config {
     pub(crate) site_url: SiteUrl,
     pub(crate) og_image: String,
     #[serde(skip)]
-    pub(crate) timezone: UtcOffset,
+    pub(crate) timezone: TimeZone,
 }
 
 #[derive(Serialize)]
 #[serde(transparent)]
 pub(crate) struct SiteUrl(String);
-
-/// Offset applied to article date-times, which are written without a time zone.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct UtcOffset {
-    minutes: i16,
-}
 
 impl Config {
     pub(crate) fn parse(source: &str) -> Result<Self> {
@@ -53,12 +48,12 @@ impl TryFrom<RawConfig> for Config {
         );
         let site_url = SiteUrl::parse(&raw.site_url)?;
         let og_image = validate_og_image(&raw.og_image, &site_url)?;
-        let timezone = raw
-            .timezone
-            .as_deref()
-            .map(UtcOffset::parse)
-            .transpose()?
-            .unwrap_or_default();
+        let timezone = TimeZone::get(&raw.timezone).with_context(|| {
+            format!(
+                "config.toml: timezone must be an IANA time zone name such as Asia/Tokyo: {}",
+                raw.timezone
+            )
+        })?;
         Ok(Self {
             title: raw.title,
             description: raw.description,
@@ -87,39 +82,6 @@ impl SiteUrl {
 
     pub(crate) fn join_root_path(&self, path: &str) -> String {
         format!("{}{path}", self.0.trim_end_matches('/'))
-    }
-}
-
-impl UtcOffset {
-    fn parse(value: &str) -> Result<Self> {
-        const FORMAT: &str = "config.toml: timezone must be a UTC offset such as +09:00 or -05:00";
-        let bytes = value.as_bytes();
-        let [sign, h1, h2, b':', m1, m2] = bytes else {
-            bail!(FORMAT);
-        };
-        let sign: i16 = match sign {
-            b'+' => 1,
-            b'-' => -1,
-            _ => bail!(FORMAT),
-        };
-        let digit = |byte: &u8| {
-            byte.is_ascii_digit()
-                .then(|| i16::from(byte - b'0'))
-                .context(FORMAT)
-        };
-        let hours = digit(h1)? * 10 + digit(h2)?;
-        let minutes = digit(m1)? * 10 + digit(m2)?;
-        ensure!(hours <= 23 && minutes <= 59, FORMAT);
-        Ok(Self {
-            minutes: sign * (hours * 60 + minutes),
-        })
-    }
-
-    /// Formats the offset as used by RFC 822 dates, such as `+0900`.
-    pub(crate) fn rfc822(self) -> String {
-        let sign = if self.minutes < 0 { '-' } else { '+' };
-        let minutes = self.minutes.unsigned_abs();
-        format!("{sign}{:02}{:02}", minutes / 60, minutes % 60)
     }
 }
 
@@ -173,13 +135,13 @@ fn parse_http_url(value: &str, field: &str) -> Result<HttpUrl> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, UtcOffset};
+    use super::Config;
     use anyhow::{Context, Result};
 
     #[test]
     fn normalizes_site_url_and_resolves_root_relative_image() -> Result<()> {
         let config = Config::parse(
-            "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'HTTPS://example.com'\nog_image = '/images/card.png?size=large'\n",
+            "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'HTTPS://example.com'\nog_image = '/images/card.png?size=large'\ntimezone = 'Asia/Tokyo'\n",
         )?;
         assert_eq!(config.site_url.as_str(), "https://example.com/");
         assert_eq!(
@@ -208,7 +170,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_unknown_and_invalid_config_values() -> Result<()> {
-        let valid = "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'https://example.com/'\nog_image = '/images/card.png'\n";
+        let valid = "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'https://example.com/'\nog_image = '/images/card.png'\ntimezone = 'Asia/Tokyo'\n";
         for (source, reason) in [
             (valid.replace("title = 'Blog'\n", ""), "title"),
             (valid.replace("description = 'Posts'\n", ""), "description"),
@@ -220,6 +182,7 @@ mod tests {
                 valid.replace("og_image = '/images/card.png'\n", ""),
                 "og_image",
             ),
+            (valid.replace("timezone = 'Asia/Tokyo'\n", ""), "timezone"),
             (valid.replace("title = 'Blog'", "title = '  '"), "title"),
             (
                 valid.replace("description = 'Posts'", "description = '  '"),
@@ -242,11 +205,11 @@ mod tests {
                 valid.replace("/images/card.png", "ftp://example.com/card.png"),
                 "og_image",
             ),
-            (format!("{valid}timezone = '+9:00'\n"), "timezone"),
-            (format!("{valid}timezone = '+24:00'\n"), "timezone"),
-            (format!("{valid}timezone = '+09:60'\n"), "timezone"),
-            (format!("{valid}timezone = 'Asia/Tokyo'\n"), "timezone"),
-            (format!("{valid}timezone = 9\n"), "timezone"),
+            (valid.replace("'Asia/Tokyo'", "'+09:00'"), "timezone"),
+            (valid.replace("'Asia/Tokyo'", "'Tokyo'"), "timezone"),
+            (valid.replace("'Asia/Tokyo'", "'Asia/Nowhere'"), "timezone"),
+            (valid.replace("'Asia/Tokyo'", "''"), "timezone"),
+            (valid.replace("'Asia/Tokyo'", "9"), "timezone"),
         ] {
             let error = Config::parse(&source)
                 .err()
@@ -260,19 +223,12 @@ mod tests {
     }
 
     #[test]
-    fn timezone_defaults_to_utc_and_formats_rfc822_offsets() -> Result<()> {
-        let valid = "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'https://example.com/'\nog_image = '/images/card.png'\n";
-        assert_eq!(Config::parse(valid)?.timezone, UtcOffset::default());
-        assert_eq!(UtcOffset::default().rfc822(), "+0000");
-        for (value, expected) in [
-            ("+09:00", "+0900"),
-            ("-05:30", "-0530"),
-            ("-00:00", "+0000"),
-        ] {
-            let config = Config::parse(&format!("{valid}timezone = '{value}'\n"))?;
-            assert_eq!(config.timezone.rfc822(), expected);
-        }
-        let published = serde_json::to_value(Config::parse(valid)?)?;
+    fn accepts_iana_time_zone_names_without_publishing_them() -> Result<()> {
+        let config = Config::parse(
+            "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'https://example.com/'\nog_image = '/images/card.png'\ntimezone = 'America/New_York'\n",
+        )?;
+        assert_eq!(config.timezone.iana_name(), Some("America/New_York"));
+        let published = serde_json::to_value(config)?;
         assert!(published.get("timezone").is_none());
         Ok(())
     }

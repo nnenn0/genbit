@@ -36,7 +36,15 @@
 | `tag.html` | `tag`: タグ名、`entries`: そのタグの記事（作成日時の新しい順） |
 | `404.html` | `site` と `css` のみ |
 
-`entries` の各要素と `article` には、`title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。`created_at` と `updated_at` は `YYYY-MM-DD` 形式の日付です。
+`entries` の各要素と `article` には、`title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。`created_at` と `updated_at` は次の値を持つオブジェクトです。
+
+| 値 | 形式 | 例 |
+| --- | --- | --- |
+| `datetime` | `config.toml` の `timezone` の時差を付けたRFC 3339の日時 | `2026-09-17T09:00:00+09:00` |
+| `date` | `YYYY-MM-DD` | `2026-09-17` |
+| `time` | `HH:MM` | `09:00` |
+
+`<time>` 要素の `datetime` 属性には `datetime`、画面の表示には `date` や `time` を使います（例: `<time datetime="{{ article.created_at.datetime }}">{{ article.created_at.date }}</time>`）。
 
 記事の本文は `{{ content | safe }}` で挿入します。本文は自分で書いたMarkdownから生成するので、信頼できる入力として扱います。
 
@@ -44,7 +52,7 @@
 
 - `base.html` はタイトル、meta description、canonicalリンク、Open Graph、JSON-LD、favicon、RSSの自動検出用リンクを出力します。子テンプレートはこのブロックを上書きします。
 - `404.html` は `metadata` ブロックを上書きして `noindex` を指定し、canonical・Open Graph・JSON-LDを出しません。
-- `page.html` は記事タイトル全体を記事URLへのリンクにし、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。
+- `page.html` は記事タイトル全体を記事URLへのリンクにし、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。
 - `root.html` は記事一覧の後に、タグ一覧とRSSフィードへのリンクを表示します。
 - `entry-list.html` は `entries` を描画します。スタイルは `common.css` の `.entry-list` にあります。
 - faviconはPNGを先に指定し、SVG対応ブラウザー向けのSVGも併記します。
