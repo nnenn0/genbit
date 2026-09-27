@@ -134,7 +134,7 @@ pub(crate) fn validate_links(
 }
 
 /// Resolves a link the way a browser would from `page_url`, returning `None` for external and same-page links.
-pub(crate) fn resolve_link(page_url: &str, link: &str) -> Result<Option<String>> {
+fn resolve_link(page_url: &str, link: &str) -> Result<Option<String>> {
     let Some((path, _)) = split_site_link(link) else {
         return Ok(None);
     };

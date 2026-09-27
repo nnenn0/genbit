@@ -31,13 +31,6 @@ impl<'a> SiteInput<'a> {
             .transpose()
     }
 
-    pub(crate) fn open_file(&self, relative: &Path) -> Result<io::BufReader<fs::File>> {
-        let path = self.required_file(relative)?;
-        fs::File::open(&path)
-            .map(io::BufReader::new)
-            .with_context(|| format!("cannot read {}", path.display()))
-    }
-
     pub(crate) fn copy_file(&self, relative: &Path, target: &Path) -> Result<()> {
         let path = self.required_file(relative)?;
         // `fs::copy` clones files on macOS, and FSEvents reports that as a change to the
