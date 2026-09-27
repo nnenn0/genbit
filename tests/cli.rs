@@ -38,14 +38,10 @@ impl DevProcess {
             .unwrap_or_else(|error| format!("cannot read {}: {error}", self.log.display()))
     }
 
-    /// Starts dev on a free port and waits until it accepts connections.
+    /// Starts dev on a port chosen by the OS and returns the address it reports.
     fn start_listening(site: &Path) -> Result<(Self, String)> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        let port = listener.local_addr()?.port();
-        drop(listener);
-        let mut server = Self::start(site, port)?;
-        let address = format!("127.0.0.1:{port}");
-        server.wait_until_listening(&address)?;
+        let mut server = Self::start(site, 0)?;
+        let address = server.wait_for_address()?;
         Ok((server, address))
     }
 
@@ -59,10 +55,18 @@ impl DevProcess {
         bail!("missing {text:?} in dev logs:\n{}", self.logs())
     }
 
-    fn wait_until_listening(&mut self, address: &str) -> Result<()> {
-        for _ in 0..50 {
-            if TcpStream::connect(address).is_ok() {
-                return Ok(());
+    /// Reads the address from this process's own log. Picking a free port in the test and
+    /// passing it to dev lets a parallel test take the same port before dev binds it, and a
+    /// connection check would then succeed against the other test's listener.
+    fn wait_for_address(&mut self) -> Result<String> {
+        const PREFIX: &str = "Server running at http://";
+        for _ in 0..80 {
+            let logs = self.logs();
+            if let Some(address) = logs
+                .split_inclusive('\n')
+                .find_map(|line| line.strip_prefix(PREFIX)?.strip_suffix('\n'))
+            {
+                return Ok(address.to_owned());
             }
             ensure!(
                 self.child.try_wait()?.is_none(),
