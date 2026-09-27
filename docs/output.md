@@ -10,7 +10,7 @@
 | `entries/*.html` など | `content/` の構造どおりに、記事ごとに1ファイル |
 | `tags/index.html`、`tags/{tag}/index.html` | タグ一覧とタグ別ページ |
 | `404.html` | `templates/404.html` から生成する404ページ |
-| `sitemap.xml` | トップページ・記事・タグページ。記事は `updated_at` の日付を `<lastmod>` に使います。 |
+| `sitemap.xml` | トップページ・記事・タグページ。記事は `updated_at` を時差付きの日時で `<lastmod>` に使います。 |
 | `robots.txt` | sitemapの場所を案内します |
 | `feed.xml` | RSS 2.0フィード |
 | `static/` 以下のすべて | そのままコピー |
@@ -20,13 +20,13 @@
 
 ### メタデータ
 
-404ページ以外の全ページに、絶対URLのcanonicalリンクとOpen Graphを出力します。トップページとタグページには `WebSite`、記事には `BlogPosting` のJSON-LDを出力します。記事ごとの画像と著者情報には対応していません。
+404ページ以外の全ページに、絶対URLのcanonicalリンクとOpen Graphを出力します。トップページとタグページには `WebSite`、記事には `BlogPosting` のJSON-LDを出力します。`BlogPosting` の `datePublished` と `dateModified` は、`created_at` と `updated_at` に `timezone` を付けた日時です。記事ごとの画像と著者情報には対応していません。
 
 ### RSSフィード
 
 - チャンネルの `title` と `description` は `config.toml` の値、`link` は `site_url` です。
 - 作成日時の新しい順に最新20件の記事を載せます。
-- 各 `item` の `link` と `guid` には記事のcanonical URL、`description` には記事の `description`、`pubDate` には `created_at` と設定した `timezone` を使います。`updated_at` は使いません。
+- 各 `item` の `link` と `guid` には記事のcanonical URL、`description` には記事の `description`、`pubDate` には `created_at` を `timezone` の時差付きで使います。`updated_at` は使いません。
 - フィードはsitemapに含めません。
 
 ## ビルドの確認（`--dry-run`）

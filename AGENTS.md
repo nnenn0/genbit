@@ -16,7 +16,7 @@
 ## Tech Stack
 
 - Rust 2024 edition、`rust-version = 1.98.1`。ツールチェーンは `rust-toolchain.toml` で固定し、GitHub Actions はこれを使う。`Dockerfile` のイメージと `Cargo.toml` の `rust-version` は同じ版にそろえ、CI が一致を検査する。依存関係は `Cargo.toml`、解決済み版は `Cargo.lock`。
-- CLI: clap 4。エラー: anyhow。設定・データ: serde 1、toml 1。
+- CLI: clap 4。エラー: anyhow。設定・データ: serde 1、toml 1。日時・タイムゾーン: jiff 0.2（タイムゾーンのデータを同梱）。
 - 生成: pulldown-cmark 0.13、Tera 2、minify-html 0.18。開発サーバー: axum 0.8、Tokio 1、tower-http 0.7、notify 8、tokio-stream 0.1。出力の一時領域: tempfile 3。
 - DB、マイグレーション、フロントエンドのビルドシステムはない。ブラウザー用コードは生成 HTML と `dev` 専用の小さなリロードスクリプト。
 - 整形・静的解析・テスト: rustfmt、Clippy、Cargo test。`Cargo.toml` は Rust 警告と Clippy の `all`/`pedantic` 等を deny にしている。
@@ -46,11 +46,11 @@
 
 - 単一のバイナリ。API サーバーや DB 層はない。`dev` の HTTP エンドポイントは静的ファイル配信と `GET /__genbit/reload`（SSE）のみ。
 - `new <name>` は名前を ASCII 英数字・`-`・`_` に検証し、新しいディレクトリへ `config.toml` と `scaffold/` の素材を書き込む。既存のパスは上書きしない。
-- `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、任意の `timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
-- 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で必須。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。時差変換はせず、更新日時は作成日時以降にする。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
+- `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、`timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
+- 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で必須。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。日時は `timezone`（IANA 名のみ）の地域の時刻として jiff の `Zoned` に変換し、更新日時は作成日時以降にする。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
-- 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at` は日付だけ。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
+- 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at`・`updated_at` は `datetime`（時差付き RFC 3339）・`date`・`time` を持つオブジェクトで、JSON-LD と sitemap も同じ時差付き日時を使う。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
 - 記事のリンクと画像の参照先は `markdown.rs` が出力するとおりに集め、`OutputPlan` が確定した配信URLの集合と `route.rs` で照合する。相対パスは記事URLを基準にブラウザーと同じく解決し、スキーム付きURL・同一ページ内リンクは対象外。
 - `build --dry-run` は通常の `build` と同じ経路で `OutputPlan` の作成とリンク検証まで行い、`dist/` の所有チェックだけして公開（ステージング・入れ替え）をしない。
 - `static/` の通常ファイルはステージング領域へ直接コピーし、コピー時にも入力パスとファイル種別を検査する。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突に加え、記事・静的ファイルの配信URL衝突と `/__genbit` 配下の使用を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。

@@ -1,6 +1,6 @@
 use crate::{
     config::{Config, SiteUrl},
-    content::Article,
+    content::{self, Article},
     output::Artifact,
     route::{FEED_URL, TAGS_INDEX_URL},
     tags::TagIndex,
@@ -52,8 +52,8 @@ pub(crate) fn website_json_ld(config: &Config) -> Result<String> {
 }
 
 pub(crate) fn article_json_ld(config: &Config, article: &Article, url: &str) -> Result<String> {
-    let published = article.created_at.date_string();
-    let modified = article.updated_at.date_string();
+    let published = content::rfc3339(&article.created_at);
+    let modified = content::rfc3339(&article.updated_at);
     json_ld(&ArticleStructuredData {
         context: "https://schema.org",
         kind: "BlogPosting",
@@ -84,7 +84,7 @@ pub(crate) fn sitemap(
     urls.extend(articles.iter().map(|article| {
         (
             base.join_root_path(article.route.url()),
-            Some(article.updated_at.date_string()),
+            Some(content::rfc3339(&article.updated_at)),
         )
     }));
     urls.push((base.join_root_path(TAGS_INDEX_URL), None));
@@ -153,7 +153,10 @@ fn feed_xml(config: &Config, articles: &[Article]) -> String {
             &mut xml,
             "      ",
             "pubDate",
-            &article.created_at.rfc822(config.timezone),
+            &article
+                .created_at
+                .strftime("%a, %d %b %Y %H:%M:%S %z")
+                .to_string(),
         );
         push_element(&mut xml, "      ", "description", &article.description);
         xml.push_str("    </item>\n");
@@ -219,7 +222,7 @@ mod tests {
     #[test]
     fn feed_lists_newest_twenty_articles_with_escaped_text() -> Result<()> {
         let config = Config::parse(
-            "title = 'A & B <Blog>'\ndescription = 'Posts \"quoted\"'\nsite_url = 'https://example.com/'\nog_image = '/card.png'\ntimezone = '+09:00'\n",
+            "title = 'A & B <Blog>'\ndescription = 'Posts \"quoted\"'\nsite_url = 'https://example.com/'\nog_image = '/card.png'\ntimezone = 'Asia/Tokyo'\n",
         )?;
         let articles = (0..21)
             .rev()
@@ -230,6 +233,7 @@ mod tests {
                         day + 1
                     ),
                     Path::new(&format!("entries/post-{day}.md")),
+                    &config.timezone,
                 )
             })
             .collect::<Result<Vec<_>>>()?;

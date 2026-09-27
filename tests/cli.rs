@@ -194,11 +194,12 @@ fn toml_fields(defaults: &[(&str, &str)], overrides: &[(&str, Option<&str>)]) ->
     source
 }
 
-const DEFAULT_CONFIG: [(&str, &str); 4] = [
+const DEFAULT_CONFIG: [(&str, &str); 5] = [
     ("title", "'Blog'"),
     ("description", "'Blog articles'"),
     ("site_url", "'https://example.com/'"),
     ("og_image", "'/assets/img/ogp.png'"),
+    ("timezone", "'UTC'"),
 ];
 
 /// Writes `config.toml` from `DEFAULT_CONFIG` with `toml_fields` overrides.
@@ -354,6 +355,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     let config = fs::read_to_string(root.join("config.toml"))?;
     assert!(config.contains("site_url = "));
     assert!(config.contains("og_image = \"/assets/img/ogp.png\""));
+    assert!(config.contains("timezone = \"Asia/Tokyo\""));
     let og_image = fs::read(root.join("static/assets/img/ogp.png"))?;
     assert!(og_image.starts_with(b"\x89PNG\r\n\x1a\n"));
     let width = og_image.get(16..20).context("missing PNG width")?;
@@ -473,8 +475,8 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     for expected in [
         "<dt>created_at",
         "<dt>updated_at",
-        "<time datetime=2026-09-17>2026-09-17</time>",
-        "<time datetime=2026-09-22>2026-09-22</time>",
+        "<time datetime=2026-09-17T00:00:00+09:00>2026-09-17</time>",
+        "<time datetime=2026-09-22T00:00:00+09:00>2026-09-22</time>",
     ] {
         assert!(article.contains(expected), "{article}");
     }
@@ -486,11 +488,11 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     );
     assert!(article.contains("\"@type\":\"BlogPosting\""), "{article}");
     assert!(
-        article.contains("\"datePublished\":\"2026-09-17\""),
+        article.contains("\"datePublished\":\"2026-09-17T00:00:00+09:00\""),
         "{article}"
     );
     assert!(
-        article.contains("\"dateModified\":\"2026-09-22\""),
+        article.contains("\"dateModified\":\"2026-09-22T00:00:00+09:00\""),
         "{article}"
     );
     assert!(
@@ -499,7 +501,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     );
     assert!(site.join("dist/entries/posts/another.html").is_file());
     let unmodified = fs::read_to_string(site.join("dist/entries/posts/another.html"))?;
-    let date = "<time datetime=2026-09-16>2026-09-16</time>";
+    let date = "<time datetime=2026-09-16T00:00:00+09:00>2026-09-16</time>";
     assert_eq!(unmodified.matches(date).count(), 2, "{unmodified}");
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
     assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
@@ -678,13 +680,13 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
     assert_eq!(sitemap.matches("<url>").count(), 5);
     assert!(
         sitemap.contains(
-            "<loc>https://example.com/entries/hello-world</loc><lastmod>2026-09-17</lastmod>"
+            "<loc>https://example.com/entries/hello-world</loc><lastmod>2026-09-17T09:00:00+00:00</lastmod>"
         ),
         "{sitemap}"
     );
     assert!(
         sitemap.contains(
-            "<loc>https://example.com/entries/posts/another</loc><lastmod>2026-09-22</lastmod>"
+            "<loc>https://example.com/entries/posts/another</loc><lastmod>2026-09-22T00:00:00+00:00</lastmod>"
         ),
         "{sitemap}"
     );
@@ -761,7 +763,7 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
         &site,
         &[
             ("title", Some("'Tom & Jerry <Blog>'")),
-            ("timezone", Some("'+09:00'")),
+            ("timezone", Some("'Asia/Tokyo'")),
         ],
     )?;
     fs::write(
@@ -822,10 +824,12 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
     assert!(home.contains("<a href=/feed.xml>RSS</a>"), "{home}");
 
     let original = feed;
-    write_config(&site, &[("timezone", Some("'Asia/Tokyo'"))])?;
-    let stderr = build_err(&site)?;
-    assert!(stderr.contains("timezone"), "{stderr}");
-    assert_eq!(fs::read_to_string(site.join("dist/feed.xml"))?, original);
+    for timezone in [Some("'+09:00'"), None] {
+        write_config(&site, &[("timezone", timezone)])?;
+        let stderr = build_err(&site)?;
+        assert!(stderr.contains("timezone"), "{stderr}");
+        assert_eq!(fs::read_to_string(site.join("dist/feed.xml"))?, original);
+    }
     write_config(&site, &[])?;
     fs::write(site.join("static/feed.xml"), "conflict")?;
     let stderr = build_err(&site)?;
@@ -1053,8 +1057,10 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
         .find("/entries/m-midnight")
         .context("midnight article missing")?;
     assert!(same < late && late < early && early < midnight, "{home}");
-    assert!(home.contains("datetime=2026-09-17"), "{home}");
-    assert!(!home.contains("08:00") && !home.contains("08:01"), "{home}");
+    assert!(
+        home.contains("<time datetime=2026-09-17T08:00:00+09:00>2026-09-17</time>"),
+        "{home}"
+    );
     Ok(())
 }
 
@@ -1120,7 +1126,7 @@ fn custom_article_template_receives_documented_fields() -> Result<()> {
     let site = workspace.new_site("blog")?;
     fs::write(
         site.join("templates/custom.html"),
-        "<html><head><style>{{ css | safe }}</style><script type=\"application/ld+json\">{{ json_ld | safe }}</script></head><body><p>{{ site.title }}</p><p>{{ canonical_url }}</p><p>{{ article.title }}|{{ article.description }}|{{ article.url }}|{{ article.created_at }}|{{ article.updated_at }}</p>{{ content | safe }}</body></html>",
+        "<html><head><style>{{ css | safe }}</style><script type=\"application/ld+json\">{{ json_ld | safe }}</script></head><body><p>{{ site.title }}</p><p>{{ canonical_url }}</p><p>{{ article.title }}|{{ article.description }}|{{ article.url }}|{{ article.created_at.datetime }}|{{ article.created_at.date }}|{{ article.created_at.time }}|{{ article.updated_at.datetime }}</p>{{ content | safe }}</body></html>",
     )?;
     fs::write(
         site.join("styles/custom.css"),
@@ -1144,11 +1150,14 @@ fn custom_article_template_receives_documented_fields() -> Result<()> {
     assert!(html.contains("--custom-marker"), "{html}");
     assert!(html.contains("http://127.0.0.1:3000/custom"), "{html}");
     assert!(
-        html.contains("Custom Post|Custom summary|/custom|2026-09-17|2026-09-22"),
+        html.contains("Custom Post|Custom summary|/custom|2026-09-17T10:30:00+09:00|2026-09-17|10:30|2026-09-22T00:00:00+09:00"),
         "{html}"
     );
     assert!(html.contains("<strong>Custom body</strong>"), "{html}");
-    assert!(html.contains("\"datePublished\":\"2026-09-17\""), "{html}");
+    assert!(
+        html.contains("\"datePublished\":\"2026-09-17T10:30:00+09:00\""),
+        "{html}"
+    );
     assert!(!html.contains("EventSource"), "{html}");
     Ok(())
 }

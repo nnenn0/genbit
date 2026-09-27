@@ -9,6 +9,7 @@ use crate::{
     tags::TagIndex,
 };
 use anyhow::{Context as _, Result};
+use jiff::tz::TimeZone;
 use std::path::Path;
 
 pub(crate) fn run(root: &Path, dry_run: bool) -> Result<usize> {
@@ -24,7 +25,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let mut articles = load_articles(&input)?;
+    let mut articles = load_articles(&input, &config.timezone)?;
     articles.sort_by(|left, right| {
         right
             .created_at
@@ -79,7 +80,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     Ok(page_count)
 }
 
-fn load_articles(input: &SiteInput<'_>) -> Result<Vec<Article>> {
+fn load_articles(input: &SiteInput<'_>, timezone: &TimeZone) -> Result<Vec<Article>> {
     let content_root = input.root().join("content");
     input
         .files(Path::new("content"))?
@@ -88,7 +89,7 @@ fn load_articles(input: &SiteInput<'_>) -> Result<Vec<Article>> {
         .map(|path| {
             let relative = path.strip_prefix(&content_root)?;
             let site_relative = path.strip_prefix(input.root())?;
-            content::parse(&input.read_text(site_relative)?, relative)
+            content::parse(&input.read_text(site_relative)?, relative, timezone)
                 .with_context(|| format!("cannot parse {}", path.display()))
         })
         .collect()

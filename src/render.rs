@@ -1,12 +1,13 @@
 use crate::{
     config::Config,
-    content::Article,
+    content::{self, Article},
     input::SiteInput,
     output::Artifact,
     route::TAGS_INDEX_URL,
     tags::{TagGroup, TagIndex, article_tags},
 };
 use anyhow::{Context as _, Result, ensure};
+use jiff::Zoned;
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -25,8 +26,8 @@ struct PublicArticle<'a> {
     title: &'a str,
     description: &'a str,
     url: &'a str,
-    created_at: String,
-    updated_at: String,
+    created_at: PublicTimestamp,
+    updated_at: PublicTimestamp,
     tags: Vec<&'a str>,
 }
 
@@ -36,9 +37,26 @@ impl<'a> From<&'a Article> for PublicArticle<'a> {
             title: &article.title,
             description: &article.description,
             url: article.route.url(),
-            created_at: article.created_at.date_string(),
-            updated_at: article.updated_at.date_string(),
+            created_at: PublicTimestamp::from(&article.created_at),
+            updated_at: PublicTimestamp::from(&article.updated_at),
             tags: article_tags(article),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct PublicTimestamp {
+    datetime: String,
+    date: String,
+    time: String,
+}
+
+impl From<&Zoned> for PublicTimestamp {
+    fn from(value: &Zoned) -> Self {
+        Self {
+            datetime: content::rfc3339(value),
+            date: value.strftime("%Y-%m-%d").to_string(),
+            time: value.strftime("%H:%M").to_string(),
         }
     }
 }
@@ -332,11 +350,12 @@ mod tests {
     #[test]
     fn template_views_expose_only_the_documented_article_fields() -> Result<()> {
         let site = Config::parse(
-            "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'http://127.0.0.1:3000/'\nog_image = '/assets/img/ogp.png'\n",
+            "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'http://127.0.0.1:3000/'\nog_image = '/assets/img/ogp.png'\ntimezone = 'Asia/Tokyo'\n",
         )?;
         let articles = [content::parse(
             "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
             Path::new("post.md"),
+            &site.timezone,
         )?];
         let entries = articles.iter().map(PublicArticle::from).collect::<Vec<_>>();
         let home = Context::from_serialize(&HomeView {
@@ -371,14 +390,13 @@ mod tests {
             fields.get("url").and_then(serde_json::Value::as_str),
             Some("/post")
         );
-        assert_eq!(
-            fields.get("created_at").and_then(serde_json::Value::as_str),
-            Some("2026-09-17")
-        );
-        assert_eq!(
-            fields.get("updated_at").and_then(serde_json::Value::as_str),
-            Some("2026-09-17")
-        );
+        let timestamp = serde_json::json!({
+            "datetime": "2026-09-17T10:30:00+09:00",
+            "date": "2026-09-17",
+            "time": "10:30",
+        });
+        assert_eq!(fields.get("created_at"), Some(&timestamp));
+        assert_eq!(fields.get("updated_at"), Some(&timestamp));
         Ok(())
     }
 }
