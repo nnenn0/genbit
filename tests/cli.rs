@@ -180,6 +180,31 @@ fn build_err(site: &Path) -> Result<String> {
 
 /// Renders TOML lines from `defaults`. Each override replaces a field with a
 /// raw TOML value, or removes it when the value is `None`.
+/// Returns the hash that genbit added to the first image whose `src` starts with `source`.
+fn image_version(html: &str, source: &str) -> Result<String> {
+    // The minifier quotes the value because the query contains `=`.
+    let start = html
+        .find(&format!("src=\"{source}"))
+        .with_context(|| format!("no image {source}: {html}"))?;
+    let attribute = html
+        .get(start + "src=\"".len()..)
+        .and_then(|rest| rest.split('"').next())
+        .context("unterminated src")?;
+    let (_, after) = attribute
+        .split_once("v=")
+        .with_context(|| format!("no hash in {attribute}"))?;
+    let version = after
+        .get(..16)
+        .with_context(|| format!("short hash in {attribute}"))?;
+    ensure!(
+        version
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "invalid hash in {attribute}"
+    );
+    Ok(version.to_owned())
+}
+
 fn toml_fields(defaults: &[(&str, &str)], overrides: &[(&str, Option<&str>)]) -> String {
     let mut fields = defaults.to_vec();
     for &(key, value) in overrides {
@@ -1092,7 +1117,7 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     build_ok(&site)?;
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("<style>h1{color:red}</style>"), "{html}");
-    assert!(html.contains("src=photo.png"), "{html}");
+    image_version(&html, "photo.png?v=")?;
     assert!(html.contains("alt=\"A & B\""), "{html}");
     assert!(html.contains("loading=lazy"), "{html}");
     assert!(html.contains("decoding=async"), "{html}");
@@ -1114,7 +1139,7 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
         site.join("content/entries/hello-world.md"),
         article_source(
             &[],
-            "![local](../%70hoto.data?v=1#part)\n\n![again](/photo.data)\n\n![data](/notes.data)\n\n![svg](/icon.svg)\n\n![remote](https://example.invalid/photo.png)",
+            "![local](../%70hoto.data#part)\n\n![again](/photo.data)\n\n![data](/notes.data)\n\n![svg](/icon.svg)\n\n![remote](https://example.invalid/photo.png)",
         ),
     )?;
     build_ok(&site)?;
@@ -1123,6 +1148,15 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
     assert_eq!(html.matches("width=300").count(), 2, "{html}");
     assert_eq!(html.matches("height=200").count(), 2, "{html}");
     assert_eq!(html.matches("loading=lazy").count(), 5, "{html}");
+    let version = image_version(&html, "../%70hoto.data?v=")?;
+    assert_eq!(image_version(&html, "/photo.data?v=")?, version);
+    assert!(html.contains(&format!("?v={version}#part")), "{html}");
+    image_version(&html, "/notes.data?v=")?;
+    image_version(&html, "/icon.svg?v=")?;
+    assert!(
+        html.contains("src=https://example.invalid/photo.png>"),
+        "{html}"
+    );
     assert_eq!(fs::read(site.join("dist/photo.data"))?, original);
     let before = snapshot(&site.join("dist"))?;
     let rotated = include_bytes!("fixtures/images/exif.jpg");
@@ -1133,10 +1167,43 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
     let html = fs::read_to_string(&output)?;
     assert_eq!(html.matches("width=200").count(), 2, "{html}");
     assert_eq!(html.matches("height=300").count(), 2, "{html}");
+    assert_ne!(image_version(&html, "/photo.data?v=")?, version);
     assert_eq!(fs::read(site.join("dist/photo.data"))?, rotated);
     let before = snapshot(&site.join("dist"))?;
     fs::remove_file(image)?;
     assert!(build_err(&site)?.contains("photo.data"));
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    assert_no_build_leftovers(&site)?;
+    Ok(())
+}
+
+#[test]
+fn image_hashes_depend_only_on_content_and_reserve_the_v_query() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("images")?;
+    let png = include_bytes!("fixtures/images/basic.png");
+    fs::write(site.join("static/a.png"), png)?;
+    fs::create_dir(site.join("static/copies"))?;
+    fs::write(site.join("static/copies/b.png"), png)?;
+    let article = site.join("content/entries/hello-world.md");
+    fs::write(
+        &article,
+        article_source(&[], "![a](/a.png)\n\n![b](/copies/b.png?x=1#top)\n"),
+    )?;
+    build_ok(&site)?;
+    let output = site.join("dist/entries/hello-world.html");
+    let html = fs::read_to_string(&output)?;
+    let version = image_version(&html, "/a.png?v=")?;
+    assert_eq!(image_version(&html, "/copies/b.png?x=1")?, version);
+    assert!(html.contains(&format!("v={version}#top")), "{html}");
+    build_ok(&site)?;
+    assert_eq!(fs::read_to_string(&output)?, html);
+
+    let before = snapshot(&site.join("dist"))?;
+    fs::write(&article, article_source(&[], "![a](/a.png?v=2)\n"))?;
+    let error = build_err(&site)?;
+    assert!(error.contains("has the query parameter v"), "{error}");
+    assert!(error.contains("hello-world.md"), "{error}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
     assert_no_build_leftovers(&site)?;
     Ok(())
@@ -1973,7 +2040,7 @@ fn articles_show_html_notation_as_text_and_keep_generated_markup() -> Result<()>
         "href=mailto:someone@example.com",
         "href=https://example.com/b",
         "target=_blank",
-        "src=/assets/img/ogp.png",
+        "src=\"/assets/img/ogp.png?v=",
         "loading=lazy",
         "decoding=async",
     ] {

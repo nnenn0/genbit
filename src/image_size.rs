@@ -1,4 +1,4 @@
-use crate::{input::SiteInput, route};
+use crate::{content_hash::ContentHash, input::SiteInput, route};
 use anyhow::{Context, Result, bail, ensure};
 use imagesize::{ImageError, ImageType};
 use std::{
@@ -13,14 +13,21 @@ pub(crate) struct Size {
     pub(crate) height: usize,
 }
 
-/// A build-local cache, including files that are not images. Only rendered images are read.
-pub(crate) struct ImageSizes<'a> {
-    input: SiteInput<'a>,
-    files: BTreeMap<String, PathBuf>,
-    sizes: BTreeMap<PathBuf, Option<Size>>,
+/// A local file referenced as an image, which need not be in a format with known dimensions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Image {
+    pub(crate) hash: ContentHash,
+    pub(crate) size: Option<Size>,
 }
 
-impl<'a> ImageSizes<'a> {
+/// A build-local cache, including files that are not images. Only rendered images are read.
+pub(crate) struct Images<'a> {
+    input: SiteInput<'a>,
+    files: BTreeMap<String, PathBuf>,
+    probed: BTreeMap<PathBuf, Image>,
+}
+
+impl<'a> Images<'a> {
     pub(crate) fn new(root: &'a Path, files: &[PathBuf]) -> Result<Self> {
         let static_root = root.join("static");
         let files = files
@@ -38,11 +45,12 @@ impl<'a> ImageSizes<'a> {
         Ok(Self {
             input: SiteInput::new(root),
             files,
-            sizes: BTreeMap::new(),
+            probed: BTreeMap::new(),
         })
     }
 
-    pub(crate) fn get(&mut self, page: &str, url: &str) -> Result<Option<Size>> {
+    /// Returns `None` for targets outside `static/`.
+    pub(crate) fn get(&mut self, page: &str, url: &str) -> Result<Option<Image>> {
         // Invalid and missing targets are diagnosed by the existing link validator.
         let Ok(Some(target)) = route::resolve_link(page, url) else {
             return Ok(None);
@@ -50,19 +58,24 @@ impl<'a> ImageSizes<'a> {
         let Some(path) = self.files.get(&target) else {
             return Ok(None);
         };
-        if let Some(size) = self.sizes.get(path) {
-            return Ok(*size);
+        if let Some(image) = self.probed.get(path) {
+            return Ok(Some(*image));
         }
-        let file = self.input.open_file(path)?;
-        let size =
-            probe(&mut BufReader::new(file), has_image_extension(path)).with_context(|| {
-                format!(
-                    "cannot get the size of image {}",
-                    self.input.root().join(path).display()
-                )
-            })?;
-        self.sizes.insert(path.clone(), size);
-        Ok(size)
+        let full_path = self.input.root().join(path);
+        let mut reader = BufReader::new(self.input.open_file(path)?);
+        let size = probe(&mut reader, has_image_extension(path))
+            .with_context(|| format!("cannot get the size of image {}", full_path.display()))?;
+        reader.rewind()?;
+        let hash = ContentHash::of_reader(&mut reader)
+            .with_context(|| format!("cannot read {}", full_path.display()))?;
+        let image = Image { hash, size };
+        self.probed.insert(path.clone(), image);
+        Ok(Some(image))
+    }
+
+    /// The hash of a file under the site root, if an article referenced it as an image.
+    pub(crate) fn hash(&self, path: &Path) -> Option<ContentHash> {
+        self.probed.get(path).map(|image| image.hash)
     }
 }
 
@@ -274,31 +287,52 @@ mod tests {
     }
 
     #[test]
-    fn only_referenced_images_are_read_and_results_are_cached_by_file() -> Result<()> {
+    fn only_referenced_files_are_read_and_results_are_cached_by_file() -> Result<()> {
         let root = tempfile::tempdir()?;
         let static_root = root.path().join("static");
         fs::create_dir(&static_root)?;
         let image = static_root.join("image.png");
+        let copy = static_root.join("copy.png");
         let data = static_root.join("notes.data");
         let broken = static_root.join("broken.png");
         let unused = static_root.join("unused.png");
-        fs::write(&image, include_bytes!("../tests/fixtures/images/basic.png"))?;
+        let png = include_bytes!("../tests/fixtures/images/basic.png");
+        fs::write(&image, png)?;
+        fs::write(&copy, png)?;
         fs::write(&data, b"notes")?;
         fs::write(&broken, b"broken")?;
         fs::write(&unused, b"unused")?;
-        let mut images = ImageSizes::new(
+        let mut images = Images::new(
             root.path(),
-            &[image.clone(), data.clone(), broken.clone(), unused.clone()],
+            &[
+                image.clone(),
+                copy.clone(),
+                data.clone(),
+                broken.clone(),
+                unused.clone(),
+            ],
         )?;
         fs::remove_file(unused)?;
+        let png_image = Image {
+            hash: ContentHash::of_reader(&mut png.as_slice())?,
+            size: Some(Size {
+                width: 300,
+                height: 200,
+            }),
+        };
+        let data_image = Image {
+            hash: ContentHash::of_reader(&mut b"notes".as_slice())?,
+            size: None,
+        };
         assert_eq!(
             images.get("/entries/post", "../image.png?x=1#y")?,
-            Some(Size {
-                width: 300,
-                height: 200
-            })
+            Some(png_image)
         );
-        assert_eq!(images.get("/entries/post", "/notes.data")?, None);
+        assert_eq!(images.get("/entries/post", "/copy.png")?, Some(png_image));
+        assert_eq!(
+            images.get("/entries/post", "/notes.data")?,
+            Some(data_image)
+        );
         let error = images
             .get("/entries/post", "/broken.png")
             .err()
@@ -312,14 +346,11 @@ mod tests {
         );
         fs::remove_file(image)?;
         fs::remove_file(data)?;
+        assert_eq!(images.get("/elsewhere", "/%69mage.png")?, Some(png_image));
         assert_eq!(
-            images.get("/elsewhere", "/%69mage.png")?,
-            Some(Size {
-                width: 300,
-                height: 200
-            })
+            images.get("/elsewhere", "/notes.data?x=2")?,
+            Some(data_image)
         );
-        assert_eq!(images.get("/elsewhere", "/notes.data?x=2")?, None);
         for url in [
             "https://example.com/image.png",
             "//example.com/image.png",
@@ -329,7 +360,12 @@ mod tests {
         ] {
             assert_eq!(images.get("/post", url)?, None);
         }
-        assert_eq!(images.sizes.len(), 2);
+        assert_eq!(images.probed.len(), 3);
+        assert_eq!(
+            images.hash(Path::new("static/notes.data")),
+            Some(data_image.hash)
+        );
+        assert_eq!(images.hash(Path::new("static/broken.png")), None);
         Ok(())
     }
 
@@ -400,7 +436,7 @@ mod tests {
         fs::create_dir(root.path().join("static"))?;
         let image = root.path().join("static/image.png");
         fs::write(&image, b"image")?;
-        let mut images = ImageSizes::new(root.path(), std::slice::from_ref(&image))?;
+        let mut images = Images::new(root.path(), std::slice::from_ref(&image))?;
         fs::remove_file(&image)?;
         std::os::unix::fs::symlink(root.path().join("outside.png"), &image)?;
         let error = images

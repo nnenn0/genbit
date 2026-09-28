@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     content::{self, Article},
-    image_size::ImageSizes,
+    image_size::Images,
     input::SiteInput,
     metadata,
     output::{self, Artifact, OutputPlan},
@@ -27,7 +27,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
     let static_files = input.files(Path::new("static"))?;
-    let mut images = ImageSizes::new(root, &static_files)?;
+    let mut images = Images::new(root, &static_files)?;
     let mut articles = load_articles(&input, &config.timezone, &mut images)?;
     articles.sort_by(|left, right| {
         right
@@ -61,7 +61,11 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
         .map(|path| {
             let relative = path.strip_prefix(&static_root)?.to_path_buf();
             let site_relative = path.strip_prefix(root)?;
-            Ok(Artifact::copy_from(relative, site_relative.to_path_buf()))
+            Ok(Artifact::copy_from(
+                relative,
+                site_relative.to_path_buf(),
+                images.hash(site_relative),
+            ))
         })
         .collect::<Result<Vec<_>>>()?;
     artifacts.extend(assets);
@@ -85,7 +89,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
 fn load_articles(
     input: &SiteInput<'_>,
     timezone: &TimeZone,
-    images: &mut ImageSizes<'_>,
+    images: &mut Images<'_>,
 ) -> Result<Vec<Article>> {
     let content_root = input.root().join("content");
     input
