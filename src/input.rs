@@ -1,3 +1,4 @@
+use crate::content_hash::{ContentHash, HashingWriter};
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     fs,
@@ -37,16 +38,28 @@ impl<'a> SiteInput<'a> {
     }
 
     pub(crate) fn copy_file(&self, relative: &Path, target: &Path) -> Result<()> {
+        let (path, mut source, mut output) = self.open_copy(relative, target)?;
+        io::copy(&mut source, &mut output).with_context(|| copy_error(&path, target))?;
+        Ok(())
+    }
+
+    /// Copies like `copy_file`, hashing the bytes as they are written to `target`.
+    pub(crate) fn copy_file_hashed(&self, relative: &Path, target: &Path) -> Result<ContentHash> {
+        let (path, mut source, output) = self.open_copy(relative, target)?;
+        let mut output = HashingWriter::new(output);
+        io::copy(&mut source, &mut output).with_context(|| copy_error(&path, target))?;
+        Ok(output.finish())
+    }
+
+    fn open_copy(&self, relative: &Path, target: &Path) -> Result<(PathBuf, fs::File, fs::File)> {
         let path = self.required_file(relative)?;
         // `fs::copy` clones files on macOS, and FSEvents reports that as a change to the
         // source, so `dev` would rebuild forever. Stream the bytes instead.
-        let mut source =
+        let source =
             fs::File::open(&path).with_context(|| format!("cannot read {}", path.display()))?;
-        let mut output = fs::File::create(target)
+        let output = fs::File::create(target)
             .with_context(|| format!("cannot write {}", target.display()))?;
-        io::copy(&mut source, &mut output)
-            .with_context(|| format!("cannot copy {} to {}", path.display(), target.display()))?;
-        Ok(())
+        Ok((path, source, output))
     }
 
     pub(crate) fn files(&self, relative: &Path) -> Result<Vec<PathBuf>> {
@@ -129,6 +142,10 @@ impl<'a> SiteInput<'a> {
         }
         bail!("invalid input path {}", path.display())
     }
+}
+
+fn copy_error(source: &Path, target: &Path) -> String {
+    format!("cannot copy {} to {}", source.display(), target.display())
 }
 
 fn collect_files(directory: &Path, result: &mut Vec<PathBuf>) -> Result<()> {

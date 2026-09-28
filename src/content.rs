@@ -68,7 +68,7 @@ pub(crate) fn parse(
     source: &str,
     relative: &Path,
     timezone: &TimeZone,
-    mut image_size: impl FnMut(&str, &str) -> Result<Option<crate::image_size::Size>>,
+    mut image: impl FnMut(&str, &str) -> Result<Option<crate::image_size::Image>>,
 ) -> Result<Article> {
     let (metadata, body) = split_front_matter(source)?;
     let route = Route::from_content_path(relative)?;
@@ -122,7 +122,7 @@ pub(crate) fn parse(
             "raw HTML is not allowed in Markdown at line {line}; write it with Markdown syntax, or use a code span or `\\<` to show it as text"
         )
     })?;
-    let rendered = parsed.render(|url| image_size(route.url(), url))?;
+    let rendered = parsed.render(|url| image(route.url(), url))?;
     Ok(Article {
         title,
         description,

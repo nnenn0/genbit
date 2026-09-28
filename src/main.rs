@@ -1,6 +1,7 @@
 mod build;
 mod config;
 mod content;
+mod content_hash;
 mod dev;
 mod image_size;
 mod input;

@@ -1,4 +1,4 @@
-use crate::image_size::Size;
+use crate::image_size::{Image, Size};
 use pulldown_cmark::{
     CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd, html,
 };
@@ -38,13 +38,13 @@ pub(crate) fn parse(source: &str) -> Result<Parsed<'_>, RawHtml> {
 impl Parsed<'_> {
     pub(crate) fn render(
         self,
-        mut image_size: impl FnMut(&str) -> anyhow::Result<Option<Size>>,
+        mut local_image: impl FnMut(&str) -> anyhow::Result<Option<Image>>,
     ) -> anyhow::Result<Rendered> {
         let mut links = Vec::new();
         let events = to_html_events(
             anchor_headings(self.events.into_iter()),
             &mut links,
-            &mut image_size,
+            &mut local_image,
         )?;
         let mut output = String::new();
         html::push_html(&mut output, events.into_iter());
@@ -118,7 +118,7 @@ fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event
 fn to_html_events<'a>(
     events: Vec<Event<'a>>,
     links: &mut Vec<String>,
-    image_size: &mut impl FnMut(&str) -> anyhow::Result<Option<Size>>,
+    local_image: &mut impl FnMut(&str) -> anyhow::Result<Option<Image>>,
 ) -> anyhow::Result<Vec<Event<'a>>> {
     let mut converted = Vec::with_capacity(events.len());
     let mut events = events.into_iter();
@@ -130,8 +130,19 @@ fn to_html_events<'a>(
                 dest_url, title, ..
             }) => {
                 links.push(dest_url.to_string());
+                let image = local_image(&dest_url)?;
+                let source = match image {
+                    Some(image) => versioned_url(&dest_url, &image.hash.url_version())?,
+                    None => dest_url.to_string(),
+                };
                 converted.push(Event::Html(
-                    image_html(&mut events, &dest_url, &title, image_size(&dest_url)?).into(),
+                    image_html(
+                        &mut events,
+                        &source,
+                        &title,
+                        image.and_then(|image| image.size),
+                    )
+                    .into(),
                 ));
             }
             Event::Start(Tag::Link {
@@ -265,6 +276,34 @@ fn article_url(url: &str) -> Option<String> {
         .map(|stem| format!("{stem}{suffix}"))
 }
 
+/// Adds `v=<version>` to the query, before any fragment. The key `v` is reserved for it.
+fn versioned_url(url: &str, version: &str) -> anyhow::Result<String> {
+    let (before_fragment, fragment) = url.split_at(url.find('#').unwrap_or(url.len()));
+    let mut versioned = match before_fragment.split_once('?') {
+        None => format!("{before_fragment}?"),
+        Some((_, query)) => {
+            // Query parsers decode keys, so `%76` is also `v`. A key that cannot be decoded is not `v`.
+            anyhow::ensure!(
+                !query.split('&').any(|pair| {
+                    pair.split('=').next().is_some_and(|key| {
+                        crate::route::percent_decode(key).is_ok_and(|key| key == "v")
+                    })
+                }),
+                "image {url} has the query parameter v, which genbit reserves for the hash of the image; remove v from the query"
+            );
+            let mut versioned = before_fragment.to_owned();
+            if !query.is_empty() && !query.ends_with('&') {
+                versioned.push('&');
+            }
+            versioned
+        }
+    };
+    versioned.push_str("v=");
+    versioned.push_str(version);
+    versioned.push_str(fragment);
+    Ok(versioned)
+}
+
 fn image_html<'a>(
     events: &mut impl Iterator<Item = Event<'a>>,
     source: &str,
@@ -324,7 +363,10 @@ fn escape_attribute(source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::Rendered;
-    use crate::image_size::Size;
+    use crate::{
+        content_hash::ContentHash,
+        image_size::{Image, Size},
+    };
     use anyhow::{Result, anyhow};
 
     fn render(source: &str) -> Result<Rendered> {
@@ -342,15 +384,20 @@ mod tests {
         let source = "![outer ![inner](/inner.png)](/outer.png)";
         let mut requested = Vec::new();
         let parsed = super::parse(source).map_err(|_| anyhow::anyhow!("invalid test Markdown"))?;
+        let hash = ContentHash::of_reader(&mut b"image".as_slice())?;
         let rendered = parsed.render(|url| {
             requested.push(url.to_owned());
-            Ok(Some(Size {
-                width: 300,
-                height: 200,
+            Ok(Some(Image {
+                hash,
+                size: Some(Size {
+                    width: 300,
+                    height: 200,
+                }),
             }))
         })?;
         assert_eq!(requested, ["/outer.png"]);
         assert!(rendered.html.contains("width=\"300\" height=\"200\""));
+        assert_eq!(rendered.links, ["/outer.png"]);
         let parsed = super::parse(source).map_err(|_| anyhow::anyhow!("invalid test Markdown"))?;
         assert!(
             parsed
@@ -358,6 +405,76 @@ mod tests {
                 .is_err()
         );
         assert!(super::parse("![photo](/photo.png) <kbd>bad</kbd>").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn local_images_carry_the_content_hash_in_the_query() -> Result<()> {
+        let hash = ContentHash::of_reader(&mut b"image".as_slice())?;
+        let version = hash.url_version();
+        let source = concat!(
+            "![a](/a.svg) ![b](b.png?x=1#icon) ![c](c.png?#top) ![d](d.png?x=1&) ",
+            "![e](https://example.com/e.png)"
+        );
+        let parsed = super::parse(source).map_err(|_| anyhow!("invalid test Markdown"))?;
+        let rendered = parsed
+            .render(|url| Ok((!url.starts_with("https:")).then_some(Image { hash, size: None })))?;
+        for expected in [
+            format!("src=\"/a.svg?v={version}\""),
+            format!("src=\"b.png?x=1&amp;v={version}#icon\""),
+            format!("src=\"c.png?v={version}#top\""),
+            format!("src=\"d.png?x=1&amp;v={version}\""),
+            "src=\"https://example.com/e.png\"".to_owned(),
+        ] {
+            assert!(
+                rendered.html.contains(&expected),
+                "{expected}: {}",
+                rendered.html
+            );
+        }
+        assert!(!rendered.html.contains("width="), "{}", rendered.html);
+        assert_eq!(
+            rendered.links,
+            [
+                "/a.svg",
+                "b.png?x=1#icon",
+                "c.png?#top",
+                "d.png?x=1&",
+                "https://example.com/e.png"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_v_query_key_is_reserved_for_hashed_images() -> Result<()> {
+        let hash = ContentHash::of_reader(&mut b"image".as_slice())?;
+        for source in [
+            "![a](/a.png?v=1)",
+            "![a](/a.png?x=1&v#top)",
+            "![a](/a.png?v=)",
+            "![a](/a.png?%76=old)",
+            "![a](/a.png?x=1&%76)",
+        ] {
+            let parsed = super::parse(source).map_err(|_| anyhow!("invalid test Markdown"))?;
+            let error = parsed
+                .render(|_| Ok(Some(Image { hash, size: None })))
+                .err()
+                .ok_or_else(|| anyhow!("accepted {source}"))?;
+            assert!(
+                format!("{error:#}").contains("has the query parameter v"),
+                "{error:#}"
+            );
+        }
+        for source in [
+            "![a](/a.png?va=1&xv=2&%56=3&%zz=4)",
+            "![a](https://example.com/a.png?v=1)",
+        ] {
+            let parsed = super::parse(source).map_err(|_| anyhow!("invalid test Markdown"))?;
+            parsed.render(|url| {
+                Ok((!url.starts_with("https:")).then_some(Image { hash, size: None }))
+            })?;
+        }
         Ok(())
     }
 

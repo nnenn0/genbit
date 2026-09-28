@@ -1,4 +1,4 @@
-use crate::input::SiteInput;
+use crate::{content_hash::ContentHash, input::SiteInput};
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -18,7 +18,11 @@ pub(crate) struct Artifact {
 
 enum ArtifactContent {
     Generated(Vec<u8>),
-    CopyFrom(PathBuf),
+    CopyFrom {
+        source: PathBuf,
+        /// The hash already written into article URLs, which the copy must match.
+        hash: Option<ContentHash>,
+    },
 }
 
 pub(crate) struct OutputPlan {
@@ -39,11 +43,11 @@ impl Artifact {
         }
     }
 
-    pub(crate) fn copy_from(path: PathBuf, source: PathBuf) -> Self {
+    pub(crate) fn copy_from(path: PathBuf, source: PathBuf, hash: Option<ContentHash>) -> Self {
         let description = source.display().to_string();
         Self {
             path,
-            content: ArtifactContent::CopyFrom(source),
+            content: ArtifactContent::CopyFrom { source, hash },
             source: description,
         }
     }
@@ -81,7 +85,19 @@ impl OutputPlan {
                         format!("cannot write {} from {}", target.display(), artifact.source)
                     })?;
                 }
-                ArtifactContent::CopyFrom(source) => input.copy_file(&source, &target)?,
+                ArtifactContent::CopyFrom { source, hash: None } => {
+                    input.copy_file(&source, &target)?;
+                }
+                ArtifactContent::CopyFrom {
+                    source,
+                    hash: Some(expected),
+                } => {
+                    ensure!(
+                        input.copy_file_hashed(&source, &target)? == expected,
+                        "{} changed during the build, so the hash in its image URLs no longer matches; build again",
+                        input.root().join(&source).display()
+                    );
+                }
             }
         }
         fs::write(directory.path().join(MARKER), MARKER_CONTENT)
@@ -206,7 +222,7 @@ pub(crate) fn check_destination(input: &SiteInput<'_>) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::{Artifact, OutputPlan};
-    use crate::input::SiteInput;
+    use crate::{content_hash::ContentHash, input::SiteInput};
     use anyhow::{Context, Result};
     use std::{
         fs,
@@ -253,6 +269,7 @@ mod tests {
             Artifact::copy_from(
                 PathBuf::from("asset.bin"),
                 PathBuf::from("static/asset.bin"),
+                None,
             ),
         ])?;
         fs::remove_file(root.join("static/asset.bin"))?;
@@ -278,6 +295,48 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn copies_that_no_longer_match_their_url_hash_preserve_previous_dist() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let root = workspace.path();
+        let input = SiteInput::new(root);
+        OutputPlan::new(vec![Artifact::generated(
+            PathBuf::from("index.html"),
+            b"old output".to_vec(),
+            "home",
+        )])?
+        .publish(&input)?;
+
+        fs::create_dir(root.join("static"))?;
+        let rendered = ContentHash::of_reader(&mut b"rendered".as_slice())?;
+        let plan = || {
+            OutputPlan::new(vec![
+                Artifact::generated(PathBuf::from("index.html"), b"new output".to_vec(), "home"),
+                Artifact::copy_from(
+                    PathBuf::from("photo.png"),
+                    PathBuf::from("static/photo.png"),
+                    Some(rendered),
+                ),
+            ])
+        };
+        fs::write(root.join("static/photo.png"), b"edited")?;
+        let error = plan()?
+            .publish(&input)
+            .err()
+            .context("accepted a copy that differs from the hashed file")?;
+        assert!(
+            format!("{error:#}").contains("static/photo.png changed during the build"),
+            "{error:#}"
+        );
+        assert_eq!(fs::read(root.join("dist/index.html"))?, b"old output");
+        assert!(!root.join("dist/photo.png").exists());
+
+        fs::write(root.join("static/photo.png"), b"rendered")?;
+        plan()?.publish(&input)?;
+        assert_eq!(fs::read(root.join("dist/photo.png"))?, b"rendered");
+        Ok(())
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlink_replacing_static_file_before_copy_preserves_previous_dist() -> Result<()> {
@@ -299,6 +358,7 @@ mod tests {
         let plan = OutputPlan::new(vec![Artifact::copy_from(
             PathBuf::from("asset.bin"),
             PathBuf::from("static/asset.bin"),
+            None,
         )])?;
         fs::remove_file(root.join("static/asset.bin"))?;
         let outside = root.join("outside.bin");
