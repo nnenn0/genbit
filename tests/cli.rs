@@ -1143,7 +1143,7 @@ fn image_dimensions_follow_local_urls_and_refresh_on_rebuild() -> Result<()> {
 }
 
 #[test]
-fn default_css_stacks_images_and_only_shrinks_them() -> Result<()> {
+fn default_css_stacks_centers_and_only_shrinks_images() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     fs::write(
@@ -1164,7 +1164,12 @@ fn default_css_stacks_images_and_only_shrinks_them() -> Result<()> {
             .nth(1)
             .and_then(|css| css.split('}').next())
             .context("missing image CSS")?;
-        for declaration in ["display:block", "max-width:100%", "height:auto"] {
+        for declaration in [
+            "display:block",
+            "max-width:100%",
+            "height:auto",
+            "margin-inline:auto",
+        ] {
             assert!(image_css.contains(declaration), "{page}: {image_css}");
         }
     }

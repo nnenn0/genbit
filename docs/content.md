@@ -110,10 +110,11 @@ Markdownの画像には `loading="lazy"` と `decoding="async"` を付けます�
 
 `static/` 内のPNG・JPEG・GIF・WebPを参照すると、ファイルから寸法を読み取り、HTMLの `width`・`height` 属性を付けます。ブラウザーが画像の読み込み前に縦横比と表示領域を確保でき、画像の読み込みによるレイアウトシフトを防げます。形式はファイルの内容で判断します。JPEGにEXIFの回転情報がある場合は、表示方向に合わせた寸法を使います。
 
-初期CSSの `styles/common.css` は、`img { display: block; max-width: 100%; height: auto; }` で画像の表示を決めます。
+初期CSSの `styles/common.css` は、`img { display: block; max-width: 100%; height: auto; margin-inline: auto; }` で画像の表示を決めます。
 
 - 同じ段落に並べた画像も、1カラムで1枚ずつ縦に配置します。
 - 本文の幅を超える画像だけを縮小し、本文より小さい画像は拡大しません。
+- 本文より小さい画像は、本文の幅の中央に配置します。
 - 縮小するときも縦横比を保ちます。
 
 CSSを変更するときも `max-width: 100%; height: auto;` を保ってください。Markdownに表示幅や高さを書く独自の記法や、複数の画像を横に並べるなどのグループ化の機能はありません。
