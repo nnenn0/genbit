@@ -61,6 +61,31 @@
 - 記事URLを拡張子なしで配信すること。`/entries/hello-world` で `entries/hello-world.html` を返す必要があります。
 - 存在しないURLには `404.html` をHTTP 404で返すこと。
 
+## キャッシュの設定
+
+genbitはHTTPヘッダーを出力しません。キャッシュは公開先で設定します。Markdownの画像のURLにはファイルの内容のハッシュが付くため（[画像のURLのハッシュ](content.md#画像のurlのハッシュ)）、画像を長期間キャッシュしても、差し替えた画像が表示されます。そのためには、次の設定がそろっている必要があります。
+
+| 対象 | `Cache-Control` |
+| --- | --- |
+| HTML | `no-cache`、または `max-age=0, must-revalidate` のように毎回再検証させる設定 |
+| 記事の画像（`static/assets/img/`） | `public, max-age=31536000, immutable` |
+| URLを変えないファイル（`static/assets/site/`） | 長い `max-age` を付けない |
+
+- HTMLが古いまま返ると、古い画像のURLが使われ続けます。公開先の既定が毎回再検証する設定なら、HTMLには何も書かなくて構いません。
+- ハッシュが付くのは、Markdownの画像記法で参照したファイルだけです。テンプレートやCSSから直接参照するファイルは、URLが変わりません。これらを `static/assets/img/` に置くと、差し替えても長期間古いまま表示されます。`static/assets/site/` に置いてください。
+- faviconとOGP画像は、検索エンジンやSNSがURLを控えて使います。URLを変えずに、同じ名前で差し替えます。`genbit new` はこれらを `static/assets/site/` に置き、記事の画像用に空の `static/assets/img/` を作ります。
+- CDNを使う場合は、キャッシュキーにクエリ文字列を含めてください。含めないと、CDNが古い画像を返し続けます。
+- 画像を先に公開してからHTMLを公開するか、成果物全体を一度に切り替えてください。HTMLが先に公開されると、新しいハッシュのURLで古い画像がキャッシュされることがあります。
+
+Cloudflare・Netlifyなど `_headers` ファイルで設定する公開先では、次のように書きます。`static/_headers` に置くと、`dist/` の直下にコピーされます。
+
+```text
+/assets/img/*
+  Cache-Control: public, max-age=31536000, immutable
+```
+
+以前のgenbitで作ったサイトでは、faviconとOGP画像が `static/assets/img/` にあります。記事の画像を長期間キャッシュする前に、これらを `static/assets/site/` へ移し、`templates/base.html` のfaviconのパスと `config.toml` の `og_image` を書き換えてください。
+
 ## 開発サーバー
 
 `genbit dev` はサイトをビルドし、`http://127.0.0.1:3000` で `dist/` を配信します。アドレスは `--host` と `--port` で変更できます。ポートが使用中なら、ビルドせずに終了します。

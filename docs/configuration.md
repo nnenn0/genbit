@@ -6,7 +6,7 @@
 title = "My notes"
 description = "小さなツール作りについてのメモです。"
 site_url = "https://example.com/"
-og_image = "/assets/img/ogp.png"
+og_image = "/assets/site/ogp.png"
 timezone = "Asia/Tokyo"
 ```
 
@@ -34,12 +34,12 @@ timezone = "Asia/Tokyo"
 
 ### `og_image`
 
-- `/assets/img/ogp.png` のようなルート相対パスは、ビルド時に `site_url` と結合します。
+- `/assets/site/ogp.png` のようなルート相対パスは、ビルド時に `site_url` と結合します。
 - `http` か `https` の絶対URLはそのまま使います。外部に置いた画像も指定できます。
 - 絶対URLのホストとポートには `site_url` と同じ規則を適用します。
 - フラグメント（`#...`）は受け付けません。
 
-`genbit new` は1200×630ピクセルの `static/assets/img/ogp.png` を用意し、`og_image` をそこへ向けます。記事ごとの画像には対応していません。
+`genbit new` は1200×630ピクセルの `static/assets/site/ogp.png` を用意し、`og_image` をそこへ向けます。記事ごとの画像には対応していません。
 
 ### `timezone`
 

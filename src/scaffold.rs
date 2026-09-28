@@ -56,8 +56,8 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../scaffold/content/entries/hello-world.md"),
     ),
     (
-        "static/assets/img/favicon.svg",
-        include_str!("../scaffold/static/assets/img/favicon.svg"),
+        "static/assets/site/favicon.svg",
+        include_str!("../scaffold/static/assets/site/favicon.svg"),
     ),
     (".gitignore", "/dist/\n"),
 ];
@@ -101,25 +101,26 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
         "static",
         "static/assets",
         "static/assets/img",
+        "static/assets/site",
     ] {
         let path = root.join(directory);
         fs::create_dir(&path).with_context(|| format!("cannot create {}", path.display()))?;
     }
     // The validated name contains only TOML-safe ASCII.
     let config = format!(
-        "title = \"{name}\"\ndescription = \"{name} で公開している記事の一覧です。\"\nsite_url = \"http://127.0.0.1:3000/\"\nog_image = \"/assets/img/ogp.png\"\ntimezone = \"Asia/Tokyo\"\n"
+        "title = \"{name}\"\ndescription = \"{name} で公開している記事の一覧です。\"\nsite_url = \"http://127.0.0.1:3000/\"\nog_image = \"/assets/site/ogp.png\"\ntimezone = \"Asia/Tokyo\"\n"
     );
     write_new(&root.join("config.toml"), &config)?;
     for &(relative, content) in FILES {
         write_new(&root.join(relative), content)?;
     }
     write_new(
-        &root.join("static/assets/img/ogp.png"),
-        include_bytes!("../scaffold/static/assets/img/ogp.png"),
+        &root.join("static/assets/site/ogp.png"),
+        include_bytes!("../scaffold/static/assets/site/ogp.png"),
     )?;
     write_new(
-        &root.join("static/assets/img/favicon.png"),
-        include_bytes!("../scaffold/static/assets/img/favicon.png"),
+        &root.join("static/assets/site/favicon.png"),
+        include_bytes!("../scaffold/static/assets/site/favicon.png"),
     )?;
     Ok(())
 }
