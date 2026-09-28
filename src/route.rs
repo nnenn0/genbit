@@ -169,7 +169,7 @@ pub(crate) fn resolve_link(page_url: &str, link: &str) -> Result<Option<String>>
     Ok(Some(format!("/{}", segments.join("/"))))
 }
 
-fn percent_decode(segment: &str) -> Result<String> {
+pub(crate) fn percent_decode(segment: &str) -> Result<String> {
     let bytes = segment.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;

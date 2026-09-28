@@ -282,10 +282,13 @@ fn versioned_url(url: &str, version: &str) -> anyhow::Result<String> {
     let mut versioned = match before_fragment.split_once('?') {
         None => format!("{before_fragment}?"),
         Some((_, query)) => {
+            // Query parsers decode keys, so `%76` is also `v`. A key that cannot be decoded is not `v`.
             anyhow::ensure!(
-                !query
-                    .split('&')
-                    .any(|pair| pair.split('=').next() == Some("v")),
+                !query.split('&').any(|pair| {
+                    pair.split('=').next().is_some_and(|key| {
+                        crate::route::percent_decode(key).is_ok_and(|key| key == "v")
+                    })
+                }),
                 "image {url} has the query parameter v, which genbit reserves for the hash of the image; remove v from the query"
             );
             let mut versioned = before_fragment.to_owned();
@@ -450,6 +453,8 @@ mod tests {
             "![a](/a.png?v=1)",
             "![a](/a.png?x=1&v#top)",
             "![a](/a.png?v=)",
+            "![a](/a.png?%76=old)",
+            "![a](/a.png?x=1&%76)",
         ] {
             let parsed = super::parse(source).map_err(|_| anyhow!("invalid test Markdown"))?;
             let error = parsed
@@ -462,7 +467,7 @@ mod tests {
             );
         }
         for source in [
-            "![a](/a.png?va=1&xv=2)",
+            "![a](/a.png?va=1&xv=2&%56=3&%zz=4)",
             "![a](https://example.com/a.png?v=1)",
         ] {
             let parsed = super::parse(source).map_err(|_| anyhow!("invalid test Markdown"))?;
