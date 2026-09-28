@@ -227,7 +227,7 @@ const DEFAULT_CONFIG: [(&str, &str); 5] = [
     ("title", "'Blog'"),
     ("description", "'Blog articles'"),
     ("site_url", "'https://example.com/'"),
-    ("og_image", "'/assets/img/ogp.png'"),
+    ("og_image", "'/assets/site/ogp.png'"),
     ("timezone", "'UTC'"),
 ];
 
@@ -369,13 +369,19 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "styles/root.css",
         "styles/tags.css",
         "styles/tag.css",
-        "static/assets/img/favicon.svg",
-        "static/assets/img/favicon.png",
-        "static/assets/img/ogp.png",
+        "static/assets/site/favicon.svg",
+        "static/assets/site/favicon.png",
+        "static/assets/site/ogp.png",
         ".gitignore",
     ] {
         assert!(root.join(file).is_file(), "missing {file}");
     }
+    // Article images go here; files with fixed URLs are kept apart in static/assets/site.
+    assert!(
+        fs::read_dir(root.join("static/assets/img"))?
+            .next()
+            .is_none()
+    );
     let article = fs::read_to_string(root.join("content/entries/hello-world.md"))?;
     assert!(article.contains("```rust"));
     assert!(article.contains("title = \"はじめての記事\""));
@@ -383,15 +389,15 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     assert!(article.contains("description = "));
     let config = fs::read_to_string(root.join("config.toml"))?;
     assert!(config.contains("site_url = "));
-    assert!(config.contains("og_image = \"/assets/img/ogp.png\""));
+    assert!(config.contains("og_image = \"/assets/site/ogp.png\""));
     assert!(config.contains("timezone = \"Asia/Tokyo\""));
-    let og_image = fs::read(root.join("static/assets/img/ogp.png"))?;
+    let og_image = fs::read(root.join("static/assets/site/ogp.png"))?;
     assert!(og_image.starts_with(b"\x89PNG\r\n\x1a\n"));
     let width = og_image.get(16..20).context("missing PNG width")?;
     let height = og_image.get(20..24).context("missing PNG height")?;
     assert_eq!(u32::from_be_bytes(width.try_into()?), 1200);
     assert_eq!(u32::from_be_bytes(height.try_into()?), 630);
-    let favicon = fs::read(root.join("static/assets/img/favicon.png"))?;
+    let favicon = fs::read(root.join("static/assets/site/favicon.png"))?;
     assert!(favicon.starts_with(b"\x89PNG\r\n\x1a\n"));
     let width = favicon.get(16..20).context("missing favicon PNG width")?;
     let height = favicon.get(20..24).context("missing favicon PNG height")?;
@@ -477,10 +483,10 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(home.contains("<style>"));
     assert!(home.contains("prefers-color-scheme"), "{home}");
-    assert!(home.contains("href=/assets/img/favicon.png"), "{home}");
+    assert!(home.contains("href=/assets/site/favicon.png"), "{home}");
     assert!(home.contains("sizes=80x80"), "{home}");
     assert!(home.contains("type=image/png"), "{home}");
-    assert!(home.contains("href=/assets/img/favicon.svg"), "{home}");
+    assert!(home.contains("href=/assets/site/favicon.svg"), "{home}");
     assert!(home.contains("rel=icon"), "{home}");
     assert!(home.contains("type=image/svg+xml"), "{home}");
     assert!(home.contains("<h1>blog</h1>"), "{home}");
@@ -490,7 +496,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(home.contains("property=og:image"), "{home}");
     assert!(home.contains("property=og:image:alt"), "{home}");
     assert!(
-        home.contains("http://127.0.0.1:3000/assets/img/ogp.png"),
+        home.contains("http://127.0.0.1:3000/assets/site/ogp.png"),
         "{home}"
     );
     assert!(home.contains("\"@type\":\"WebSite\""), "{home}");
@@ -533,9 +539,9 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     let date = "<time datetime=2026-09-16T00:00:00+09:00>2026-09-16</time>";
     assert_eq!(unmodified.matches(date).count(), 2, "{unmodified}");
     assert_eq!(fs::read(site.join("dist/logo.png"))?, [0, 1, 2, 255]);
-    assert!(fs::read_to_string(site.join("dist/assets/img/favicon.svg"))?.contains("<svg"));
-    assert!(site.join("dist/assets/img/favicon.png").is_file());
-    assert!(site.join("dist/assets/img/ogp.png").is_file());
+    assert!(fs::read_to_string(site.join("dist/assets/site/favicon.svg"))?.contains("<svg"));
+    assert!(site.join("dist/assets/site/favicon.png").is_file());
+    assert!(site.join("dist/assets/site/ogp.png").is_file());
     Ok(())
 }
 
@@ -686,7 +692,7 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
         assert!(html.contains("rel=canonical"), "{file}: {html}");
         assert!(html.contains(canonical), "{file}: {html}");
         assert!(
-            html.contains("https://example.com/assets/img/ogp.png"),
+            html.contains("https://example.com/assets/site/ogp.png"),
             "{file}: {html}"
         );
     }
@@ -755,11 +761,11 @@ fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
     assert!(stderr.contains("og_image"), "{stderr}");
     assert_eq!(fs::read_to_string(site.join("dist/sitemap.xml"))?, original);
     for invalid_og_image in [
-        "assets/img/ogp.png",
+        "assets/site/ogp.png",
         "//example.com/ogp.png",
         "ftp://example.com/ogp.png",
         "https://user@example.com/ogp.png",
-        "/assets/img/ogp.png#fragment",
+        "/assets/site/ogp.png#fragment",
     ] {
         write_config(
             &site,
@@ -1874,7 +1880,7 @@ fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
             concat!(
                 "[next](next.md#details) [abs](/entries/next) [html](/entries/next.html?x=1)\n\n",
                 "[about](../about.md) [home](/) [tags](/tags/) [tag](/tags/untagged) [feed](/feed.xml)\n\n",
-                "![ogp](/assets/img/ogp.png) ![relative](../assets/img/ogp.png) ",
+                "![ogp](/assets/site/ogp.png) ![relative](../assets/site/ogp.png) ",
                 "![encoded](/files/%E7%94%BB%E5%83%8F.png) ![raw](/files/画像.png)\n\n",
                 "[web](https://example.com/missing) [plain](http://example.com/missing) ",
                 "[mail](mailto:someone@example.com) [tel](tel:+81-3-0000-0000) ",
@@ -1982,7 +1988,7 @@ fn raw_html_in_articles_fails_with_its_line_and_preserves_dist() -> Result<()> {
         (article_source(&[], "Text\n\n<!-- draft -->\n"), 8),
         (article_source(&[], "## 見出し <span>x</span>\n"), 6),
         (
-            article_source(&[], "段落\n\n![画像 <b>x</b>](/assets/img/ogp.png)\n"),
+            article_source(&[], "段落\n\n![画像 <b>x</b>](/assets/site/ogp.png)\n"),
             8,
         ),
         (format!("\u{feff}{crlf}"), 8),
@@ -2021,7 +2027,7 @@ fn articles_show_html_notation_as_text_and_keep_generated_markup() -> Result<()>
                 "`<kbd>` と \\<br> と &lt;!-- memo --&gt;\n\n",
                 "```html\n<picture></picture>\n```\n\n",
                 "<https://example.com/a> <someone@example.com> [外部](https://example.com/b)\n\n",
-                "![ロゴ](/assets/img/ogp.png)\n",
+                "![ロゴ](/assets/site/ogp.png)\n",
             ),
         ),
     )?;
@@ -2040,7 +2046,7 @@ fn articles_show_html_notation_as_text_and_keep_generated_markup() -> Result<()>
         "href=mailto:someone@example.com",
         "href=https://example.com/b",
         "target=_blank",
-        "src=\"/assets/img/ogp.png?v=",
+        "src=\"/assets/site/ogp.png?v=",
         "loading=lazy",
         "decoding=async",
     ] {

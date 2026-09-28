@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn template_views_expose_only_the_documented_article_fields() -> Result<()> {
         let site = Config::parse(
-            "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'http://127.0.0.1:3000/'\nog_image = '/assets/img/ogp.png'\ntimezone = 'Asia/Tokyo'\n",
+            "title = 'Blog'\ndescription = 'Blog articles'\nsite_url = 'http://127.0.0.1:3000/'\nog_image = '/assets/site/ogp.png'\ntimezone = 'Asia/Tokyo'\n",
         )?;
         let articles = [content::parse(
             "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",

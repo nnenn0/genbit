@@ -108,7 +108,7 @@ my-blog/
 │   └── entries/hello-world.md
 ├── templates/           # Teraテンプレート: base, page, root, tags, tag, entry-list, 404
 ├── styles/              # common.css と、テンプレート別の任意CSS
-└── static/              # そのままコピー（favicon、OGP画像など）
+└── static/              # そのままコピー（assets/img/ に記事の画像、assets/site/ にfavicon・OGP画像）
 ```
 
 ```markdown
