@@ -147,7 +147,7 @@ fn to_html_events<'a>(
             }
             Event::Start(Tag::Link {
                 dest_url, title, ..
-            }) if is_external(&dest_url) => {
+            }) if crate::route::is_external_web_link(&dest_url) => {
                 external_link = true;
                 converted.push(Event::Html(external_anchor(&dest_url, &title).into()));
             }
@@ -190,10 +190,6 @@ fn to_html_events<'a>(
         }
     }
     Ok(converted)
-}
-
-fn is_external(url: &str) -> bool {
-    url.starts_with("https://") || url.starts_with("http://") || url.starts_with("//")
 }
 
 fn external_anchor(url: &str, title: &str) -> String {
@@ -650,6 +646,23 @@ mod tests {
         assert!(html.contains("href=\"next\""), "{html}");
         assert!(html.contains("href=\"#top\""), "{html}");
         assert_eq!(html.matches("target=\"_blank\"").count(), 2, "{html}");
+        Ok(())
+    }
+
+    #[test]
+    fn opens_http_links_with_case_insensitive_schemes_in_new_tabs() -> Result<()> {
+        for url in [
+            "HTTPS://example.com/a.md",
+            "HtTp://example.com/a.md",
+            "//example.com/a.md",
+        ] {
+            let html = render_html(&format!("[web]({url})"))?;
+            assert!(
+                html.contains(&format!("href=\"{url}\" target=\"_blank\"")),
+                "{html}"
+            );
+            assert!(html.contains("rel=\"noopener noreferrer\""), "{html}");
+        }
         Ok(())
     }
 
