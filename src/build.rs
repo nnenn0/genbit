@@ -26,7 +26,11 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let static_files = input.files(Path::new("static"))?;
+    let static_files = input
+        .files(Path::new("static"))?
+        .into_iter()
+        .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
+        .collect::<Vec<_>>();
     let mut images = Images::new(root, &static_files)?;
     let mut articles = load_articles(&input, &config.timezone, &mut images)?;
     articles.sort_by(|left, right| {
@@ -54,21 +58,11 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     artifacts.push(metadata::sitemap(&config.site_url, &articles, &tags)?);
     artifacts.push(metadata::feed(&config, &articles));
     artifacts.push(metadata::robots(&config.site_url));
-    let static_root = root.join("static");
-    let assets = static_files
-        .into_iter()
-        .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
-        .map(|path| {
-            let relative = path.strip_prefix(&static_root)?.to_path_buf();
-            let site_relative = path.strip_prefix(root)?;
-            Ok(Artifact::copy_from(
-                relative,
-                site_relative.to_path_buf(),
-                images.hash(site_relative),
-            ))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    artifacts.extend(assets);
+    artifacts.extend(static_files.into_iter().map(|path| {
+        let site_relative = Path::new("static").join(&path);
+        let hash = images.hash(&site_relative);
+        Artifact::copy_from(path, site_relative, hash)
+    }));
     let plan = OutputPlan::new(artifacts)?;
     for article in &articles {
         route::validate_links(
@@ -91,21 +85,24 @@ fn load_articles(
     timezone: &TimeZone,
     images: &mut Images<'_>,
 ) -> Result<Vec<Article>> {
-    let content_root = input.root().join("content");
     input
         .files(Path::new("content"))?
         .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
         .map(|path| {
-            let relative = path.strip_prefix(&content_root)?;
-            let site_relative = path.strip_prefix(input.root())?;
+            let site_relative = Path::new("content").join(&path);
             content::parse(
-                &input.read_text(site_relative)?,
-                relative,
+                &input.read_text(&site_relative)?,
+                &path,
                 timezone,
                 |page, url| images.get(page, url),
             )
-            .with_context(|| format!("cannot parse {}", path.display()))
+            .with_context(|| {
+                format!(
+                    "cannot parse {}",
+                    input.root().join(site_relative).display()
+                )
+            })
         })
         .collect()
 }
