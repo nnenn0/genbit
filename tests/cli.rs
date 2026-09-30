@@ -730,6 +730,29 @@ fn site_url_generates_matching_canonicals_and_sitemap() -> Result<()> {
 }
 
 #[test]
+fn invalid_ipv4_configuration_preserves_dist_in_build_and_dry_run() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for field in ["site_url", "og_image"] {
+        for host in ["999.999.999.999", "127.0.0.01", "127.1"] {
+            let value = format!("'https://{host}/'");
+            write_config(&site, &[(field, Some(&value))])?;
+            let error = build_err(&site)?;
+            assert!(error.contains(field) && error.contains(host), "{error}");
+            let dry_run = dry_run_site(&site)?;
+            assert!(!dry_run.status.success());
+            let error = String::from_utf8(dry_run.stderr)?;
+            assert!(error.contains(field) && error.contains(host), "{error}");
+            assert_eq!(snapshot(&site.join("dist"))?, before);
+            assert_no_build_leftovers(&site)?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn invalid_urls_and_sitemap_collision_preserve_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
