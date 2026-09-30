@@ -34,12 +34,10 @@ impl<'a> Images<'a> {
             .iter()
             .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
             .map(|path| {
-                let relative = path.strip_prefix(&static_root)?;
-                let url = format!(
-                    "/{}",
-                    relative.to_str().context("static path must be UTF-8")?
-                );
-                Ok((url, path.strip_prefix(root)?.to_path_buf()))
+                let site_relative = path.strip_prefix(root)?;
+                let url = crate::route::slash_path(path.strip_prefix(&static_root)?)
+                    .with_context(|| format!("invalid static file {}", site_relative.display()))?;
+                Ok((format!("/{url}"), site_relative.to_path_buf()))
             })
             .collect::<Result<_>>()?;
         Ok(Self {

@@ -324,12 +324,9 @@ fn load_templates(input: &SiteInput<'_>) -> Result<Tera> {
         .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "html"))
         .map(|path| {
-            let name = path
-                .strip_prefix(&template_root)?
-                .to_str()
-                .context("template path must be UTF-8")?
-                .replace('\\', "/");
             let site_relative = path.strip_prefix(input.root())?;
+            let name = crate::route::slash_path(path.strip_prefix(&template_root)?)
+                .with_context(|| format!("invalid template path {}", site_relative.display()))?;
             Ok((name, input.read_text(site_relative)?))
         })
         .collect::<Result<Vec<_>>>()?;

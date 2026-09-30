@@ -2067,6 +2067,25 @@ fn static_backslash_names_fail_without_replacing_dist() -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn template_backslash_names_fail_without_replacing_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    let name = r"entries\page.html";
+    fs::write(site.join("templates").join(name), "{{ content | safe }}")?;
+    let error = build_err(&site)?;
+    assert!(
+        error.contains("backslash") && error.contains(&format!("templates/{name}")),
+        "{error}"
+    );
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    assert_no_build_leftovers(&site)?;
+    Ok(())
+}
+
 #[test]
 fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
     let workspace = Workspace::new()?;

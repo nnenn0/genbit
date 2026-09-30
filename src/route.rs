@@ -83,14 +83,37 @@ fn valid_segment(segment: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// Returns the served URLs with their original case: collisions ignore case, but hosts match links exactly.
+/// Joins a site-relative path with `/`, the separator of its URL. On the supported Unix systems
+/// `\\` is an ordinary name character, so a name containing it has no URL that reaches it.
+pub(crate) fn slash_path(path: &Path) -> Result<String> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        let Component::Normal(part) = component else {
+            bail!("path must be relative without . or ..: {}", path.display());
+        };
+        let part = part
+            .to_str()
+            .with_context(|| format!("path must be UTF-8: {}", path.display()))?;
+        ensure!(
+            !part.contains('\\'),
+            "file and directory names must not contain backslashes: {}",
+            path.display()
+        );
+        parts.push(part);
+    }
+    ensure!(!parts.is_empty(), "path must not be empty");
+    Ok(parts.join("/"))
+}
+
+/// Takes paths from `slash_path` and returns the served URLs with their original case:
+/// collisions ignore case, but hosts match links exactly.
 pub(crate) fn validate_served_urls<'a>(
-    files: impl IntoIterator<Item = (&'a Path, &'a str)>,
+    files: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<BTreeSet<String>> {
     let mut claimed = BTreeMap::new();
     let mut urls = BTreeSet::new();
     for (path, source) in files {
-        for url in served_urls(path)? {
+        for url in served_urls(path) {
             let key = url.to_ascii_lowercase();
             ensure!(!is_reserved_url(&url), "reserved URL {url} from {source}");
             if let Some(previous) = claimed.insert(key, source) {
@@ -225,11 +248,7 @@ pub(crate) fn is_reserved_url(path: &str) -> bool {
     lower == "/__genbit" || lower.starts_with("/__genbit/")
 }
 
-fn served_urls(path: &Path) -> Result<Vec<String>> {
-    let path = path
-        .to_str()
-        .context("output path must be UTF-8")?
-        .replace('\\', "/");
+fn served_urls(path: &str) -> Vec<String> {
     let mut urls = vec![format!("/{path}")];
     if let Some(stem) = path.strip_suffix(".html") {
         let clean = format!("/{stem}");
@@ -243,13 +262,14 @@ fn served_urls(path: &Path) -> Result<Vec<String>> {
         urls.push(format!("/{directory}"));
         urls.push(format!("/{directory}/"));
     }
-    Ok(urls)
+    urls
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Route, is_reserved_url, resolve_link, served_urls, validate_links, validate_served_urls,
+        Route, is_reserved_url, resolve_link, served_urls, slash_path, validate_links,
+        validate_served_urls,
     };
     use anyhow::{Context, Result};
     use std::{collections::BTreeSet, path::Path};
@@ -321,20 +341,29 @@ mod tests {
     }
 
     #[test]
-    fn records_direct_clean_and_directory_index_urls() -> Result<()> {
+    fn slash_paths_join_plain_names_and_reject_backslashes() -> Result<()> {
+        assert_eq!(slash_path(Path::new("index.html"))?, "index.html");
+        assert_eq!(slash_path(Path::new("a/b/c.png"))?, "a/b/c.png");
+        for path in ["", "/a", "a/../b", "./a"] {
+            assert!(slash_path(Path::new(path)).is_err(), "accepted {path:?}");
+        }
+        for path in [r"a\b.txt", r"a\b/c.txt"] {
+            let error = slash_path(Path::new(path))
+                .err()
+                .with_context(|| format!("accepted {path}"))?;
+            assert!(error.to_string().contains("backslashes"), "{error:#}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn records_direct_clean_and_directory_index_urls() {
+        assert_eq!(served_urls("index.html"), ["/index.html", "/index", "/"]);
         assert_eq!(
-            served_urls(Path::new("index.html"))?,
-            ["/index.html", "/index", "/"]
-        );
-        assert_eq!(
-            served_urls(Path::new("posts/index.html"))?,
+            served_urls("posts/index.html"),
             ["/posts/index.html", "/posts/index", "/posts", "/posts/"]
         );
-        assert_eq!(
-            served_urls(Path::new("posts/file.txt"))?,
-            ["/posts/file.txt"]
-        );
-        Ok(())
+        assert_eq!(served_urls("posts/file.txt"), ["/posts/file.txt"]);
     }
 
     #[test]
@@ -345,10 +374,9 @@ mod tests {
             ("foo/index.html", "foo", "/foo"),
             ("index.html", "index", "/index"),
         ] {
-            let error =
-                validate_served_urls([(Path::new(left), "first"), (Path::new(right), "second")])
-                    .err()
-                    .context("accepted URL collision")?;
+            let error = validate_served_urls([(left, "first"), (right, "second")])
+                .err()
+                .context("accepted URL collision")?;
             assert!(error.to_string().contains(url), "{error:#}");
         }
         for path in [
@@ -357,7 +385,7 @@ mod tests {
             "__genbit.html",
             "__genbit/asset.txt",
         ] {
-            let error = validate_served_urls([(Path::new(path), "source")])
+            let error = validate_served_urls([(path, "source")])
                 .err()
                 .context("accepted reserved URL")?;
             assert!(error.to_string().contains("reserved URL"), "{error:#}");
@@ -365,10 +393,7 @@ mod tests {
         assert!(is_reserved_url("/__genbit"));
         assert!(is_reserved_url("/__GENBIT/reload"));
         assert!(!is_reserved_url("/__genbit-other"));
-        validate_served_urls([
-            (Path::new("foo.html"), "article"),
-            (Path::new("foo/bar.html"), "nested article"),
-        ])?;
+        validate_served_urls([("foo.html", "article"), ("foo/bar.html", "nested article")])?;
         Ok(())
     }
 
@@ -464,9 +489,9 @@ mod tests {
     #[test]
     fn validates_links_against_served_urls_exactly() -> Result<()> {
         let served = validate_served_urls([
-            (Path::new("entries/foo.html"), "article"),
-            (Path::new("tags/rust/index.html"), "tag"),
-            (Path::new("assets/Photo.png"), "static/assets/Photo.png"),
+            ("entries/foo.html", "article"),
+            ("tags/rust/index.html", "tag"),
+            ("assets/Photo.png", "static/assets/Photo.png"),
         ])?;
         let source = Path::new("entries/a.md");
         let valid = [
