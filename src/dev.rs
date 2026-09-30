@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use axum::{
     Router,
     extract::{Request, State},
+    http::{HeaderValue, header},
     middleware::{self, Next},
     response::Response,
     response::sse::{Event, Sse},
@@ -111,7 +112,26 @@ fn router(root: &Path, reload_tx: broadcast::Sender<()>) -> Router {
             ServeDir::new(&dist).not_found_service(ServeFile::new(dist.join("404.html"))),
         )
         .layer(middleware::from_fn_with_state(dist, serve_clean_url))
+        .layer(middleware::from_fn(disable_caching))
         .with_state(reload_tx)
+}
+
+/// Always answers with the current `dist/`. `ServeDir` validators come from file metadata, and
+/// `Last-Modified` alone cannot tell apart two builds within the same second.
+async fn disable_caching(mut request: Request, next: Next) -> Response {
+    for name in [
+        header::IF_MATCH,
+        header::IF_NONE_MATCH,
+        header::IF_MODIFIED_SINCE,
+        header::IF_UNMODIFIED_SINCE,
+    ] {
+        request.headers_mut().remove(name);
+    }
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn serve_clean_url(

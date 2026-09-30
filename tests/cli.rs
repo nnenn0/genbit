@@ -1419,6 +1419,42 @@ fn dev_serves_clean_urls_static_files_and_not_found_page() -> Result<()> {
 }
 
 #[test]
+fn dev_ignores_conditional_requests_and_disables_caching() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(site.join("static/asset.txt"), "static asset")?;
+    let (_server, address) = DevProcess::start_listening(&site)?;
+    // Each header would otherwise turn the response into 304 or 412 for an existing file.
+    for header in [
+        "",
+        "If-Modified-Since: Fri, 01 Jan 2100 00:00:00 GMT\r\n",
+        "If-None-Match: *\r\n",
+        "If-Match: \"stale\"\r\n",
+        "If-Unmodified-Since: Thu, 01 Jan 1970 00:00:00 GMT\r\n",
+    ] {
+        for (path, status, body) in [
+            ("/entries/hello-world", "200", "EventSource"),
+            ("/asset.txt", "200", "static asset"),
+            ("/missing/path", "404", "<p>Not Found"),
+        ] {
+            let response = http_get_with_header(&address, path, header)?;
+            let (head, _) = response
+                .split_once("\r\n\r\n")
+                .with_context(|| format!("no header end: {response}"))?;
+            assert!(
+                response.starts_with(&format!("HTTP/1.1 {status}"))
+                    && response.contains(body)
+                    && head
+                        .to_ascii_lowercase()
+                        .contains("\r\ncache-control: no-store\r\n"),
+                "{path} with {header:?}: {response}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn dev_reloads_after_an_article_is_edited() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
@@ -1565,10 +1601,16 @@ fn assert_not_found_page(address: &str, path: &str) -> Result<()> {
 }
 
 fn http_get(address: &str, path: &str) -> Result<String> {
+    http_get_with_header(address, path, "")
+}
+
+/// `header` is a complete header line such as `If-None-Match: *\r\n`, or empty.
+fn http_get_with_header(address: &str, path: &str, header: &str) -> Result<String> {
     let mut stream = TcpStream::connect(address)?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.write_all(
-        format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").as_bytes(),
+        format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n{header}Connection: close\r\n\r\n")
+            .as_bytes(),
     )?;
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
