@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::ErrorKind,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 const MARKER: &str = ".genbit-output";
@@ -135,30 +135,15 @@ fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
     let mut paths = BTreeMap::new();
     // Directories are shared by name on case-insensitive filesystems, so each needs one spelling.
     let mut directories = BTreeMap::new();
+    let mut served = Vec::with_capacity(artifacts.len());
     for artifact in artifacts {
-        ensure!(
-            !artifact.path.as_os_str().is_empty()
-                && artifact
-                    .path
-                    .components()
-                    .all(|part| matches!(part, Component::Normal(_))),
-            "invalid output path {}",
-            artifact.path.display()
-        );
-        ensure!(
-            artifact
-                .path
-                .components()
-                .all(|part| !part.as_os_str().as_encoded_bytes().contains(&b'\\')),
-            "output file and directory names must not contain backslashes: {} from {}",
-            artifact.path.display(),
-            artifact.source
-        );
-        let spelled = artifact
-            .path
-            .to_str()
-            .context("output path must be UTF-8")?
-            .replace('\\', "/");
+        let spelled = crate::route::slash_path(&artifact.path).with_context(|| {
+            format!(
+                "invalid output path {} from {}",
+                artifact.path.display(),
+                artifact.source
+            )
+        })?;
         // Case-insensitive comparison keeps generated sites portable to common macOS/Windows filesystems.
         let key = spelled.to_lowercase();
         ensure!(
@@ -186,6 +171,7 @@ fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
                 artifact.source
             );
         }
+        served.push((spelled, artifact.source.as_str()));
     }
     for (path, source) in &paths {
         for (offset, _) in path.match_indices('/') {
@@ -197,11 +183,7 @@ fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
             }
         }
     }
-    crate::route::validate_served_urls(
-        artifacts
-            .iter()
-            .map(|artifact| (artifact.path.as_path(), artifact.source.as_str())),
-    )
+    crate::route::validate_served_urls(served.iter().map(|(path, source)| (path.as_str(), *source)))
 }
 
 /// Returns whether `dist` exists, failing when it is not output that genbit may replace.
