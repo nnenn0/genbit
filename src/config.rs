@@ -2,7 +2,7 @@ use anyhow::{Context, Result, ensure};
 use http::Uri;
 use jiff::tz::TimeZone;
 use serde::{Deserialize, Serialize};
-use std::net::Ipv6Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -157,6 +157,14 @@ fn valid_host(host: &str) -> bool {
     {
         return address.parse::<Ipv6Addr>().is_ok();
     }
+    // Numeric hosts must be dotted-decimal IPv4, not unchecked DNS labels or
+    // shorthand forms whose interpretation differs between URL consumers.
+    if host
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || byte == b'.')
+    {
+        return host.parse::<Ipv4Addr>().is_ok();
+    }
     host.len() <= 253
         && host.split('.').all(|label| {
             (1..=63).contains(&label.len())
@@ -302,9 +310,46 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_numeric_hosts_in_site_and_image_urls() -> Result<()> {
+        for host in [
+            "999.999.999.999",
+            "256.0.0.1",
+            "127.0.0.01",
+            "127.1",
+            "2130706433",
+            "1.2.3.4.5",
+        ] {
+            for field in ["site_url", "og_image"] {
+                let (site_url, og_image) = if field == "site_url" {
+                    (format!("https://{host}:443/"), "/card.png".to_owned())
+                } else {
+                    (
+                        "https://example.com/".to_owned(),
+                        format!("https://{host}/card.png"),
+                    )
+                };
+                let error = Config::parse(&format!(
+                    "title = 'Blog'\ndescription = 'Posts'\nsite_url = '{site_url}'\nog_image = '{og_image}'\ntimezone = 'UTC'\n"
+                ))
+                .err()
+                .with_context(|| format!("accepted {field}: {host}"))?;
+                let message = format!("{error:#}");
+                assert!(
+                    message.contains(field) && message.contains("host"),
+                    "{message}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn accepts_host_names_ip_addresses_and_ports() -> Result<()> {
         for (site_url, expected) in [
             ("http://127.0.0.1:3000", "http://127.0.0.1:3000/"),
+            ("http://0.0.0.0:3000", "http://0.0.0.0:3000/"),
+            ("https://255.255.255.255", "https://255.255.255.255/"),
+            ("https://123.example.com", "https://123.example.com/"),
             ("http://[::1]:8080/", "http://[::1]:8080/"),
             (
                 "https://sub-1.example.com:443/",
