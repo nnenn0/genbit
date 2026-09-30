@@ -1,6 +1,7 @@
 use crate::{
     config::Config,
     content::{self, Article},
+    content_hash::ContentHash,
     image_size::Images,
     input::SiteInput,
     metadata,
@@ -11,7 +12,10 @@ use crate::{
 };
 use anyhow::{Context as _, Result};
 use jiff::tz::TimeZone;
-use std::path::Path;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 pub(crate) fn run(root: &Path, dry_run: bool) -> Result<usize> {
     run_with_reload(root, None, dry_run)
@@ -31,8 +35,8 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
         .into_iter()
         .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
         .collect::<Vec<_>>();
-    let mut images = Images::new(root, &static_files)?;
-    let mut articles = load_articles(&input, &config.timezone, &mut images)?;
+    let images = Images::new(root, &static_files)?;
+    let (mut articles, image_hashes) = load_articles(&input, &config.timezone, images)?;
     articles.sort_by(|left, right| {
         right
             .created_at
@@ -60,7 +64,7 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
     artifacts.push(metadata::robots(&config.site_url));
     artifacts.extend(static_files.into_iter().map(|path| {
         let site_relative = Path::new("static").join(&path);
-        let hash = images.hash(&site_relative);
+        let hash = image_hashes.get(&site_relative).copied();
         Artifact::copy_from(path, site_relative, hash)
     }));
     let plan = OutputPlan::new(artifacts)?;
@@ -83,9 +87,9 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
 fn load_articles(
     input: &SiteInput<'_>,
     timezone: &TimeZone,
-    images: &mut Images<'_>,
-) -> Result<Vec<Article>> {
-    input
+    mut images: Images<'_>,
+) -> Result<(Vec<Article>, BTreeMap<PathBuf, ContentHash>)> {
+    let articles = input
         .files(Path::new("content"))?
         .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
@@ -104,5 +108,7 @@ fn load_articles(
                 )
             })
         })
-        .collect()
+        .collect::<Result<_>>()?;
+    // Hashes are complete only once every article has been rendered.
+    Ok((articles, images.into_hashes()))
 }

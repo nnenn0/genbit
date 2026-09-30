@@ -70,9 +70,12 @@ impl<'a> Images<'a> {
         Ok(Some(image))
     }
 
-    /// The hash of a file under the site root, if an article referenced it as an image.
-    pub(crate) fn hash(&self, path: &Path) -> Option<ContentHash> {
-        self.probed.get(path).map(|image| image.hash)
+    /// The hashes of the files that articles referenced as images, by path under the site root.
+    pub(crate) fn into_hashes(self) -> BTreeMap<PathBuf, ContentHash> {
+        self.probed
+            .into_iter()
+            .map(|(path, image)| (path, image.hash))
+            .collect()
     }
 }
 
@@ -358,12 +361,14 @@ mod tests {
         ] {
             assert_eq!(images.get("/post", url)?, None);
         }
-        assert_eq!(images.probed.len(), 3);
         assert_eq!(
-            images.hash(Path::new("static/notes.data")),
-            Some(data_image.hash)
+            images.into_hashes(),
+            BTreeMap::from([
+                (PathBuf::from("static/copy.png"), png_image.hash),
+                (PathBuf::from("static/image.png"), png_image.hash),
+                (PathBuf::from("static/notes.data"), data_image.hash),
+            ])
         );
-        assert_eq!(images.hash(Path::new("static/broken.png")), None);
         Ok(())
     }
 
