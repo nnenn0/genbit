@@ -218,7 +218,7 @@ impl Renderer {
     ) -> Result<Artifact> {
         self.render(
             config,
-            &article.template,
+            article.template.as_str(),
             ArticleView {
                 description: &article.description,
                 canonical_url,
