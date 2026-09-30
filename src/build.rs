@@ -14,18 +14,23 @@ use anyhow::{Context as _, Result};
 use jiff::tz::TimeZone;
 use std::{
     collections::BTreeMap,
+    iter,
     path::{Path, PathBuf},
 };
 
-pub(crate) fn run(root: &Path, dry_run: bool) -> Result<usize> {
-    run_with_reload(root, None, dry_run)
+/// What a build does with the output it plans.
+#[derive(Clone, Copy)]
+pub(crate) enum Mode {
+    /// Replace `dist/`.
+    Publish,
+    /// Run every step and check, but leave `dist/` unchanged.
+    DryRun,
+    /// Replace `dist/` with pages that reload when `genbit dev` rebuilds.
+    Dev,
 }
 
-pub(crate) fn run_dev(root: &Path, reload_script: &str) -> Result<usize> {
-    run_with_reload(root, Some(reload_script), false)
-}
-
-fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> Result<usize> {
+/// Returns the number of HTML pages.
+pub(crate) fn run(root: &Path, mode: Mode) -> Result<usize> {
     let input = SiteInput::new(root);
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
@@ -44,29 +49,23 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
             .then_with(|| left.route.url().cmp(right.route.url()))
     });
     let tags = TagIndex::new(&articles);
+    let reload_script = matches!(mode, Mode::Dev).then_some(crate::dev::RELOAD_SCRIPT);
     let renderer = Renderer::load(&input, &articles, reload_script)?;
-    let mut artifacts = Vec::with_capacity(articles.len() + tags.groups().len() + 7);
-    let home_json_ld = metadata::website_json_ld(&config)?;
-    artifacts.push(renderer.home(&config, &articles, &home_json_ld)?);
-    artifacts.push(renderer.tags_index(&config, &tags, &home_json_ld)?);
-    for group in tags.groups() {
-        artifacts.push(renderer.tag(&config, group, &home_json_ld)?);
-    }
-    artifacts.push(renderer.not_found(&config)?);
-    for article in &articles {
-        let canonical_url = config.site_url.join_root_path(article.route.url());
-        let json_ld = metadata::article_json_ld(&config, article, &canonical_url)?;
-        artifacts.push(renderer.article(&config, article, &canonical_url, &json_ld)?);
-    }
-    let page_count = artifacts.len();
-    artifacts.push(metadata::sitemap(&config.site_url, &articles, &tags)?);
-    artifacts.push(metadata::feed(&config, &articles));
-    artifacts.push(metadata::robots(&config.site_url));
-    artifacts.extend(static_files.into_iter().map(|path| {
-        let site_relative = Path::new("static").join(&path);
-        let hash = image_hashes.get(&site_relative).copied();
-        Artifact::copy_from(path, site_relative, hash)
-    }));
+    let pages = render_pages(&renderer, &config, &articles, &tags)?;
+    let page_count = pages.len();
+    let artifacts = pages
+        .into_iter()
+        .chain([
+            metadata::sitemap(&config.site_url, &articles, &tags)?,
+            metadata::feed(&config, &articles),
+            metadata::robots(&config.site_url),
+        ])
+        .chain(static_files.into_iter().map(|path| {
+            let site_relative = Path::new("static").join(&path);
+            let hash = image_hashes.get(&site_relative).copied();
+            Artifact::copy_from(path, site_relative, hash)
+        }))
+        .collect();
     let plan = OutputPlan::new(artifacts)?;
     for article in &articles {
         route::validate_links(
@@ -76,12 +75,39 @@ fn run_with_reload(root: &Path, reload_script: Option<&str>, dry_run: bool) -> R
             plan.urls(),
         )?;
     }
-    if dry_run {
-        output::check_destination(&input)?;
-    } else {
-        plan.publish(&input)?;
+    match mode {
+        Mode::DryRun => {
+            output::check_destination(&input)?;
+        }
+        Mode::Publish | Mode::Dev => plan.publish(&input)?,
     }
     Ok(page_count)
+}
+
+fn render_pages(
+    renderer: &Renderer,
+    config: &Config,
+    articles: &[Article],
+    tags: &TagIndex<'_>,
+) -> Result<Vec<Artifact>> {
+    let home_json_ld = metadata::website_json_ld(config)?;
+    [
+        renderer.home(config, articles, &home_json_ld),
+        renderer.tags_index(config, tags, &home_json_ld),
+    ]
+    .into_iter()
+    .chain(
+        tags.groups()
+            .iter()
+            .map(|group| renderer.tag(config, group, &home_json_ld)),
+    )
+    .chain(iter::once_with(|| renderer.not_found(config)))
+    .chain(articles.iter().map(|article| {
+        let canonical_url = config.site_url.join_root_path(article.route.url());
+        let json_ld = metadata::article_json_ld(config, article, &canonical_url)?;
+        renderer.article(config, article, &canonical_url, &json_ld)
+    }))
+    .collect()
 }
 
 fn load_articles(

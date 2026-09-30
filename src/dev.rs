@@ -99,7 +99,7 @@ async fn shutdown_signal() -> Result<()> {
 }
 
 async fn build_site(root: PathBuf) -> Result<usize> {
-    tokio::task::spawn_blocking(move || crate::build::run_dev(&root, RELOAD_SCRIPT))
+    tokio::task::spawn_blocking(move || crate::build::run(&root, crate::build::Mode::Dev))
         .await
         .context("build task failed")?
 }
