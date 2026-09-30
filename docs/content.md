@@ -42,7 +42,7 @@ tags = ["react", "web-security"]
 
 - タグ名は、英小文字・数字からなる語をハイフンでつないだ形式に限ります（例: `react-19`）。
 - 同じ記事の中で同じタグは重複できません。
-- `untagged` は予約語です。
+- `untagged` と `index` は予約語です。`untagged` はタグのない記事の一覧に、`index` はタグ一覧 `/tags/` の拡張子なしURL `/tags/index` と衝突するため使えません。
 
 `templates/tags.html` から `/tags/` を、`templates/tag.html` からタグごとの `/tags/{tag}/` を生成し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示し、テンプレートに渡す `tags` は `["untagged"]` になります。タグページの記事の並びはトップページと同じです。
 
