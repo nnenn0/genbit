@@ -34,8 +34,8 @@ struct PublicArticle<'a> {
 impl<'a> From<&'a Article> for PublicArticle<'a> {
     fn from(article: &'a Article) -> Self {
         Self {
-            title: &article.title,
-            description: &article.description,
+            title: article.title.as_str(),
+            description: article.description.as_str(),
             url: article.route.url(),
             created_at: PublicTimestamp::from(&article.created_at),
             updated_at: PublicTimestamp::from(&article.updated_at),
@@ -199,7 +199,7 @@ impl Renderer {
             config,
             "root.html",
             HomeView {
-                description: &config.description,
+                description: config.description.as_str(),
                 canonical_url: config.site_url.as_str(),
                 json_ld,
                 entries: articles.iter().map(PublicArticle::from).collect(),
@@ -220,7 +220,7 @@ impl Renderer {
             config,
             article.template.as_str(),
             ArticleView {
-                description: &article.description,
+                description: article.description.as_str(),
                 canonical_url,
                 json_ld,
                 article: PublicArticle::from(article),
@@ -344,7 +344,7 @@ mod tests {
             site: &site,
             css: "",
             view: HomeView {
-                description: &site.description,
+                description: site.description.as_str(),
                 canonical_url: site.site_url.as_str(),
                 json_ld: "{}",
                 entries: articles.iter().map(PublicArticle::from).collect(),
@@ -360,7 +360,7 @@ mod tests {
             site: &site,
             css: "",
             view: ArticleView {
-                description: &article.description,
+                description: article.description.as_str(),
                 canonical_url: "http://127.0.0.1:3000/post",
                 json_ld: "{}",
                 article: PublicArticle::from(article),
