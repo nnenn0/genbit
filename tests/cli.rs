@@ -1878,6 +1878,95 @@ fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
 }
 
 #[test]
+fn colon_paths_and_encoded_segments_work_in_images_and_dev() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::create_dir(site.join("static/files"))?;
+    let png = include_bytes!("fixtures/images/basic.png");
+    fs::write(site.join("static/files/a:b.png"), png)?;
+    fs::write(site.join("static/files/図 a%2f.png"), png)?;
+    fs::write(site.join("static/files/a:b.txt"), "colon asset")?;
+    fs::write(site.join("static/files/図 a%2f.txt"), "encoded asset")?;
+    fs::write(
+        site.join("content/about.md"),
+        article_source(&[], "About page"),
+    )?;
+    fs::write(
+        site.join("content/entries/hello-world.md"),
+        article_source(
+            &[],
+            concat!(
+                "[about](%2e%2E/about.md?x=1#top) [home](.%2e/) ",
+                "[self](/entries/%68ello-world) [web](HTTPS://example.com/a.md)\n\n",
+                "[colon](/files/a:b.txt) [encoded](/files/%E5%9B%B3%20a%252f.txt)\n\n",
+                "![colon](/files/a:b.png) ![relative](%2e%2e/files/a:b.png?x=1#part) ",
+                "![encoded](/files/%E5%9B%B3%20a%252f.png)\n",
+            ),
+        ),
+    )?;
+    assert!(dry_run_site(&site)?.status.success());
+    assert!(!site.join("dist").exists());
+    build_ok(&site)?;
+    let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
+    let hash = image_version(&html, "/files/a:b.png?v=")?;
+    assert_eq!(image_version(&html, "%2e%2e/files/a:b.png?x=1")?, hash);
+    assert_eq!(
+        image_version(&html, "/files/%E5%9B%B3%20a%252f.png?v=")?,
+        hash
+    );
+    assert_eq!(html.matches("width=300").count(), 3, "{html}");
+    assert_eq!(html.matches("height=200").count(), 3, "{html}");
+    assert!(html.contains("href=\"%2e%2E/about?x=1#top\""), "{html}");
+    assert!(html.contains("href=HTTPS://example.com/a.md"), "{html}");
+    assert!(html.contains("target=_blank"), "{html}");
+
+    let (_server, address) = DevProcess::start_listening(&site)?;
+    for (path, expected) in [
+        ("/about?x=1", "About page"),
+        ("/entries/%68ello-world", "width=300"),
+        ("/files/a:b.txt", "colon asset"),
+        ("/files/%E5%9B%B3%20a%252f.txt", "encoded asset"),
+    ] {
+        let response = http_get(&address, path)?;
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(response.contains(expected), "{response}");
+    }
+    Ok(())
+}
+
+#[test]
+fn invalid_site_links_fail_build_and_dry_run_without_replacing_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (body, reason) in [
+        ("[missing](/files/missing:name.txt)", "broken internal link"),
+        ("![missing](./missing:name.png)", "broken internal link"),
+        ("[encoded](/entries%2Fhello-world)", "path separators"),
+        ("[encoded](/entries%2fhello-world)", "path separators"),
+        ("[encoded](/entries%5Chello-world)", "path separators"),
+        ("![encoded](/assets%2fsite/ogp.png)", "path separators"),
+        ("![encoded](/assets%5csite/ogp.png)", "path separators"),
+    ] {
+        fs::write(
+            site.join("content/entries/hello-world.md"),
+            article_source(&[], body),
+        )?;
+        let error = build_err(&site)?;
+        assert!(error.contains(reason), "{body}: {error}");
+        assert!(error.contains("content/entries/hello-world.md"), "{error}");
+        let dry_run = dry_run_site(&site)?;
+        assert!(!dry_run.status.success(), "{body}");
+        let dry_error = String::from_utf8(dry_run.stderr)?;
+        assert!(dry_error.contains(reason), "{dry_error}");
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+        assert_no_build_leftovers(&site)?;
+    }
+    Ok(())
+}
+
+#[test]
 fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

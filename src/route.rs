@@ -51,7 +51,7 @@ impl Route {
         }
         let segments = relative
             .split('/')
-            .map(|segment| percent_decode(segment).ok())
+            .map(|segment| decode_path_segment(segment).ok())
             .collect::<Option<Vec<_>>>()?;
         let segments = segments.iter().map(String::as_str).collect::<Vec<_>>();
         segments
@@ -106,7 +106,25 @@ pub(crate) fn validate_served_urls<'a>(
 pub(crate) fn split_site_link(link: &str) -> Option<(&str, &str)> {
     let boundary = link.find(['?', '#']).unwrap_or(link.len());
     let (path, suffix) = link.split_at(boundary);
-    (!path.starts_with("//") && !path.contains(':')).then_some((path, suffix))
+    (!path.starts_with("//") && split_scheme(path).is_none()).then_some((path, suffix))
+}
+
+/// HTTP(S) and protocol-relative links receive the external-link HTML attributes.
+pub(crate) fn is_external_web_link(link: &str) -> bool {
+    link.starts_with("//")
+        || split_scheme(link).is_some_and(|(scheme, rest)| {
+            rest.starts_with("//")
+                && (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
+        })
+}
+
+fn split_scheme(link: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = link.split_once(':')?;
+    (scheme.bytes().next()?.is_ascii_alphabetic()
+        && scheme
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')))
+    .then_some((scheme, rest))
 }
 
 pub(crate) fn validate_links(
@@ -151,14 +169,15 @@ pub(crate) fn resolve_link(page_url: &str, link: &str) -> Result<Option<String>>
     let mut segments = Vec::with_capacity(raw.len());
     for (index, segment) in raw.iter().enumerate() {
         let last = index + 1 == raw.len();
-        match *segment {
+        let decoded = decode_path_segment(segment)?;
+        match decoded.as_str() {
             "." => {}
             ".." => {
                 // A `..` at the root stays at the root, as in RFC 3986.
                 segments.pop();
             }
-            other => {
-                segments.push(percent_decode(other)?);
+            _ => {
+                segments.push(decoded);
                 continue;
             }
         }
@@ -167,6 +186,16 @@ pub(crate) fn resolve_link(page_url: &str, link: &str) -> Result<Option<String>>
         }
     }
     Ok(Some(format!("/{}", segments.join("/"))))
+}
+
+/// Decode once without allowing an encoded separator to change the path's segments.
+fn decode_path_segment(segment: &str) -> Result<String> {
+    let decoded = percent_decode(segment)?;
+    ensure!(
+        !decoded.contains(['/', '\\']),
+        "URL path segments must not contain decoded path separators '/' or '\\'; use '/' between segments"
+    );
+    Ok(decoded)
 }
 
 pub(crate) fn percent_decode(segment: &str) -> Result<String> {
@@ -361,6 +390,18 @@ mod tests {
             ("%E7%94%BB%E5%83%8F.png", "/entries/画像.png"),
             ("画像.png", "/entries/画像.png"),
             ("a%20b.png", "/entries/a b.png"),
+            ("/files/a:b.png", "/files/a:b.png"),
+            ("./a:b.png", "/entries/a:b.png"),
+            ("files/a:b.png", "/entries/files/a:b.png"),
+            ("%2e%2E/", "/"),
+            (".%2e/about", "/about"),
+            ("%2e./about", "/about"),
+            ("%2E/foo", "/entries/foo"),
+            ("sub/%2e", "/entries/sub/"),
+            ("/%2e%2e/about", "/about"),
+            ("a%252fb.png", "/entries/a%2fb.png"),
+            ("%252e%252e/file.txt", "/entries/%2e%2e/file.txt"),
+            ("a%23b%3fc.txt", "/entries/a#b?c.txt"),
         ] {
             assert_eq!(
                 resolve_link("/entries/a", link)?.as_deref(),
@@ -376,11 +417,13 @@ mod tests {
     fn skips_external_and_same_page_links() -> Result<()> {
         for link in [
             "https://example.com/missing",
+            "HTTPS://example.com/missing",
             "http://example.com/missing",
             "//example.com/missing",
             "mailto:someone@example.com",
             "tel:+81-3-0000-0000",
             "data:image/png;base64,AAAA",
+            "custom+v1.2-test:target",
             "#section",
             "?view=full",
             "",
@@ -395,6 +438,27 @@ mod tests {
         for link in ["%", "a%2", "a%zz", "a%+1", "%FF"] {
             assert!(resolve_link("/entries/a", link).is_err(), "accepted {link}");
         }
+    }
+
+    #[test]
+    fn rejects_encoded_path_separators_in_links_and_requests() -> Result<()> {
+        for link in [
+            "/entries%2Ffoo",
+            "/entries%2ffoo",
+            "/entries%5Cfoo",
+            "/entries%5cfoo",
+        ] {
+            let error = resolve_link("/", link)
+                .err()
+                .context("accepted encoded separator")?;
+            assert!(error.to_string().contains("path separator"), "{error:#}");
+            assert!(Route::from_request_path(link).is_none());
+        }
+        assert_eq!(
+            resolve_link("/", "/foo?q=%2F#%5C")?.as_deref(),
+            Some("/foo")
+        );
+        Ok(())
     }
 
     #[test]
