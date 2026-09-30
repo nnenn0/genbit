@@ -64,7 +64,7 @@ tags = ["react", "web-security"]
 
 ### 記事間のリンク
 
-`.md` ファイルへの相対リンクは拡張子を取り除きます。`[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。
+`.md` ファイルへの相対リンクは拡張子を取り除きます。`[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。メールアドレスのオートリンクも変換せず、`<person@example.md>` の宛先は `mailto:person@example.md` のままです。
 
 ### サイト内リンクの検証
 
