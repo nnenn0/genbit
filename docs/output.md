@@ -18,6 +18,8 @@
 
 `build` の出力には、開発サーバー用の再読み込みスクリプトを含めません。
 
+`static/` 以下のファイル名・ディレクトリ名にバックスラッシュ（`\`）は使えません。URLの区切りと実際のファイル名が食い違うため、通常のビルドと `--dry-run` のどちらもエラーにします。階層を作る場合は、名前に `\` を含めず、実際のディレクトリを作ってください。
+
 ### メタデータ
 
 404ページ以外の全ページに、絶対URLのcanonicalリンクとOpen Graphを出力します。トップページとタグページには `WebSite`、記事には `BlogPosting` のJSON-LDを出力します。`BlogPosting` の `datePublished` と `dateModified` は、`created_at` と `updated_at` に `timezone` を付けた日時です。記事ごとの画像と著者情報には対応していません。

@@ -1989,6 +1989,38 @@ fn invalid_site_links_fail_build_and_dry_run_without_replacing_dist() -> Result<
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn static_backslash_names_fail_without_replacing_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for name in [r"a\b.txt", r"a\b/file.txt"] {
+        let path = site.join("static").join(name);
+        fs::create_dir_all(path.parent().context("missing static parent")?)?;
+        fs::write(&path, "asset")?;
+        fs::write(
+            site.join("content/entries/hello-world.md"),
+            article_source(&[], &format!("[asset](/{})", name.replace('\\', "/"))),
+        )?;
+        let error = build_err(&site)?;
+        assert!(error.contains("backslash"), "{error}");
+        assert!(error.contains(name), "{error}");
+        let dry_run = dry_run_site(&site)?;
+        assert!(!dry_run.status.success());
+        let error = String::from_utf8(dry_run.stderr)?;
+        assert!(
+            error.contains("backslash") && error.contains(name),
+            "{error}"
+        );
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+        assert_no_build_leftovers(&site)?;
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
 #[test]
 fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
     let workspace = Workspace::new()?;

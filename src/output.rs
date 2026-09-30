@@ -145,6 +145,15 @@ fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
             "invalid output path {}",
             artifact.path.display()
         );
+        ensure!(
+            artifact
+                .path
+                .components()
+                .all(|part| !part.as_os_str().as_encoded_bytes().contains(&b'\\')),
+            "output file and directory names must not contain backslashes: {} from {}",
+            artifact.path.display(),
+            artifact.source
+        );
         let spelled = artifact
             .path
             .to_str()
