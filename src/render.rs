@@ -239,11 +239,13 @@ impl<'a> Renderer<'a> {
     ) -> Result<Artifact> {
         let css = self
             .styles
-            .get(&article.template)
-            .with_context(|| format!("missing styles for template {}", article.template))?;
+            .get(article.template.as_str())
+            .with_context(|| {
+                format!("missing styles for template {}", article.template.as_str())
+            })?;
         let public = PublicArticle::from(article);
         self.render(
-            &article.template,
+            article.template.as_str(),
             &ArticleView {
                 site: config,
                 description: &article.description,
