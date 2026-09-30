@@ -59,7 +59,12 @@ fn main() -> Result<()> {
         }
         Command::Build { dry_run } => {
             let root = std::env::current_dir()?;
-            let count = build::run(&root, dry_run)?;
+            let mode = if dry_run {
+                build::Mode::DryRun
+            } else {
+                build::Mode::Publish
+            };
+            let count = build::run(&root, mode)?;
             if dry_run {
                 println!("Checked {count} pages; dist/ was not changed");
             } else {

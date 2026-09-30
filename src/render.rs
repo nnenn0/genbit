@@ -15,10 +15,10 @@ use std::{
 };
 use tera::{Context, Tera};
 
-pub(crate) struct Renderer<'a> {
+pub(crate) struct Renderer {
     tera: Tera,
     styles: BTreeMap<String, String>,
-    reload_script: Option<&'a str>,
+    reload_script: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -116,11 +116,11 @@ struct TagView<'a, 'b> {
     css: &'a str,
 }
 
-impl<'a> Renderer<'a> {
+impl Renderer {
     pub(crate) fn load(
         input: &SiteInput<'_>,
         articles: &[Article],
-        reload_script: Option<&'a str>,
+        reload_script: Option<&'static str>,
     ) -> Result<Self> {
         let tera = load_templates(input)?;
         ensure!(
