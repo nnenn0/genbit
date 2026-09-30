@@ -62,7 +62,7 @@ fn rewrite_article_link(event: Event<'_>) -> Event<'_> {
             dest_url,
             title,
             id,
-        }) => Event::Start(Tag::Link {
+        }) if link_type != LinkType::Email => Event::Start(Tag::Link {
             link_type,
             dest_url: article_url(&dest_url).map_or(dest_url, Into::into),
             title,
@@ -748,6 +748,31 @@ mod tests {
         assert!(
             html.contains("<a href=\"mailto:someone@example.com\">someone@example.com</a>"),
             "{html}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn preserves_md_email_addresses_when_rewriting_article_links() -> Result<()> {
+        let rendered = render(
+            "<person@example.md> [mail](mailto:person@example.md) [next](next.md?x=1#section)",
+        )?;
+        assert_eq!(
+            rendered
+                .html
+                .matches("href=\"mailto:person@example.md\"")
+                .count(),
+            2
+        );
+        assert!(
+            rendered
+                .html
+                .contains("<a href=\"mailto:person@example.md\">person@example.md</a>")
+        );
+        assert!(rendered.html.contains("href=\"next?x=1#section\""));
+        assert_eq!(
+            rendered.links,
+            ["mailto:person@example.md", "next?x=1#section"]
         );
         Ok(())
     }

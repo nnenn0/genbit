@@ -894,7 +894,7 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
         site.join("content/entries/hello-world.md"),
         article_source(
             &[],
-            "[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n",
+            "[Next](next.md?view=full#details)\n\n[External](https://example.com/next.md)\n\n<person@example.md> [Mail](mailto:person@example.md)\n",
         ),
     )?;
     fs::write(
@@ -912,6 +912,11 @@ fn links_to_markdown_articles_use_clean_urls() -> Result<()> {
     let html = fs::read_to_string(site.join("dist/entries/hello-world.html"))?;
     assert!(html.contains("href=\"next?view=full#details\""), "{html}");
     assert!(html.contains("href=https://example.com/next.md"), "{html}");
+    assert_eq!(
+        html.matches("href=mailto:person@example.md").count(),
+        2,
+        "{html}"
+    );
     assert!(html.contains("target=_blank"), "{html}");
     assert!(html.contains("rel=\"noopener noreferrer\""), "{html}");
     assert!(site.join("dist/entries/next.html").is_file());
