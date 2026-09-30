@@ -2,7 +2,78 @@ use crate::{
     content::Article,
     route::{UNTAGGED_TAG, tag_url},
 };
-use std::collections::BTreeMap;
+use anyhow::{Error, ensure};
+use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// A tag written in front matter: lowercase kebab-case, and neither reserved name.
+#[derive(Debug, Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) struct Tag(String);
+
+impl Tag {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for Tag {
+    type Error = Error;
+
+    fn try_from(tag: String) -> Result<Self, Error> {
+        ensure!(
+            valid_tag(&tag),
+            "invalid tag {tag:?}: use lowercase kebab-case"
+        );
+        ensure!(
+            tag != UNTAGGED_TAG,
+            "tag \"untagged\" is reserved for articles without tags"
+        );
+        // `/tags/index/` would collide with the clean URL of the tag list, `tags/index.html`.
+        ensure!(
+            tag != "index",
+            "tag \"index\" is reserved because /tags/index serves the tag list"
+        );
+        Ok(Self(tag))
+    }
+}
+
+fn valid_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+}
+
+/// The tags of one article, without duplicates.
+#[derive(Debug, Default, Deserialize)]
+#[serde(try_from = "Vec<Tag>")]
+pub(crate) struct Tags(Vec<Tag>);
+
+impl Tags {
+    pub(crate) fn into_vec(self) -> Vec<Tag> {
+        self.0
+    }
+}
+
+impl TryFrom<Vec<Tag>> for Tags {
+    type Error = Error;
+
+    fn try_from(tags: Vec<Tag>) -> Result<Self, Error> {
+        let mut seen = BTreeSet::new();
+        for tag in &tags {
+            ensure!(
+                seen.insert(tag.as_str()),
+                "duplicate tag {:?}",
+                tag.as_str()
+            );
+        }
+        Ok(Self(tags))
+    }
+}
 
 /// Returns the tags an article is listed under. Articles without tags are
 /// listed under the reserved `untagged` tag.
@@ -10,7 +81,7 @@ pub(crate) fn article_tags(article: &Article) -> Vec<&str> {
     if article.tags.is_empty() {
         vec![UNTAGGED_TAG]
     } else {
-        article.tags.iter().map(String::as_str).collect()
+        article.tags.iter().map(Tag::as_str).collect()
     }
 }
 
@@ -34,7 +105,7 @@ impl<'a> TagIndex<'a> {
                 untagged.push(article);
             }
             for tag in &article.tags {
-                tagged.entry(tag).or_default().push(article);
+                tagged.entry(tag.as_str()).or_default().push(article);
             }
         }
         let mut groups = tagged

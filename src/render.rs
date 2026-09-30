@@ -239,11 +239,13 @@ impl<'a> Renderer<'a> {
     ) -> Result<Artifact> {
         let css = self
             .styles
-            .get(&article.template)
-            .with_context(|| format!("missing styles for template {}", article.template))?;
+            .get(article.template.as_str())
+            .with_context(|| {
+                format!("missing styles for template {}", article.template.as_str())
+            })?;
         let public = PublicArticle::from(article);
         self.render(
-            &article.template,
+            article.template.as_str(),
             &ArticleView {
                 site: config,
                 description: &article.description,
@@ -318,21 +320,25 @@ fn load_styles(
 }
 
 fn load_templates(input: &SiteInput<'_>) -> Result<Tera> {
-    let template_root = input.root().join("templates");
+    let template_root = Path::new("templates");
     let templates = input
-        .files(Path::new("templates"))?
+        .files(template_root)?
         .into_iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "html"))
         .map(|path| {
-            let site_relative = path.strip_prefix(input.root())?;
-            let name = crate::route::slash_path(path.strip_prefix(&template_root)?)
+            let site_relative = template_root.join(&path);
+            let name = crate::route::slash_path(&path)
                 .with_context(|| format!("invalid template path {}", site_relative.display()))?;
-            Ok((name, input.read_text(site_relative)?))
+            Ok((name, input.read_text(&site_relative)?))
         })
         .collect::<Result<Vec<_>>>()?;
     let mut tera = Tera::default();
-    tera.add_raw_templates(templates)
-        .with_context(|| format!("cannot load templates in {}", template_root.display()))?;
+    tera.add_raw_templates(templates).with_context(|| {
+        format!(
+            "cannot load templates in {}",
+            input.root().join(template_root).display()
+        )
+    })?;
     Ok(tera)
 }
 

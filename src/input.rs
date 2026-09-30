@@ -62,6 +62,7 @@ impl<'a> SiteInput<'a> {
         Ok((path, source, output))
     }
 
+    /// Lists the regular files under `relative`, as paths relative to it.
     pub(crate) fn files(&self, relative: &Path) -> Result<Vec<PathBuf>> {
         let path = self.root.join(relative);
         let metadata = self
@@ -73,7 +74,7 @@ impl<'a> SiteInput<'a> {
             path.display()
         );
         let mut result = Vec::new();
-        collect_files(&path, &mut result)?;
+        collect_files(&path, Path::new(""), &mut result)?;
         result.sort();
         Ok(result)
     }
@@ -148,13 +149,14 @@ fn copy_error(source: &Path, target: &Path) -> String {
     format!("cannot copy {} to {}", source.display(), target.display())
 }
 
-fn collect_files(directory: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_files(directory: &Path, prefix: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
     for entry in
         fs::read_dir(directory).with_context(|| format!("cannot read {}", directory.display()))?
     {
         let entry =
             entry.with_context(|| format!("cannot read entry in {}", directory.display()))?;
         let path = entry.path();
+        let relative = prefix.join(entry.file_name());
         let kind = entry
             .file_type()
             .with_context(|| format!("cannot inspect {}", path.display()))?;
@@ -164,14 +166,14 @@ fn collect_files(directory: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
             path.display()
         );
         if kind.is_dir() {
-            collect_files(&path, result)?;
+            collect_files(&path, &relative, result)?;
         } else {
             ensure!(
                 kind.is_file(),
                 "expected a regular file: {}",
                 path.display()
             );
-            result.push(path);
+            result.push(relative);
         }
     }
     Ok(())

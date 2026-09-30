@@ -1,8 +1,11 @@
-use crate::route::{Route, UNTAGGED_TAG};
+use crate::{
+    image_size::Image,
+    route::Route,
+    tags::{Tag, Tags},
+};
 use anyhow::{Context, Result, bail, ensure};
 use jiff::{Zoned, civil::DateTime, tz::TimeZone};
-use serde::Deserialize;
-use std::collections::BTreeSet;
+use serde::{Deserialize, Deserializer, de::Error as _};
 use std::path::{Component, Path, PathBuf};
 use toml::value::{Datetime, Value};
 
@@ -11,44 +14,148 @@ use toml::value::{Datetime, Value};
 struct FrontMatter {
     title: Option<String>,
     description: Option<String>,
-    template: Option<String>,
     #[serde(default)]
-    tags: Vec<String>,
-    created_at: Option<Value>,
-    updated_at: Option<Value>,
+    template: TemplateName,
+    #[serde(default)]
+    tags: Tags,
+    #[serde(default, deserialize_with = "created_at")]
+    created_at: Option<DateTime>,
+    #[serde(default, deserialize_with = "updated_at")]
+    updated_at: Option<DateTime>,
 }
 
-/// Formats a date-time for JSON-LD, sitemaps, and templates, e.g. `2026-09-23T09:30:00+09:00`.
-pub(crate) fn rfc3339(value: &Zoned) -> String {
-    value.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string()
+/// Front matter completed from the file name and placed in the site's time zone.
+struct ArticleMeta {
+    title: String,
+    description: String,
+    template: TemplateName,
+    tags: Vec<Tag>,
+    created_at: Zoned,
+    updated_at: Zoned,
 }
 
-/// Reads a front matter date-time written as a TOML local date-time with minute precision.
-fn timestamp(value: Option<Value>, field: &str, timezone: &TimeZone) -> Result<Zoned> {
-    let value = value.with_context(|| format!("{field} is required for articles"))?;
-    let format = || {
-        format!("{field} must be a TOML local date-time with minute precision (YYYY-MM-DD HH:MM)")
+impl FrontMatter {
+    fn resolve(self, relative: &Path, timezone: &TimeZone) -> Result<ArticleMeta> {
+        let created_at = zoned(self.created_at, "created_at", timezone)?;
+        let updated_at = zoned(self.updated_at, "updated_at", timezone)?;
+        ensure!(
+            updated_at >= created_at,
+            "updated_at must not precede created_at"
+        );
+        let title = self.title.unwrap_or_else(|| {
+            relative
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("Untitled")
+                .to_owned()
+        });
+        ensure!(!title.trim().is_empty(), "title must not be empty");
+        let description = self
+            .description
+            .as_deref()
+            .context("description is required for articles")?
+            .trim()
+            .to_owned();
+        ensure!(!description.is_empty(), "description must not be empty");
+        crate::metadata::ensure_publishable_text(&title, "title")?;
+        crate::metadata::ensure_publishable_text(&description, "description")?;
+        Ok(ArticleMeta {
+            title,
+            description,
+            template: self.template,
+            tags: self.tags.into_vec(),
+            created_at,
+            updated_at,
+        })
+    }
+}
+
+fn created_at<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<DateTime>, D::Error> {
+    local_minute(deserializer, "created_at").map(Some)
+}
+
+fn updated_at<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<DateTime>, D::Error> {
+    local_minute(deserializer, "updated_at").map(Some)
+}
+
+/// Reads a TOML local date-time with minute precision, such as `2026-09-17 10:30`.
+fn local_minute<'de, D: Deserializer<'de>>(
+    deserializer: D,
+    field: &str,
+) -> Result<DateTime, D::Error> {
+    let invalid = || {
+        D::Error::custom(format!(
+            "{field} must be a TOML local date-time with minute precision (YYYY-MM-DD HH:MM)"
+        ))
     };
     let Value::Datetime(Datetime {
         date: Some(date),
         time: Some(time),
         offset: None,
-    }) = value
+    }) = Value::deserialize(deserializer)?
     else {
-        bail!(format());
+        return Err(invalid());
     };
-    ensure!(time.second.is_none() && time.nanosecond.is_none(), format());
-    DateTime::new(
-        i16::try_from(date.year)?,
-        i8::try_from(date.month)?,
-        i8::try_from(date.day)?,
-        i8::try_from(time.hour)?,
-        i8::try_from(time.minute)?,
-        0,
-        0,
-    )?
-    .to_zoned(timezone.clone())
-    .map_err(Into::into)
+    if time.second.is_some() || time.nanosecond.is_some() {
+        return Err(invalid());
+    }
+    let civil = || -> Result<DateTime> {
+        Ok(DateTime::new(
+            i16::try_from(date.year)?,
+            i8::try_from(date.month)?,
+            i8::try_from(date.day)?,
+            i8::try_from(time.hour)?,
+            i8::try_from(time.minute)?,
+            0,
+            0,
+        )?)
+    };
+    civil().map_err(D::Error::custom)
+}
+
+fn zoned(value: Option<DateTime>, field: &str, timezone: &TimeZone) -> Result<Zoned> {
+    value
+        .with_context(|| format!("{field} is required for articles"))?
+        .to_zoned(timezone.clone())
+        .map_err(Into::into)
+}
+
+/// A template file under `templates/`, such as `page.html`.
+#[derive(Debug, Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) struct TemplateName(String);
+
+impl TemplateName {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for TemplateName {
+    fn default() -> Self {
+        Self("page.html".to_owned())
+    }
+}
+
+impl TryFrom<String> for TemplateName {
+    type Error = anyhow::Error;
+
+    fn try_from(name: String) -> Result<Self> {
+        ensure!(
+            !name.is_empty()
+                && Path::new(&name)
+                    .components()
+                    .all(|part| matches!(part, Component::Normal(_)))
+                && !name.contains('\\'),
+            "template must be a relative path inside templates/"
+        );
+        Ok(Self(name))
+    }
+}
+
+/// Formats a date-time for JSON-LD, sitemaps, and templates, e.g. `2026-09-23T09:30:00+09:00`.
+pub(crate) fn rfc3339(value: &Zoned) -> String {
+    value.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string()
 }
 
 pub(crate) struct Article {
@@ -57,8 +164,8 @@ pub(crate) struct Article {
     pub(crate) route: Route,
     pub(crate) created_at: Zoned,
     pub(crate) updated_at: Zoned,
-    pub(crate) template: String,
-    pub(crate) tags: Vec<String>,
+    pub(crate) template: TemplateName,
+    pub(crate) tags: Vec<Tag>,
     pub(crate) html: String,
     pub(crate) links: Vec<String>,
     pub(crate) source: PathBuf,
@@ -68,59 +175,11 @@ pub(crate) fn parse(
     source: &str,
     relative: &Path,
     timezone: &TimeZone,
-    mut image: impl FnMut(&str, &str) -> Result<Option<crate::image_size::Image>>,
+    mut image: impl FnMut(&str, &str) -> Result<Option<Image>>,
 ) -> Result<Article> {
-    let (metadata, body) = split_front_matter(source)?;
+    let (front_matter, body) = split_front_matter(source)?;
     let route = Route::from_content_path(relative)?;
-    let created_at = timestamp(metadata.created_at, "created_at", timezone)?;
-    let updated_at = timestamp(metadata.updated_at, "updated_at", timezone)?;
-    ensure!(
-        updated_at >= created_at,
-        "updated_at must not precede created_at"
-    );
-    let title = metadata.title.unwrap_or_else(|| {
-        relative
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("Untitled")
-            .to_owned()
-    });
-    ensure!(!title.trim().is_empty(), "title must not be empty");
-    let description = metadata
-        .description
-        .as_deref()
-        .context("description is required for articles")?
-        .trim()
-        .to_owned();
-    ensure!(!description.is_empty(), "description must not be empty");
-    crate::metadata::ensure_publishable_text(&title, "title")?;
-    crate::metadata::ensure_publishable_text(&description, "description")?;
-    let template = metadata.template.unwrap_or_else(|| "page.html".to_owned());
-    let mut seen_tags = BTreeSet::new();
-    for tag in &metadata.tags {
-        ensure!(
-            valid_tag(tag),
-            "invalid tag {tag:?}: use lowercase kebab-case"
-        );
-        ensure!(
-            tag != UNTAGGED_TAG,
-            "tag \"untagged\" is reserved for articles without tags"
-        );
-        // `/tags/index/` would collide with the clean URL of the tag list, `tags/index.html`.
-        ensure!(
-            tag != "index",
-            "tag \"index\" is reserved because /tags/index serves the tag list"
-        );
-        ensure!(seen_tags.insert(tag), "duplicate tag {tag:?}");
-    }
-    ensure!(
-        !template.is_empty()
-            && Path::new(&template)
-                .components()
-                .all(|part| matches!(part, Component::Normal(_)))
-            && !template.contains('\\'),
-        "template must be a relative path inside templates/"
-    );
+    let meta = front_matter.resolve(relative, timezone)?;
     let parsed = crate::markdown::parse(body).map_err(|error| {
         let line = line_number(source, source.len() - body.len() + error.offset);
         anyhow::anyhow!(
@@ -129,13 +188,13 @@ pub(crate) fn parse(
     })?;
     let rendered = parsed.render(|url| image(route.url(), url))?;
     Ok(Article {
-        title,
-        description,
+        title: meta.title,
+        description: meta.description,
         route,
-        created_at,
-        updated_at,
-        template,
-        tags: metadata.tags,
+        created_at: meta.created_at,
+        updated_at: meta.updated_at,
+        template: meta.template,
+        tags: meta.tags,
         html: rendered.html,
         links: rendered.links,
         source: relative.to_path_buf(),
@@ -155,16 +214,6 @@ fn line_number(source: &str, offset: usize) -> usize {
     breaks + 1
 }
 
-fn valid_tag(tag: &str) -> bool {
-    !tag.is_empty()
-        && tag.split('-').all(|part| {
-            !part.is_empty()
-                && part
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        })
-}
-
 fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     let mut lines = source.split_inclusive('\n');
@@ -182,8 +231,9 @@ fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
                 .get(first.len()..end - line.len())
                 .context("invalid front matter fields boundary")?;
             let body = source.get(end..).context("invalid body boundary")?;
+            // The leading newline stands for the opening `+++`, so TOML errors report file lines.
             let metadata: FrontMatter =
-                toml::from_str(fields).context("invalid TOML front matter")?;
+                toml::from_str(&format!("\n{fields}")).context("invalid TOML front matter")?;
             return Ok((metadata, body));
         }
     }
@@ -327,10 +377,36 @@ mod tests {
     }
 
     #[test]
+    fn front_matter_errors_report_file_lines() -> Result<()> {
+        for (source, location) in [
+            (
+                "+++\ndescription = 'Post'\ncreated_at = 2026-09-17 10:00:00\n+++\n",
+                "line 3, column 14",
+            ),
+            (
+                "\u{feff}+++\r\n\r\ntags = ['React']\r\n+++\r\n",
+                "line 3, column 8",
+            ),
+        ] {
+            let error = parse(source, Path::new("post.md"), &TimeZone::UTC)
+                .err()
+                .context(format!("accepted {source:?}"))?;
+            assert!(
+                format!("{error:#}").contains(location),
+                "{source:?}: expected {location:?}, got {error:#}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn validates_tags() -> Result<()> {
         let source = "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = ['react', 'react-19', 'web-security']\n+++\nBody";
         let article = parse(source, Path::new("post.md"), &TimeZone::UTC)?;
-        assert_eq!(article.tags, ["react", "react-19", "web-security"]);
+        assert_eq!(
+            article.tags.iter().map(Tag::as_str).collect::<Vec<_>>(),
+            ["react", "react-19", "web-security"]
+        );
         let untagged = parse(
             "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\n+++\nBody",
             Path::new("post.md"),

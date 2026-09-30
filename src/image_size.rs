@@ -28,16 +28,15 @@ pub(crate) struct Images<'a> {
 }
 
 impl<'a> Images<'a> {
+    /// Takes the files under `static/`, as paths relative to it.
     pub(crate) fn new(root: &'a Path, files: &[PathBuf]) -> Result<Self> {
-        let static_root = root.join("static");
         let files = files
             .iter()
-            .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
             .map(|path| {
-                let site_relative = path.strip_prefix(root)?;
-                let url = crate::route::slash_path(path.strip_prefix(&static_root)?)
+                let site_relative = Path::new("static").join(path);
+                let url = crate::route::slash_path(path)
                     .with_context(|| format!("invalid static file {}", site_relative.display()))?;
-                Ok((format!("/{url}"), site_relative.to_path_buf()))
+                Ok((format!("/{url}"), site_relative))
             })
             .collect::<Result<_>>()?;
         Ok(Self {
@@ -71,9 +70,12 @@ impl<'a> Images<'a> {
         Ok(Some(image))
     }
 
-    /// The hash of a file under the site root, if an article referenced it as an image.
-    pub(crate) fn hash(&self, path: &Path) -> Option<ContentHash> {
-        self.probed.get(path).map(|image| image.hash)
+    /// The hashes of the files that articles referenced as images, by path under the site root.
+    pub(crate) fn into_hashes(self) -> BTreeMap<PathBuf, ContentHash> {
+        self.probed
+            .into_iter()
+            .map(|(path, image)| (path, image.hash))
+            .collect()
     }
 }
 
@@ -303,12 +305,13 @@ mod tests {
         let mut images = Images::new(
             root.path(),
             &[
-                image.clone(),
-                copy.clone(),
-                data.clone(),
-                broken.clone(),
-                unused.clone(),
-            ],
+                "image.png",
+                "copy.png",
+                "notes.data",
+                "broken.png",
+                "unused.png",
+            ]
+            .map(PathBuf::from),
         )?;
         fs::remove_file(unused)?;
         let png_image = Image {
@@ -358,12 +361,14 @@ mod tests {
         ] {
             assert_eq!(images.get("/post", url)?, None);
         }
-        assert_eq!(images.probed.len(), 3);
         assert_eq!(
-            images.hash(Path::new("static/notes.data")),
-            Some(data_image.hash)
+            images.into_hashes(),
+            BTreeMap::from([
+                (PathBuf::from("static/copy.png"), png_image.hash),
+                (PathBuf::from("static/image.png"), png_image.hash),
+                (PathBuf::from("static/notes.data"), data_image.hash),
+            ])
         );
-        assert_eq!(images.hash(Path::new("static/broken.png")), None);
         Ok(())
     }
 
@@ -434,7 +439,7 @@ mod tests {
         fs::create_dir(root.path().join("static"))?;
         let image = root.path().join("static/image.png");
         fs::write(&image, b"image")?;
-        let mut images = Images::new(root.path(), std::slice::from_ref(&image))?;
+        let mut images = Images::new(root.path(), &[PathBuf::from("image.png")])?;
         fs::remove_file(&image)?;
         std::os::unix::fs::symlink(root.path().join("outside.png"), &image)?;
         let error = images
