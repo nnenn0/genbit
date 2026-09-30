@@ -2,6 +2,7 @@ use crate::{
     image_size::Image,
     route::Route,
     tags::{Tag, Tags},
+    text::PublishableText,
 };
 use anyhow::{Context, Result, bail, ensure};
 use jiff::{Zoned, civil::DateTime, tz::TimeZone};
@@ -26,8 +27,8 @@ struct FrontMatter {
 
 /// Front matter completed from the file name and placed in the site's time zone.
 struct ArticleMeta {
-    title: String,
-    description: String,
+    title: PublishableText,
+    description: PublishableText,
     template: TemplateName,
     tags: Vec<Tag>,
     created_at: Zoned,
@@ -49,16 +50,14 @@ impl FrontMatter {
                 .unwrap_or("Untitled")
                 .to_owned()
         });
-        ensure!(!title.trim().is_empty(), "title must not be empty");
+        let title = PublishableText::new(title, "title")?;
         let description = self
             .description
             .as_deref()
             .context("description is required for articles")?
             .trim()
             .to_owned();
-        ensure!(!description.is_empty(), "description must not be empty");
-        crate::metadata::ensure_publishable_text(&title, "title")?;
-        crate::metadata::ensure_publishable_text(&description, "description")?;
+        let description = PublishableText::new(description, "description")?;
         Ok(ArticleMeta {
             title,
             description,
@@ -159,8 +158,8 @@ pub(crate) fn rfc3339(value: &Zoned) -> String {
 }
 
 pub(crate) struct Article {
-    pub(crate) title: String,
-    pub(crate) description: String,
+    pub(crate) title: PublishableText,
+    pub(crate) description: PublishableText,
     pub(crate) route: Route,
     pub(crate) created_at: Zoned,
     pub(crate) updated_at: Zoned,

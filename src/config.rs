@@ -1,3 +1,4 @@
+use crate::text::PublishableText;
 use anyhow::{Context, Result, ensure};
 use http::Uri;
 use jiff::tz::TimeZone;
@@ -16,8 +17,8 @@ struct RawConfig {
 
 #[derive(Serialize)]
 pub(crate) struct Config {
-    pub(crate) title: String,
-    pub(crate) description: String,
+    pub(crate) title: PublishableText,
+    pub(crate) description: PublishableText,
     pub(crate) site_url: SiteUrl,
     pub(crate) og_image: String,
     #[serde(skip)]
@@ -39,16 +40,8 @@ impl TryFrom<RawConfig> for Config {
     type Error = anyhow::Error;
 
     fn try_from(raw: RawConfig) -> Result<Self> {
-        ensure!(
-            !raw.title.trim().is_empty(),
-            "config.toml: title must not be empty"
-        );
-        ensure!(
-            !raw.description.trim().is_empty(),
-            "config.toml: description must not be empty"
-        );
-        crate::metadata::ensure_publishable_text(&raw.title, "config.toml: title")?;
-        crate::metadata::ensure_publishable_text(&raw.description, "config.toml: description")?;
+        let title = PublishableText::new(raw.title, "config.toml: title")?;
+        let description = PublishableText::new(raw.description, "config.toml: description")?;
         let site_url = SiteUrl::parse(&raw.site_url)?;
         let og_image = validate_og_image(&raw.og_image, &site_url)?;
         let timezone = TimeZone::get(&raw.timezone).with_context(|| {
@@ -58,8 +51,8 @@ impl TryFrom<RawConfig> for Config {
             )
         })?;
         Ok(Self {
-            title: raw.title,
-            description: raw.description,
+            title,
+            description,
             site_url,
             og_image,
             timezone,

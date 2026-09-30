@@ -42,9 +42,9 @@ pub(crate) fn website_json_ld(config: &Config) -> Result<String> {
     json_ld(&WebsiteStructuredData {
         context: "https://schema.org",
         kind: "WebSite",
-        name: &config.title,
+        name: config.title.as_str(),
         url: config.site_url.as_str(),
-        description: &config.description,
+        description: config.description.as_str(),
         image: &config.og_image,
     })
 }
@@ -55,8 +55,8 @@ pub(crate) fn article_json_ld(config: &Config, article: &Article, url: &str) -> 
     json_ld(&ArticleStructuredData {
         context: "https://schema.org",
         kind: "BlogPosting",
-        headline: &article.title,
-        description: &article.description,
+        headline: article.title.as_str(),
+        description: article.description.as_str(),
         url,
         image: &config.og_image,
         date_published: &published,
@@ -135,16 +135,16 @@ fn feed_xml(config: &Config, articles: &[Article]) -> String {
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n",
     );
-    push_element(&mut xml, "    ", "title", &config.title);
+    push_element(&mut xml, "    ", "title", config.title.as_str());
     push_element(&mut xml, "    ", "link", config.site_url.as_str());
-    push_element(&mut xml, "    ", "description", &config.description);
+    push_element(&mut xml, "    ", "description", config.description.as_str());
     xml.push_str("    <atom:link href=\"");
     xml.push_str(&xml_escape(&config.site_url.join_root_path(FEED_URL)));
     xml.push_str("\" rel=\"self\" type=\"application/rss+xml\"/>\n");
     for article in articles.iter().take(FEED_ITEM_LIMIT) {
         let url = config.site_url.join_root_path(article.route.url());
         xml.push_str("    <item>\n");
-        push_element(&mut xml, "      ", "title", &article.title);
+        push_element(&mut xml, "      ", "title", article.title.as_str());
         push_element(&mut xml, "      ", "link", &url);
         push_element(&mut xml, "      ", "guid", &url);
         push_element(
@@ -158,7 +158,7 @@ fn feed_xml(config: &Config, articles: &[Article]) -> String {
         );
         // RSS item descriptions are HTML inside XML. These XML entities are also
         // valid HTML: escape the text once for HTML, then again when writing XML.
-        let description = xml_escape(&article.description);
+        let description = xml_escape(article.description.as_str());
         push_element(&mut xml, "      ", "description", &description);
         xml.push_str("    </item>\n");
     }
@@ -175,20 +175,6 @@ fn push_element(xml: &mut String, indent: &str, name: &str, text: &str) {
     xml.push_str("</");
     xml.push_str(name);
     xml.push_str(">\n");
-}
-
-/// Rejects characters that XML cannot represent even when escaped and that HTML treats as parse errors.
-pub(crate) fn ensure_publishable_text(text: &str, field: &str) -> Result<()> {
-    if let Some(character) = text.chars().find(|&character| {
-        (character.is_control() && !matches!(character, '\t' | '\n' | '\r'))
-            || matches!(character, '\u{fffe}' | '\u{ffff}')
-    }) {
-        anyhow::bail!(
-            "{field} must not contain control characters: U+{:04X}",
-            u32::from(character)
-        );
-    }
-    Ok(())
 }
 
 fn xml_escape(text: &str) -> String {
@@ -220,7 +206,7 @@ pub(crate) fn robots(base: &SiteUrl) -> Artifact {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_publishable_text, feed_xml, json_ld};
+    use super::{feed_xml, json_ld};
     use crate::{config::Config, content};
     use anyhow::Result;
     use std::path::Path;
@@ -280,21 +266,6 @@ mod tests {
         let newest = xml.find("Post 20").unwrap_or(usize::MAX);
         let older = xml.find("Post 19").unwrap_or(0);
         assert!(newest < older, "{xml}");
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_text_that_xml_cannot_represent() -> Result<()> {
-        ensure_publishable_text("tab\tline\ncarriage\r and ✓", "title")?;
-        for text in ["a\u{1}b", "a\u{b}b", "a\u{7f}b", "a\u{85}b", "a\u{fffe}b"] {
-            let error = ensure_publishable_text(text, "title")
-                .err()
-                .ok_or_else(|| anyhow::anyhow!("accepted {text:?}"))?;
-            assert!(
-                error.to_string().starts_with("title must not contain"),
-                "{error}"
-            );
-        }
         Ok(())
     }
 }
