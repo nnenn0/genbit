@@ -40,12 +40,9 @@ impl Parsed<'_> {
         self,
         mut local_image: impl FnMut(&str) -> anyhow::Result<Option<Image>>,
     ) -> anyhow::Result<Rendered> {
-        let mut links = Vec::new();
-        let events = to_html_events(
-            anchor_headings(self.events.into_iter()),
-            &mut links,
-            &mut local_image,
-        )?;
+        let events = anchor_headings(self.events.into_iter());
+        let links = site_links(&events);
+        let events = to_html_events(events, &mut local_image)?;
         let mut output = String::new();
         html::push_html(&mut output, events.into_iter());
         Ok(Rendered {
@@ -114,10 +111,40 @@ fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event
     anchored
 }
 
-/// Replaces events that need attributes pulldown-cmark cannot write, collecting link and image targets in document order.
+/// Returns the link and image targets that the HTML will contain, in document order, leaving out
+/// external web links and email autolinks. Images keep only the text of their alt content.
+fn site_links(events: &[Event<'_>]) -> Vec<String> {
+    let mut links = Vec::new();
+    let mut image_depth = 0_usize;
+    for event in events {
+        match event {
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                if image_depth == 0 {
+                    links.push(dest_url.to_string());
+                }
+                image_depth += 1;
+            }
+            Event::End(TagEnd::Image) => image_depth = image_depth.saturating_sub(1),
+            // Email autolinks have no mailto: yet.
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                ..
+            }) if image_depth == 0
+                && *link_type != LinkType::Email
+                && !crate::route::is_external_web_link(dest_url) =>
+            {
+                links.push(dest_url.to_string());
+            }
+            _ => {}
+        }
+    }
+    links
+}
+
+/// Replaces events that need attributes pulldown-cmark cannot write.
 fn to_html_events<'a>(
     events: Vec<Event<'a>>,
-    links: &mut Vec<String>,
     local_image: &mut impl FnMut(&str) -> anyhow::Result<Option<Image>>,
 ) -> anyhow::Result<Vec<Event<'a>>> {
     let mut converted = Vec::with_capacity(events.len());
@@ -129,7 +156,6 @@ fn to_html_events<'a>(
             Event::Start(Tag::Image {
                 dest_url, title, ..
             }) => {
-                links.push(dest_url.to_string());
                 let image = local_image(&dest_url)?;
                 let source = match image {
                     Some(image) => versioned_url(&dest_url, &image.hash.url_version())?,
@@ -154,23 +180,6 @@ fn to_html_events<'a>(
             Event::End(TagEnd::Link) if external_link => {
                 external_link = false;
                 converted.push(Event::Html("</a>".into()));
-            }
-            Event::Start(Tag::Link {
-                link_type,
-                dest_url,
-                title,
-                id,
-            }) => {
-                // Email autolinks have no mailto: yet.
-                if link_type != LinkType::Email {
-                    links.push(dest_url.to_string());
-                }
-                converted.push(Event::Start(Tag::Link {
-                    link_type,
-                    dest_url,
-                    title,
-                    id,
-                }));
             }
             Event::Start(Tag::CodeBlock(kind)) => {
                 if let Some(label) = code_block_label(&kind) {
@@ -575,8 +584,19 @@ mod tests {
     }
 
     #[test]
+    fn collects_no_targets_from_image_alt_text() -> Result<()> {
+        let rendered = render("![see [a](/a) ![b](/b.png)](/c.png) [d](/d)")?;
+        assert_eq!(rendered.links, ["/c.png", "/d"]);
+        Ok(())
+    }
+
+    #[test]
     fn unwraps_links_inside_headings() -> Result<()> {
-        let html = render_html("## [内部](other.md) と [外部](https://example.com)\n")?;
+        let parsed = super::parse("## [内部](other.md) と [外部](https://example.com)\n")
+            .map_err(|_| anyhow!("invalid test Markdown"))?;
+        let rendered = parsed.render(|_| Ok(None))?;
+        assert!(rendered.links.is_empty(), "{:?}", rendered.links);
+        let html = rendered.html;
         assert!(
             html.contains(
                 "<a class=\"heading-anchor\" href=\"#内部-と-外部\">内部 と 外部</a></h2>"
