@@ -61,31 +61,30 @@ impl From<&Zoned> for PublicTimestamp {
     }
 }
 
+/// The variables every template receives, around those of its own view.
 #[derive(Serialize)]
-struct HomeView<'a, 'b> {
+struct Page<'a, V> {
     site: &'a Config,
-    description: &'a str,
-    canonical_url: &'a str,
-    json_ld: &'a str,
-    entries: &'a [PublicArticle<'b>],
     css: &'a str,
+    #[serde(flatten)]
+    view: V,
 }
 
 #[derive(Serialize)]
-struct ArticleView<'a, 'b> {
-    site: &'a Config,
+struct HomeView<'a> {
     description: &'a str,
     canonical_url: &'a str,
     json_ld: &'a str,
-    article: &'a PublicArticle<'b>,
+    entries: Vec<PublicArticle<'a>>,
+}
+
+#[derive(Serialize)]
+struct ArticleView<'a> {
+    description: &'a str,
+    canonical_url: &'a str,
+    json_ld: &'a str,
+    article: PublicArticle<'a>,
     content: &'a str,
-    css: &'a str,
-}
-
-#[derive(Serialize)]
-struct NotFoundView<'a> {
-    site: &'a Config,
-    css: &'a str,
 }
 
 #[derive(Serialize)]
@@ -97,23 +96,19 @@ struct PublicTag<'a> {
 
 #[derive(Serialize)]
 struct TagsView<'a> {
-    site: &'a Config,
     description: &'a str,
     canonical_url: String,
     json_ld: &'a str,
     tags: Vec<PublicTag<'a>>,
-    css: &'a str,
 }
 
 #[derive(Serialize)]
 struct TagView<'a, 'b> {
-    site: &'a Config,
     description: String,
     canonical_url: String,
     json_ld: &'a str,
     tag: &'a str,
     entries: Vec<PublicArticle<'b>>,
-    css: &'a str,
 }
 
 impl Renderer {
@@ -144,10 +139,6 @@ impl Renderer {
         tags: &TagIndex<'_>,
         json_ld: &str,
     ) -> Result<Artifact> {
-        let css = self
-            .styles
-            .get("tags.html")
-            .context("missing styles for tags.html")?;
         let public_tags = tags
             .groups()
             .iter()
@@ -158,14 +149,13 @@ impl Renderer {
             })
             .collect();
         self.render(
+            config,
             "tags.html",
-            &TagsView {
-                site: config,
+            TagsView {
                 description: "記事のタグ一覧",
                 canonical_url: config.site_url.join_root_path(TAGS_INDEX_URL),
                 json_ld,
                 tags: public_tags,
-                css,
             },
             PathBuf::from("tags/index.html"),
             "<generated tag index>",
@@ -179,25 +169,20 @@ impl Renderer {
         json_ld: &str,
     ) -> Result<Artifact> {
         let tag = group.name;
-        let css = self
-            .styles
-            .get("tag.html")
-            .context("missing styles for tag.html")?;
         let entries = group
             .articles
             .iter()
             .map(|article| PublicArticle::from(*article))
             .collect();
         self.render(
+            config,
             "tag.html",
-            &TagView {
-                site: config,
+            TagView {
                 description: format!("{tag} の記事一覧"),
                 canonical_url: config.site_url.join_root_path(&group.url()),
                 json_ld,
                 tag,
                 entries,
-                css,
             },
             PathBuf::from("tags").join(tag).join("index.html"),
             &format!("<generated tag {tag}>"),
@@ -210,20 +195,14 @@ impl Renderer {
         articles: &[Article],
         json_ld: &str,
     ) -> Result<Artifact> {
-        let entries = articles.iter().map(PublicArticle::from).collect::<Vec<_>>();
-        let css = self
-            .styles
-            .get("root.html")
-            .context("missing styles for root.html")?;
         self.render(
+            config,
             "root.html",
-            &HomeView {
-                site: config,
+            HomeView {
                 description: &config.description,
                 canonical_url: config.site_url.as_str(),
                 json_ld,
-                entries: &entries,
-                css,
+                entries: articles.iter().map(PublicArticle::from).collect(),
             },
             PathBuf::from("index.html"),
             "<generated home>",
@@ -237,23 +216,15 @@ impl Renderer {
         canonical_url: &str,
         json_ld: &str,
     ) -> Result<Artifact> {
-        let css = self
-            .styles
-            .get(article.template.as_str())
-            .with_context(|| {
-                format!("missing styles for template {}", article.template.as_str())
-            })?;
-        let public = PublicArticle::from(article);
         self.render(
+            config,
             article.template.as_str(),
-            &ArticleView {
-                site: config,
+            ArticleView {
                 description: &article.description,
                 canonical_url,
                 json_ld,
-                article: &public,
+                article: PublicArticle::from(article),
                 content: &article.html,
-                css,
             },
             article.route.output().to_path_buf(),
             &format!("content/{}", article.source.display()),
@@ -261,13 +232,10 @@ impl Renderer {
     }
 
     pub(crate) fn not_found(&self, config: &Config) -> Result<Artifact> {
-        let css = self
-            .styles
-            .get("404.html")
-            .context("missing styles for 404.html")?;
         self.render(
+            config,
             "404.html",
-            &NotFoundView { site: config, css },
+            (),
             PathBuf::from("404.html"),
             "templates/404.html",
         )
@@ -275,12 +243,23 @@ impl Renderer {
 
     fn render(
         &self,
+        config: &Config,
         template: &str,
-        view: &impl Serialize,
+        view: impl Serialize,
         output: PathBuf,
         source: &str,
     ) -> Result<Artifact> {
-        let context = Context::from_serialize(view).context("cannot serialize template context")?;
+        let css = self
+            .styles
+            .get(template)
+            .with_context(|| format!("missing styles for template {template}"))?;
+        let page = Page {
+            site: config,
+            css,
+            view,
+        };
+        let context =
+            Context::from_serialize(&page).context("cannot serialize template context")?;
         let mut html = self
             .tera
             .render(template, &context)
@@ -344,7 +323,7 @@ fn load_templates(input: &SiteInput<'_>) -> Result<Tera> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ArticleView, HomeView, PublicArticle};
+    use super::{ArticleView, HomeView, Page, PublicArticle};
     use crate::{config::Config, content};
     use anyhow::{Context as _, Result};
     use std::path::Path;
@@ -361,28 +340,32 @@ mod tests {
             &site.timezone,
             |_, _| Ok(None),
         )?];
-        let entries = articles.iter().map(PublicArticle::from).collect::<Vec<_>>();
-        let home = Context::from_serialize(&HomeView {
+        let home = Context::from_serialize(&Page {
             site: &site,
-            description: &site.description,
-            canonical_url: site.site_url.as_str(),
-            json_ld: "{}",
-            entries: &entries,
             css: "",
+            view: HomeView {
+                description: &site.description,
+                canonical_url: site.site_url.as_str(),
+                json_ld: "{}",
+                entries: articles.iter().map(PublicArticle::from).collect(),
+            },
         })?;
+        assert!(home.get("site").is_some() && home.get("css").is_some());
         assert!(home.get("entries").is_some());
         assert!(home.get("article").is_none());
 
         let article = articles.first().context("test article missing")?;
         let public = PublicArticle::from(article);
-        let single = Context::from_serialize(&ArticleView {
+        let single = Context::from_serialize(&Page {
             site: &site,
-            description: &article.description,
-            canonical_url: "http://127.0.0.1:3000/post",
-            json_ld: "{}",
-            article: &public,
-            content: &article.html,
             css: "",
+            view: ArticleView {
+                description: &article.description,
+                canonical_url: "http://127.0.0.1:3000/post",
+                json_ld: "{}",
+                article: PublicArticle::from(article),
+                content: &article.html,
+            },
         })?;
         assert!(single.get("article").is_some());
         assert!(single.get("entries").is_none());
