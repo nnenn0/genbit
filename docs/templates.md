@@ -58,7 +58,7 @@
 
 - `base.html` はタイトル、meta description、canonicalリンク、Open Graph、JSON-LD、favicon、RSSの自動検出用リンクを出力します。子テンプレートはこのブロックを上書きします。
 - `404.html` は `metadata` ブロックを上書きして `noindex` を指定し、canonical・Open Graph・JSON-LDを出しません。
-- `page.html` は記事タイトル全体を記事URLへのリンクにし、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。
+- `page.html` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。
 - `root.html` は記事一覧の後に、タグ一覧とRSSフィードへのリンクを表示します。
 - `entry-list.html` は `entries` を描画します。スタイルは `common.css` の `.entry-list` にあります。
 - faviconはPNGを先に指定し、SVG対応ブラウザー向けのSVGも併記します。

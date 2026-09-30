@@ -27,6 +27,7 @@
 - **ライブリロード** — `genbit dev` は保存のたびに再ビルドし、SSEでブラウザーを再読み込みします。再ビルドに失敗しても、最後に成功したサイトを配信し続けます。
 - **CSSのインライン化とHTML圧縮** — CSSはテンプレートごとにインライン展開し、全ページを圧縮します。初期テーマはJavaScriptなしでOSのライト/ダーク設定に追従します。
 - **メタデータとRSSの生成** — canonicalリンク、`sitemap.xml`、`robots.txt`、Open Graph、JSON-LD、RSS 2.0フィードを生成します。
+- **本文の画像の寸法とキャッシュ対策** — ローカルのPNG・JPEG・GIF・WebPに `width`・`height` 属性を自動で付け、読み込みによるレイアウトシフトを防ぎます。画像のURLには内容のハッシュを付けるため、長期間キャッシュしても差し替えが反映されます。
 - **タグ・見出しリンク・拡張子なしURL** — タグページ、リンク付きの見出し、コードブロックの言語ラベル、拡張子なしの記事URLに対応します。
 - **失敗しても `dist/` を壊さないビルド** — ビルドは一時領域で行い、成功したときだけ `dist/` を入れ替えます。URLの衝突やシンボリックリンクの入力は拒否します。
 
@@ -49,7 +50,7 @@ tar -xzf "genbit-$VERSION-$TARGET.tar.gz"
 install "genbit-$VERSION-$TARGET/genbit" ~/.local/bin/
 ```
 
-`VERSION` には最新のリリースのタグ（例: `v0.1.2`）が入ります。特定の版を入れるときは直接指定してください。`~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。アーカイブには、genbitが含む依存クレートのライセンスをまとめた `THIRD_PARTY_LICENSES.md` も入っています。
+`VERSION` には最新のリリースのタグ（`v` で始まる版）が入ります。特定の版を入れるときは直接指定してください。`~/.local/bin` は `PATH` に含まれる任意のディレクトリに置き換えてください。アーカイブには、genbitが含む依存クレートのライセンスをまとめた `THIRD_PARTY_LICENSES.md` も入っています。
 
 <details>
 <summary>Artifact Attestationsの検証、macOSのGatekeeper、ソースからのビルド</summary>
@@ -94,7 +95,7 @@ genbit build    # dist/ にサイトを生成
 
 | コマンド | 内容 |
 | --- | --- |
-| `genbit new <name>` | 設定・テンプレート・CSS・サンプル記事を含む新しいサイトのディレクトリを作ります。既存のパスは上書きしません。 |
+| `genbit new <name>` | 設定・テンプレート・CSS・サンプル記事を含む新しいサイトのディレクトリを作ります。名前にはASCII英数字・`-`・`_` を使え、先頭は英数字にします。既存のパスは上書きしません。 |
 | `genbit build` | カレントディレクトリのサイトを `dist/` へビルドします。記事内のサイト内リンクの参照先がなければ失敗します。 |
 | `genbit build --dry-run` | ビルドと同じ検査をすべて行い、`dist/` は変更しません。 |
 | `genbit dev [--host <ip>] [--port <port>]` | ビルドして `dist/` を配信し（既定は `127.0.0.1:3000`）、変更があれば再ビルドして再読み込みします。 |
@@ -103,6 +104,7 @@ genbit build    # dist/ にサイトを生成
 
 ```text
 my-blog/
+├── .gitignore           # dist/ を除外
 ├── config.toml          # title, description, site_url, og_image, timezone
 ├── content/             # Markdownの記事 → /entries/hello-world
 │   └── entries/hello-world.md
@@ -138,7 +140,8 @@ tags = ["rust", "web"]
 - 公開先はドメインのルートに限ります。サブパス（例: `https://example.com/blog/`）への配置には対応していません。
 - 公開先が、生成した `.html` ファイルを拡張子なしのURLで配信できる必要があります。
 - 初期テンプレートとサンプル記事は日本語で、`<html lang="ja">` を出力します。他の言語で使う場合は `templates/base.html` を編集してください。
-- 本文で参照するローカルのPNG・JPEG・GIF・WebPには、レイアウトシフトを防ぐ寸法属性を自動で付けます。AVIFとSVGには付けないため、本文の画像はこの4形式で用意してください。画像の最適化は行いません。画像は外部ツールで事前に処理してください（[docs/content.md](docs/content.md#画像)）。
+- AVIFとSVGの画像には寸法属性を付けません。本文の画像はPNG・JPEG・GIF・WebPで用意してください（[docs/content.md](docs/content.md#画像)）。
+- 画像の縮小・形式変換・圧縮は行いません。画像は外部ツールで事前に処理してください。
 - シンタックスハイライトは行いません。
 - ビルド済みバイナリはLinux x86_64とmacOS Apple Siliconだけです。Windowsには対応していません。
 
