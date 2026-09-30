@@ -47,9 +47,9 @@
 ## Architecture and Data Flow
 
 - 単一のバイナリ。API サーバーや DB 層はない。`dev` の HTTP エンドポイントは静的ファイル配信と `GET /__genbit/reload`（SSE）のみ。
-- `new <name>` は名前を ASCII 英数字・`-`・`_` に検証し、新しいディレクトリへ `config.toml` と `scaffold/` の素材を書き込む。既存のパスは上書きしない。
+- `new <name>` は名前を ASCII 英数字・`-`・`_`（先頭は英数字）に検証し、新しいディレクトリへ `config.toml`、`/dist/` を除外する `.gitignore`、`scaffold/` の素材を書き込む。既存のパスは上書きしない。
 - `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、`timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
-- 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で必須。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。日時は `timezone`（IANA 名のみ）の地域の時刻として jiff の `Zoned` に変換し、更新日時は作成日時以降にする。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
+- 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で必須。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。日時は `timezone`（IANA 名のみ）の地域の時刻として jiff の `Zoned` に変換し、更新日時は作成日時以降にする。`description` は必須で空にできない。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
 - 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
 - 記事本文の生 HTML は禁止する。`markdown.rs` はパーサー直後の位置情報付きイベントで `Event::Html`・`Event::InlineHtml`（コメントを含む）を検査し、最初の箇所の本文内バイト位置をエラーで返す。見出し・画像などの加工は検査を通ったイベント列だけに行い、加工で genbit 自身が生成する `Event::Html` は検査しない。`content.rs` がその位置を記事ファイル全体の1始まりの行番号（BOM・フロントマター・CRLF を含む）に変換する。コードスパン・コードブロック・エスケープ・文字参照・オートリンクは許可する。
 - Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。

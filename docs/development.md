@@ -9,7 +9,17 @@ docker compose run --rm cli clippy --locked --all-targets --all-features -- -D w
 docker compose run --rm cli test --locked --all-targets --all-features
 ```
 
-CIはpull requestと `main` へのpushで動き、Ubuntuでfmt・Clippy・テストを、macOSでテストを実行します。PRを作っていないブランチへのpushではCIは動きません。依存のビルド結果は `main` の実行でキャッシュし、PRはそのキャッシュを使います。
+CIはpull requestと `main` へのpushで動き、次のジョブを並列に実行します。
+
+| ジョブ | 内容 |
+| --- | --- |
+| `lint` | Rustの版の一致、`scripts/*.sh` のshellcheck、rustfmt、Clippy |
+| `test-linux` | Ubuntuでのカバレッジ計測付きテスト |
+| `test-macos` | macOSでのテスト |
+| `smoke-test` | Ubuntuのreleaseビルドでの `scripts/smoke-test.sh` |
+| `third-party-licenses` | `scripts/third-party-licenses.sh` によるライセンス一覧の生成 |
+
+ジョブ名は `main` のルールセットの必須チェック名です。変えるときはルールセットも更新してください。PRを作っていないブランチへのpushではCIは動きません。依存のビルド結果は `main` の実行でキャッシュし、PRはそのキャッシュを使います。
 
 Ubuntuのテストは[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov)でカバレッジを計測しながら実行し、ファイルごとの要約をジョブのSummaryに出します。閾値は設けていないため、カバレッジが下がってもCIは失敗しません。`tests/cli.rs` から起動した `genbit` の子プロセスも計測に含まれますが、プロセスが正常に終了しないと結果が書き出されません。また、`src/*.rs` 内の `#[cfg(test)]` モジュールも集計に含まれます。手元で計測するには、コンテナ内にcargo-llvm-covを入れて実行します。
 

@@ -54,7 +54,7 @@ fn main() -> Result<()> {
             scaffold::create(&name)?;
             println!("Created site: {name}");
             println!("Next: cd {name}");
-            println!("Run genbit build to generate the site.");
+            println!("Run genbit dev to preview the site.");
             Ok(())
         }
         Command::Build { dry_run } => {
