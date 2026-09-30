@@ -131,59 +131,92 @@ impl StagedOutput {
     }
 }
 
+/// An output path joined with `/`, and the source that produces it.
+struct PlannedFile<'a> {
+    path: String,
+    source: &'a str,
+}
+
 fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
-    let mut paths = BTreeMap::new();
-    // Directories are shared by name on case-insensitive filesystems, so each needs one spelling.
-    let mut directories = BTreeMap::new();
-    let mut served = Vec::with_capacity(artifacts.len());
-    for artifact in artifacts {
-        let spelled = crate::route::slash_path(&artifact.path).with_context(|| {
-            format!(
-                "invalid output path {} from {}",
-                artifact.path.display(),
-                artifact.source
-            )
-        })?;
-        // Case-insensitive comparison keeps generated sites portable to common macOS/Windows filesystems.
-        let key = spelled.to_lowercase();
-        ensure!(
-            key != MARKER && !key.starts_with(&format!("{MARKER}/")),
-            "reserved output path {}",
-            artifact.path.display()
-        );
-        for (offset, _) in spelled.match_indices('/') {
-            let directory = spelled
-                .get(..offset)
-                .context("invalid output path boundary")?;
-            let (previous, previous_source) = directories
-                .entry(directory.to_lowercase())
-                .or_insert((directory.to_owned(), &artifact.source));
+    let files = artifacts
+        .iter()
+        .map(|artifact| {
+            let path = crate::route::slash_path(&artifact.path).with_context(|| {
+                format!(
+                    "invalid output path {} from {}",
+                    artifact.path.display(),
+                    artifact.source
+                )
+            })?;
             ensure!(
-                previous == directory,
+                path.split('/')
+                    .next()
+                    .is_none_or(|first| first.to_lowercase() != MARKER),
+                "reserved output path {path}"
+            );
+            Ok(PlannedFile {
+                path,
+                source: &artifact.source,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    ensure_one_spelling_per_directory(&files)?;
+    let claimed = claim_paths(&files)?;
+    ensure_no_file_is_a_directory(&claimed)?;
+    crate::route::validate_served_urls(files.iter().map(|file| (file.path.as_str(), file.source)))
+}
+
+/// Directories are shared by name on case-insensitive filesystems, so each needs one spelling.
+fn ensure_one_spelling_per_directory(files: &[PlannedFile<'_>]) -> Result<()> {
+    let mut spellings = BTreeMap::new();
+    for file in files {
+        for directory in parent_directories(&file.path) {
+            let (previous, previous_source) = spellings
+                .entry(directory.to_lowercase())
+                .or_insert((directory, file.source));
+            ensure!(
+                *previous == directory,
                 "output directory case collision: {previous} from {previous_source} and {directory} from {}",
-                artifact.source
+                file.source
             );
         }
-        if let Some(previous) = paths.insert(key, &artifact.source) {
+    }
+    Ok(())
+}
+
+/// Returns the source of each path by its lowercase spelling. Case-insensitive comparison keeps
+/// generated sites portable to common macOS/Windows filesystems.
+fn claim_paths<'a>(files: &[PlannedFile<'a>]) -> Result<BTreeMap<String, &'a str>> {
+    let mut claimed = BTreeMap::new();
+    for file in files {
+        if let Some(previous) = claimed.insert(file.path.to_lowercase(), file.source) {
             bail!(
                 "output collision at {}: {previous} and {}",
-                artifact.path.display(),
-                artifact.source
+                file.path,
+                file.source
             );
         }
-        served.push((spelled, artifact.source.as_str()));
     }
-    for (path, source) in &paths {
-        for (offset, _) in path.match_indices('/') {
-            let parent = path.get(..offset).context("invalid output path boundary")?;
-            if let Some(previous) = paths.get(parent) {
-                bail!(
-                    "output collision: {previous} creates file {parent}, required as directory by {source}"
-                );
-            }
+    Ok(claimed)
+}
+
+fn ensure_no_file_is_a_directory(claimed: &BTreeMap<String, &str>) -> Result<()> {
+    for (path, source) in claimed {
+        if let Some((parent, previous)) = parent_directories(path)
+            .find_map(|parent| claimed.get(parent).map(|previous| (parent, previous)))
+        {
+            bail!(
+                "output collision: {previous} creates file {parent}, required as directory by {source}"
+            );
         }
     }
-    crate::route::validate_served_urls(served.iter().map(|(path, source)| (path.as_str(), *source)))
+    Ok(())
+}
+
+/// The directories that contain `path`, outermost first.
+fn parent_directories(path: &str) -> impl Iterator<Item = &str> {
+    path.match_indices('/')
+        .filter_map(|(offset, _)| path.get(..offset))
 }
 
 /// Returns whether `dist` exists, failing when it is not output that genbit may replace.
@@ -236,6 +269,41 @@ mod tests {
             Artifact::generated(PathBuf::from("docs/a/post.html"), Vec::new(), "first"),
             Artifact::generated(PathBuf::from("docs/b/image.svg"), Vec::new(), "second"),
         ])?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_the_output_marker_in_any_case() -> Result<()> {
+        for path in [".genbit-output", ".Genbit-Output/a.html"] {
+            let error = OutputPlan::new(vec![Artifact::generated(
+                PathBuf::from(path),
+                Vec::new(),
+                "source",
+            )])
+            .err()
+            .context("accepted the output marker")?;
+            assert_eq!(error.to_string(), format!("reserved output path {path}"));
+        }
+        OutputPlan::new(vec![Artifact::generated(
+            PathBuf::from("a/.genbit-output"),
+            Vec::new(),
+            "source",
+        )])?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_files_needed_as_directories_in_any_case() -> Result<()> {
+        let error = OutputPlan::new(vec![
+            Artifact::generated(PathBuf::from("Docs/a.html"), Vec::new(), "first"),
+            Artifact::generated(PathBuf::from("docs"), Vec::new(), "second"),
+        ])
+        .err()
+        .context("accepted a file where a directory is needed")?;
+        assert_eq!(
+            error.to_string(),
+            "output collision: second creates file docs, required as directory by first"
+        );
         Ok(())
     }
 
