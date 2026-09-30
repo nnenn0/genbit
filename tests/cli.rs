@@ -811,7 +811,10 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
                 ("title", Some("'Older <post>'")),
                 ("created_at", Some("2026-09-16 23:30")),
                 ("updated_at", Some("2026-09-30 12:00")),
-                ("description", Some("'Fish & chips'")),
+                (
+                    "description",
+                    Some("'''Use Vec<T>, &copy;, A & B, \"quotes\" and 'apostrophes'.'''"),
+                ),
             ],
             "Older.\n",
         ),
@@ -825,7 +828,7 @@ fn generates_rss_feed_with_autodiscovery_outside_sitemap() -> Result<()> {
     assert!(feed.contains("<title>Tom &amp; Jerry &lt;Blog&gt;</title>\n    <link>https://example.com/</link>\n    <description>Blog articles</description>"), "{feed}");
     assert!(feed.contains("<title>Older &lt;post&gt;</title>"), "{feed}");
     assert!(
-        feed.contains("<description>Fish &amp; chips</description>"),
+        feed.contains("<description>Use Vec&amp;lt;T&amp;gt;, &amp;amp;copy;, A &amp;amp; B, &amp;quot;quotes&amp;quot; and &amp;apos;apostrophes&amp;apos;.</description>"),
         "{feed}"
     );
     assert!(

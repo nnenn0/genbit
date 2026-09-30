@@ -156,7 +156,10 @@ fn feed_xml(config: &Config, articles: &[Article]) -> String {
                 .strftime("%a, %d %b %Y %H:%M:%S %z")
                 .to_string(),
         );
-        push_element(&mut xml, "      ", "description", &article.description);
+        // RSS item descriptions are HTML inside XML. These XML entities are also
+        // valid HTML: escape the text once for HTML, then again when writing XML.
+        let description = xml_escape(&article.description);
+        push_element(&mut xml, "      ", "description", &description);
         xml.push_str("    </item>\n");
     }
     xml.push_str("  </channel>\n</rss>\n");
@@ -269,7 +272,7 @@ mod tests {
         );
         assert_eq!(xml.matches("<item>").count(), 20);
         assert!(xml.contains(
-            "<title>Post 20 &amp; &lt;b&gt;</title>\n      <link>https://example.com/entries/post-20</link>\n      <guid>https://example.com/entries/post-20</guid>\n      <pubDate>Wed, 21 Jan 2026 08:00:00 +0900</pubDate>\n      <description>It&apos;s &gt; 1</description>"
+            "<title>Post 20 &amp; &lt;b&gt;</title>\n      <link>https://example.com/entries/post-20</link>\n      <guid>https://example.com/entries/post-20</guid>\n      <pubDate>Wed, 21 Jan 2026 08:00:00 +0900</pubDate>\n      <description>It&amp;apos;s &amp;gt; 1</description>"
         ), "{xml}");
         assert!(xml.contains("<title>Post 1 &amp;"), "{xml}");
         assert!(!xml.contains("<title>Post 0 &amp;"), "{xml}");
