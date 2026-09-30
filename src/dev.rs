@@ -214,7 +214,7 @@ async fn wait_for_change(change_rx: &mut mpsc::Receiver<()>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_WAIT, rebuild_on_changes, relevant_change, wait_for_change};
+    use super::{MAX_WAIT, QUIET_PERIOD, rebuild_on_changes, relevant_change, wait_for_change};
     use anyhow::{Context, Result, bail};
     use notify::{Event, EventKind};
     use std::{
@@ -253,7 +253,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    // Paused time keeps a slow runner from stretching the 20 ms gaps past the quiet period.
+    #[tokio::test(start_paused = true)]
     async fn continuous_notifications_cannot_delay_rebuild_forever() -> Result<()> {
         let (change_tx, mut change_rx) = mpsc::channel(1);
         let sender = tokio::spawn(async move {
@@ -266,7 +267,11 @@ mod tests {
         let changed = timeout(Duration::from_secs(2), wait_for_change(&mut change_rx)).await?;
         sender.abort();
         assert!(changed);
-        assert!(started.elapsed() >= MAX_WAIT);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= MAX_WAIT && elapsed < MAX_WAIT + QUIET_PERIOD,
+            "{elapsed:?}"
+        );
         Ok(())
     }
 
