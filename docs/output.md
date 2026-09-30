@@ -27,6 +27,7 @@
 - チャンネルの `title` と `description` は `config.toml` の値、`link` は `site_url` です。
 - 作成日時の新しい順に最新20件の記事を載せます。
 - 各 `item` の `link` と `guid` には記事のcanonical URL、`description` には記事の `description`、`pubDate` には `created_at` を `timezone` の時差付きで使います。`updated_at` は使いません。
+- 記事の `description` はプレーンテキストとして表示されるようにエスケープします。`Vec<T>` や `&copy;` も、タグや文字参照として解釈されず、そのまま表示されます。
 - フィードはsitemapに含めません。
 
 ## ビルドの確認（`--dry-run`）
