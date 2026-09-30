@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::{iter, path::PathBuf};
 
 const FEED_ITEM_LIMIT: usize = 20;
 
@@ -73,24 +73,33 @@ fn json_ld(value: &impl Serialize) -> Result<String> {
         .replace('&', "\\u0026"))
 }
 
+/// A `<url>` entry of the sitemap. Only articles have a last modification time.
+struct SitemapUrl {
+    loc: String,
+    lastmod: Option<String>,
+}
+
 pub(crate) fn sitemap(
     base: &SiteUrl,
     articles: &[Article],
     tags: &TagIndex<'_>,
 ) -> Result<Artifact> {
-    let mut urls = vec![(base.as_str().to_owned(), None)];
-    urls.extend(articles.iter().map(|article| {
-        (
-            base.join_root_path(article.route.url()),
-            Some(content::rfc3339(&article.updated_at)),
+    let listing = |url: String| SitemapUrl {
+        loc: url,
+        lastmod: None,
+    };
+    let urls = iter::once(listing(base.as_str().to_owned()))
+        .chain(articles.iter().map(|article| SitemapUrl {
+            loc: base.join_root_path(article.route.url()),
+            lastmod: Some(content::rfc3339(&article.updated_at)),
+        }))
+        .chain(iter::once(listing(base.join_root_path(TAGS_INDEX_URL))))
+        .chain(
+            tags.groups()
+                .iter()
+                .map(|group| listing(base.join_root_path(&group.url()))),
         )
-    }));
-    urls.push((base.join_root_path(TAGS_INDEX_URL), None));
-    urls.extend(
-        tags.groups()
-            .iter()
-            .map(|group| (base.join_root_path(&group.url()), None)),
-    );
+        .collect::<Vec<_>>();
     ensure!(
         urls.len() <= 50_000,
         "sitemap.xml supports at most 50,000 URLs including generated pages"
@@ -98,9 +107,9 @@ pub(crate) fn sitemap(
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
     );
-    for (url, lastmod) in urls {
+    for SitemapUrl { loc, lastmod } in urls {
         xml.push_str("  <url><loc>");
-        xml.push_str(&xml_escape(&url));
+        xml.push_str(&xml_escape(&loc));
         xml.push_str("</loc>");
         if let Some(lastmod) = lastmod {
             xml.push_str("<lastmod>");

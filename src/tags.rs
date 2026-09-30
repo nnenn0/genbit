@@ -99,25 +99,18 @@ pub(crate) struct TagGroup<'a> {
 impl<'a> TagIndex<'a> {
     pub(crate) fn new(articles: &'a [Article]) -> Self {
         let mut tagged: BTreeMap<&str, Vec<&Article>> = BTreeMap::new();
-        let mut untagged = Vec::new();
         for article in articles {
-            if article.tags.is_empty() {
-                untagged.push(article);
-            }
-            for tag in &article.tags {
-                tagged.entry(tag.as_str()).or_default().push(article);
+            for tag in article_tags(article) {
+                tagged.entry(tag).or_default().push(article);
             }
         }
-        let mut groups = tagged
+        // `untagged` sorts among the tag names, but is listed last.
+        let untagged = tagged.remove(UNTAGGED_TAG);
+        let groups = tagged
             .into_iter()
+            .chain(untagged.map(|articles| (UNTAGGED_TAG, articles)))
             .map(|(name, articles)| TagGroup { name, articles })
-            .collect::<Vec<_>>();
-        if !untagged.is_empty() {
-            groups.push(TagGroup {
-                name: UNTAGGED_TAG,
-                articles: untagged,
-            });
-        }
+            .collect();
         Self { groups }
     }
 
