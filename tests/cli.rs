@@ -546,6 +546,19 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
 }
 
 #[test]
+fn gitkeep_files_in_static_are_not_copied() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    fs::write(site.join("static/.gitkeep"), "")?;
+    fs::write(site.join("static/assets/img/.gitkeep"), "")?;
+    build_ok(&site)?;
+    assert!(!site.join("dist/.gitkeep").exists());
+    assert!(!site.join("dist/assets/img/.gitkeep").exists());
+    assert!(site.join("dist/assets/site/favicon.svg").is_file());
+    Ok(())
+}
+
+#[test]
 fn builds_not_found_page_without_indexing_metadata() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
