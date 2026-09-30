@@ -106,6 +106,11 @@ pub(crate) fn parse(
             tag != UNTAGGED_TAG,
             "tag \"untagged\" is reserved for articles without tags"
         );
+        // `/tags/index/` would collide with the clean URL of the tag list, `tags/index.html`.
+        ensure!(
+            tag != "index",
+            "tag \"index\" is reserved because /tags/index serves the tag list"
+        );
         ensure!(seen_tags.insert(tag), "duplicate tag {tag:?}");
     }
     ensure!(
@@ -343,6 +348,7 @@ mod tests {
             "['']",
             "['react', 'react']",
             "['untagged']",
+            "['index']",
         ] {
             let source = format!(
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\nBody"

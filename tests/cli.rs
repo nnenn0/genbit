@@ -1067,13 +1067,17 @@ fn invalid_tags_and_generated_tag_url_collisions_preserve_dist() -> Result<()> {
         ("['React']", "invalid tag \"React\""),
         ("['react', 'react']", "duplicate tag \"react\""),
         ("['untagged']", "tag \"untagged\" is reserved"),
+        ("['index']", "tag \"index\" is reserved"),
     ] {
         fs::write(
             &article_path,
             article_source(&[("tags", Some(tags))], "Body"),
         )?;
         let stderr = build_err(&site).with_context(|| format!("accepted {tags}"))?;
-        assert!(stderr.contains(reason), "{tags}: {stderr}");
+        assert!(
+            stderr.contains(reason) && stderr.contains("content/entries/invalid.md"),
+            "{tags}: {stderr}"
+        );
         assert_eq!(
             fs::read_to_string(site.join("dist/tags/index.html"))?,
             original
