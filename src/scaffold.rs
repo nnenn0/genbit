@@ -46,10 +46,6 @@ const FILES: &[(&str, &str)] = &[
         "styles/root.css",
         include_str!("../scaffold/styles/root.css"),
     ),
-    (
-        "styles/tags.css",
-        include_str!("../scaffold/styles/tags.css"),
-    ),
     ("styles/tag.css", include_str!("../scaffold/styles/tag.css")),
     (
         "content/entries/hello-world.md",

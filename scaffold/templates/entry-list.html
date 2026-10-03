@@ -1,4 +1,4 @@
-<ul class="entry-list">
+<ul class="entry-list unmarked-list">
   {% for entry in entries %}
   <li><a href="{{ entry.url }}">{{ entry.title }}</a><time datetime="{{ entry.created_at.datetime }}">{{ entry.created_at.date }}</time></li>
   {% endfor %}
