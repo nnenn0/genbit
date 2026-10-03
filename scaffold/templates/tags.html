@@ -4,7 +4,7 @@
 {% block og_type %}website{% endblock og_type %}
 {% block main %}
 <h1>tags</h1>
-<ul>
+<ul class="unmarked-list">
   {% for tag in tags %}
   <li><a href="{{ tag.url }}">{{ tag.name }}</a> ({{ tag.count }})</li>
   {% endfor %}

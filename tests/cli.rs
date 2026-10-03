@@ -367,7 +367,6 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "styles/common.css",
         "styles/page.css",
         "styles/root.css",
-        "styles/tags.css",
         "styles/tag.css",
         "static/assets/site/favicon.svg",
         "static/assets/site/favicon.png",
