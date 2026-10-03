@@ -401,8 +401,8 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     assert!(favicon.starts_with(b"\x89PNG\r\n\x1a\n"));
     let width = favicon.get(16..20).context("missing favicon PNG width")?;
     let height = favicon.get(20..24).context("missing favicon PNG height")?;
-    assert_eq!(u32::from_be_bytes(width.try_into()?), 80);
-    assert_eq!(u32::from_be_bytes(height.try_into()?), 80);
+    assert_eq!(u32::from_be_bytes(width.try_into()?), 96);
+    assert_eq!(u32::from_be_bytes(height.try_into()?), 96);
     assert!(!root.join("content/index.md").exists());
     assert!(!root.join("content/root.md").exists());
     fs::write(root.join("config.toml"), "user content")?;
@@ -484,7 +484,7 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
     assert!(home.contains("<style>"));
     assert!(home.contains("prefers-color-scheme"), "{home}");
     assert!(home.contains("href=/assets/site/favicon.png"), "{home}");
-    assert!(home.contains("sizes=80x80"), "{home}");
+    assert!(home.contains("sizes=96x96"), "{home}");
     assert!(home.contains("type=image/png"), "{home}");
     assert!(home.contains("href=/assets/site/favicon.svg"), "{home}");
     assert!(home.contains("rel=icon"), "{home}");
