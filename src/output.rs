@@ -25,6 +25,14 @@ enum ArtifactContent {
     },
 }
 
+/// A file copied unchanged into the output.
+pub(crate) struct CopiedFile {
+    /// Path relative to `dist/`.
+    pub(crate) output: PathBuf,
+    /// Path relative to the site root.
+    pub(crate) source: PathBuf,
+}
+
 pub(crate) struct OutputPlan {
     artifacts: Vec<Artifact>,
     urls: BTreeSet<String>,

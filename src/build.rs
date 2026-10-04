@@ -5,7 +5,7 @@ use crate::{
     image_size::Images,
     input::SiteInput,
     metadata,
-    output::{self, Artifact, OutputPlan},
+    output::{self, Artifact, CopiedFile, OutputPlan},
     render::Renderer,
     route,
     tags::TagIndex,
@@ -35,13 +35,19 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<usize> {
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let static_files = input
-        .files(Path::new("static"))?
+    let content = content::sort_files(files(&input, "content")?)?;
+    let copied = files(&input, "static")?
         .into_iter()
-        .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
+        .map(|path| (path, "static"))
+        .chain(content.assets.into_iter().map(|path| (path, "content")))
+        .map(|(path, directory)| CopiedFile {
+            source: Path::new(directory).join(&path),
+            output: path,
+        })
         .collect::<Vec<_>>();
-    let images = Images::new(root, &static_files)?;
-    let (mut articles, image_hashes) = load_articles(&input, &config.timezone, images)?;
+    let images = Images::new(root, &copied)?;
+    let (mut articles, image_hashes) =
+        load_articles(&input, content.pages, &config.timezone, images)?;
     articles.sort_by(|left, right| {
         right
             .created_at
@@ -60,10 +66,9 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<usize> {
             metadata::feed(&config, &articles),
             metadata::robots(&config.site_url),
         ])
-        .chain(static_files.into_iter().map(|path| {
-            let site_relative = Path::new("static").join(&path);
-            let hash = image_hashes.get(&site_relative).copied();
-            Artifact::copy_from(path, site_relative, hash)
+        .chain(copied.into_iter().map(|file| {
+            let hash = image_hashes.get(&file.source).copied();
+            Artifact::copy_from(file.output, file.source, hash)
         }))
         .collect();
     let plan = OutputPlan::new(artifacts)?;
@@ -110,15 +115,24 @@ fn render_pages(
     .collect()
 }
 
+/// Lists the files under `directory`, leaving out the `.gitkeep` files that keep empty
+/// directories in Git.
+fn files(input: &SiteInput<'_>, directory: &str) -> Result<Vec<PathBuf>> {
+    Ok(input
+        .files(Path::new(directory))?
+        .into_iter()
+        .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
+        .collect())
+}
+
 fn load_articles(
     input: &SiteInput<'_>,
+    pages: Vec<PathBuf>,
     timezone: &TimeZone,
     mut images: Images<'_>,
 ) -> Result<(Vec<Article>, BTreeMap<PathBuf, ContentHash>)> {
-    let articles = input
-        .files(Path::new("content"))?
+    let articles = pages
         .into_iter()
-        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
         .map(|path| {
             let site_relative = Path::new("content").join(&path);
             content::parse(

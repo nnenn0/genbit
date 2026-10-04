@@ -28,8 +28,9 @@
 - **CSSのインライン化とHTML圧縮** — CSSはテンプレートごとにインライン展開し、全ページを圧縮します。初期テーマはJavaScriptなしでOSのライト/ダーク設定に追従します。
 - **メタデータとRSSの生成** — canonicalリンク、`sitemap.xml`、`robots.txt`、Open Graph、JSON-LD、RSS 2.0フィードを生成します。
 - **本文の画像の寸法とキャッシュ対策** — ローカルのPNG・JPEG・GIF・WebPに `width`・`height` 属性を自動で付け、読み込みによるレイアウトシフトを防ぎます。画像のURLには内容のハッシュを付けるため、長期間キャッシュしても差し替えが反映されます。
-- **タグ・見出しリンク・拡張子なしURL** — タグページ、リンク付きの見出し、コードブロックの言語ラベル、拡張子なしの記事URLに対応します。
-- **失敗しても `dist/` を壊さないビルド** — ビルドは一時領域で行い、成功したときだけ `dist/` を入れ替えます。URLの衝突やシンボリックリンクの入力は拒否します。
+- **記事ごとのディレクトリ** — 記事は `index.md` と画像などの素材を1つのディレクトリにまとめ、`/entries/hello-world/` のようなURLで配信します。本文から素材を相対パスで参照できます。
+- **タグ・見出しリンク** — タグページ、リンク付きの見出し、コードブロックの言語ラベルに対応します。
+- **失敗しても `dist/` を壊さないビルド** — ビルドは一時領域で行い、成功したときだけ `dist/` を入れ替えます。出力の衝突やシンボリックリンクの入力は拒否します。
 
 ## インストール
 
@@ -89,7 +90,7 @@ genbit dev      # http://127.0.0.1:3000
 genbit build    # dist/ にサイトを生成
 ```
 
-`dist/` の中身を静的ホスティングサービスへ配置してください。公開先は `/entries/hello-world` を `entries/hello-world.html` から配信し、`404.html` をHTTP 404で返せる必要があります。
+`dist/` の中身を静的ホスティングサービスへ配置してください。公開先は `/entries/hello-world/` に `entries/hello-world/index.html` を返し、`404.html` をHTTP 404で返せる必要があります。
 
 ## コマンド
 
@@ -106,11 +107,11 @@ genbit build    # dist/ にサイトを生成
 my-blog/
 ├── .gitignore           # dist/ を除外
 ├── config.toml          # title, description, site_url, og_image, timezone
-├── content/             # Markdownの記事 → /entries/hello-world
-│   └── entries/hello-world.md
+├── content/             # 記事のディレクトリ → /entries/hello-world/
+│   └── entries/hello-world/index.md   # 画像などの素材も同じディレクトリに置く
 ├── templates/           # Teraテンプレート: base, page, root, tags, tag, entry-list, 404
 ├── styles/              # common.css と、テンプレート別の任意CSS
-└── static/              # そのままコピー（assets/img/ に記事の画像、assets/site/ にfavicon・OGP画像）
+└── static/              # そのままコピー（assets/img/ に複数の記事で使う画像、assets/site/ にfavicon・OGP画像）
 ```
 
 ```markdown
@@ -138,7 +139,6 @@ tags = ["rust", "web"]
 ## 既知の制限
 
 - 公開先はドメインのルートに限ります。サブパス（例: `https://example.com/blog/`）への配置には対応していません。
-- 公開先が、生成した `.html` ファイルを拡張子なしのURLで配信できる必要があります。
 - 初期テンプレートとサンプル記事は日本語で、`<html lang="ja">` を出力します。他の言語で使う場合は `templates/base.html` を編集してください。
 - AVIFとSVGの画像には寸法属性を付けません。本文の画像はPNG・JPEG・GIF・WebPで用意してください（[docs/content.md](docs/content.md#画像)）。
 - 画像の縮小・形式変換・圧縮は行いません。画像は外部ツールで事前に処理してください。

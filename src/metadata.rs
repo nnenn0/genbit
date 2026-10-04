@@ -242,7 +242,7 @@ mod tests {
                         "+++\ntitle = 'Post {day} & <b>'\ncreated_at = 2026-01-{:02} 08:00\nupdated_at = 2026-02-01 00:00\ndescription = \"It's > 1\"\n+++\n",
                         day + 1
                     ),
-                    Path::new(&format!("entries/post-{day}.md")),
+                    Path::new(&format!("entries/post-{day}/index.md")),
                     &config.timezone,
                     |_, _| Ok(None),
                 )
@@ -267,7 +267,7 @@ mod tests {
         );
         assert_eq!(xml.matches("<item>").count(), 20);
         assert!(xml.contains(
-            "<title>Post 20 &amp; &lt;b&gt;</title>\n      <link>https://example.com/entries/post-20</link>\n      <guid>https://example.com/entries/post-20</guid>\n      <pubDate>Wed, 21 Jan 2026 08:00:00 +0900</pubDate>\n      <description>It&amp;apos;s &amp;gt; 1</description>"
+            "<title>Post 20 &amp; &lt;b&gt;</title>\n      <link>https://example.com/entries/post-20/</link>\n      <guid>https://example.com/entries/post-20/</guid>\n      <pubDate>Wed, 21 Jan 2026 08:00:00 +0900</pubDate>\n      <description>It&amp;apos;s &amp;gt; 1</description>"
         ), "{xml}");
         assert!(xml.contains("<title>Post 1 &amp;"), "{xml}");
         assert!(!xml.contains("<title>Post 0 &amp;"), "{xml}");

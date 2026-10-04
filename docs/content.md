@@ -1,6 +1,6 @@
 # コンテンツ
 
-記事は `content/` 以下のMarkdownファイルです。先頭に `+++` で囲んだTOMLフロントマターを書きます。
+記事は `content/` 以下のディレクトリで、本文を `index.md` に書きます。`index.md` の先頭には `+++` で囲んだTOMLフロントマターを書きます。
 
 ```markdown
 +++
@@ -22,7 +22,7 @@ tags = ["react", "web-security"]
 | `created_at` | 必須 | 作成日時。 |
 | `updated_at` | 必須 | 最終更新日時。更新していない記事では `created_at` と同じ値にします。`created_at` より前にはできません。 |
 | `description` | 必須 | meta description、Open Graph、JSON-LD、RSSフィードに使う概要。空にはできません。 |
-| `title` | 任意 | 記事のタイトル。省略時はファイル名。 |
+| `title` | 任意 | 記事のタイトル。省略時はディレクトリ名。 |
 | `template` | 任意 | `templates/` 以下のテンプレート。省略時は `page.html`。 |
 | `tags` | 任意 | タグの配列。[タグ](#タグ)を参照。 |
 
@@ -44,43 +44,48 @@ TOMLとして読めない場合、未知のフィールドがある場合、日�
 
 - タグ名は、英小文字・数字からなる語をハイフンでつないだ形式に限ります（例: `react-19`）。
 - 同じ記事の中で同じタグは重複できません。
-- `untagged` と `index` は予約語です。`untagged` はタグのない記事の一覧に、`index` はタグ一覧 `/tags/` の拡張子なしURL `/tags/index` と衝突するため使えません。
+- `untagged` は予約語です。タグのない記事の一覧に使うため、タグ名にはできません。
 
 `templates/tags.html` から `/tags/` を、`templates/tag.html` からタグごとの `/tags/{tag}/` を生成し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示し、テンプレートに渡す `tags` は `["untagged"]` になります。タグページの記事の並びはトップページと同じです。
 
 ## パスとURL
 
-`content/` 以下のディレクトリ構造を保ったまま、`.md` を `.html` に替えて出力します。
+`index.md` を持つディレクトリが1つのページ（記事）です。ディレクトリのパスがそのままURLになり、`index.md` は同じ場所の `index.html` に出力します。
 
 | 入力 | 出力 | URL |
 | --- | --- | --- |
-| `content/entries/hello-world.md` | `dist/entries/hello-world.html` | `/entries/hello-world` |
+| `content/entries/hello-world/index.md` | `dist/entries/hello-world/index.html` | `/entries/hello-world/` |
+| `content/entries/hello-world/figure.png` | `dist/entries/hello-world/figure.png` | `/entries/hello-world/figure.png` |
 
-- パスの各要素に使えるのは、ASCII英数字・`-`・`_` だけです。
+- ページのディレクトリにある `index.md` 以外のファイルは、そのページの素材です。名前を変えずに同じ場所へコピーします。本文からは `![図](figure.png)` のように相対パスで参照できます。
+- ページのディレクトリには、ファイルだけを置けます。サブディレクトリがあるとビルドエラーになるので、ページの中に別のページを作ることもできません。
+- `index.md` 以外の `.md` ファイル、どのページのディレクトリにもないファイルはビルドエラーになります。どのページにも属さないファイルは `static/` に置きます。
+- `.gitkeep` は読み飛ばします。空のディレクトリをGitに残すために置けます。
+- ディレクトリ名に使えるのは、ASCII英数字・`-`・`_` だけです。
 - `content/index.md` は使えません。トップページは `config.toml` と `templates/root.html` から生成します。
 - 記事は作成日時の新しい順に並べます。同じ日時の記事はURL順です。
 
-記事URLには拡張子がありません。公開先で `.html` ファイルに対応づける必要があります。`genbit dev` はこの対応づけを行います。
+記事のURLは `/` で終わります。ディレクトリの `index.html` を返すのは静的ホストの標準的な動作なので、公開先で特別な設定は要りません。
 
 ## Markdownの処理
 
 ### 記事間のリンク
 
-`.md` ファイルへの相対リンクは拡張子を取り除きます。`[次の記事](next.md#section)` は `next#section` になります。クエリとアンカーは保持します。画像、外部URL、`/` で始まるリンクは変換しません。メールアドレスのオートリンクも変換せず、`<person@example.md>` の宛先は `mailto:person@example.md` のままです。
+記事へのリンクは、記事のURLで書きます。`content/entries/a/index.md` から `content/entries/b/index.md` へは、`[次の記事](../b/)` または `[次の記事](/entries/b/)` と書きます。genbitはリンクを書き換えないので、`../b/index.md` のように `.md` ファイルを指すリンクは、[サイト内リンクの検証](#サイト内リンクの検証)でエラーになります。
 
 ### サイト内リンクの検証
 
 ビルド時に、記事のリンクと画像の参照先がサイト内に存在するかを確かめます。存在しなければビルドは失敗し、`dist/` を更新しません。エラーには記事のパス、リンク、解決後のパスを表示します。
 
 ```text
-broken internal link in content/entries/a.md: missing#x resolves to /entries/missing, which is not generated
+broken internal link in content/entries/a/index.md: ../missing/#x resolves to /entries/missing/, which is not generated
 ```
 
-- 参照先として扱うのは、記事・トップページ・タグページ・404ページ・`feed.xml`・`sitemap.xml`・`robots.txt`・`static/` のファイルが配信されるURLです。記事は拡張子なしのURLと `.html` のURLのどちらでも一致します。
-- 相対リンクは、ブラウザーと同じく記事のURLを基準に解決します。`content/entries/a.md` の `[次](next.md)` は `/entries/next`、`![図](../img/a.png)` は `/img/a.png` を確かめます。`.` と `..` も解決し、ルートより上を指す `..` はルートで止まります。`%2e`・`%2e%2e`・`.%2e`・`%2e.` も同じように扱い、16進数の大文字・小文字は区別しません。
+- 参照先として扱うのは、記事・トップページ・タグページ・404ページ・`feed.xml`・`sitemap.xml`・`robots.txt`・ページの素材・`static/` のファイルが配信されるURLです。記事やタグページのような、ディレクトリの `index.html` は、`/entries/a/`・`/entries/a`・`/entries/a/index.html` のどれでも一致します。末尾の `/` がないURLは、多くの公開先で `/` 付きのURLへリダイレクトされます。
+- 相対リンクは、ブラウザーと同じく記事のURLを基準に解決します。URLが `/entries/a/` の記事では、`[次](../next/)` は `/entries/next/`、`![図](figure.png)` は `/entries/a/figure.png`、`![図](../../img/a.png)` は `/img/a.png` を確かめます。`.` と `..` も解決し、ルートより上を指す `..` はルートで止まります。`%2e`・`%2e%2e`・`.%2e`・`%2e.` も同じように扱い、16進数の大文字・小文字は区別しません。
 - `?` 以降のクエリと `#` 以降のアンカーは除いて確かめます。見出しの `id` が存在するかは確かめません。
 - `%E7%94%BB` のようなパーセントエンコードは一度だけデコードしてから比べます。不正なエンコードはエラーになります。パスの区切り文字は `/` で書いてください。パス内の `%2F`・`%5C`（大文字・小文字を問わない）と `\` は、検証と配信で解釈が食い違うためエラーにします。クエリとアンカー内の `%2F`・`%5C` は対象外です。
-- 大文字と小文字は区別します。`/Entries/A` は `/entries/a` と一致しません。
+- 大文字と小文字は区別します。`/Entries/A/` は `/entries/a/` と一致しません。
 - `https:`・`mailto:`・`tel:` などスキームのあるURL、`//` で始まるURL、`#section` のような同じページ内へのリンクは確かめません。ネットワークにはアクセスしません。
 - スキームはURLの先頭で判定します。`/files/a:b.png` や `./a:b.png` はサイト内の参照として検証し、画像の場合は寸法の取得とハッシュの付与も通常どおり行います。
 - テンプレートに書いたリンクと、見出しの中に書いて取り除かれたリンクは確かめません。記事の本文にはHTMLを直接書けないため（[HTMLの禁止](#htmlの禁止)）、本文のリンクと画像はすべて検証の対象です。
@@ -111,7 +116,7 @@ GitHub Flavored Markdownの表の記法を使えます。区切り行の `:---`�
 
 Markdownの画像には `loading="lazy"` と `decoding="async"` を付けます。
 
-`static/` 内のPNG・JPEG・GIF・WebPを参照すると、ファイルから寸法を読み取り、HTMLの `width`・`height` 属性を付けます。ブラウザーが画像の読み込み前に縦横比と表示領域を確保でき、画像の読み込みによるレイアウトシフトを防げます。形式はファイルの内容で判断します。JPEGにEXIFの回転情報がある場合は、表示方向に合わせた寸法を使います。
+ページの素材や `static/` のPNG・JPEG・GIF・WebPを参照すると、ファイルから寸法を読み取り、HTMLの `width`・`height` 属性を付けます。ブラウザーが画像の読み込み前に縦横比と表示領域を確保でき、画像の読み込みによるレイアウトシフトを防げます。形式はファイルの内容で判断します。JPEGにEXIFの回転情報がある場合は、表示方向に合わせた寸法を使います。
 
 初期CSSの `styles/common.css` は、`img { display: block; max-width: 100%; height: auto; margin-inline: auto; }` で画像の表示を決めます。
 
@@ -134,10 +139,10 @@ PNG・JPEG・GIF・WebPのローカル画像には、必ず寸法属性を付け
 エラーは記事のパスと画像のパスを表示します。
 
 ```text
-Error: cannot parse /path/to/site/content/entries/a.md
+Error: cannot parse /path/to/site/content/entries/a/index.md
 
 Caused by:
-    0: cannot get the size of image /path/to/site/static/photo.webp
+    0: cannot get the size of image /path/to/site/content/entries/a/photo.webp
     1: WebP images with EXIF Orientation 6 are displayed differently by each browser; remove the EXIF metadata or convert the image to JPEG
 ```
 
@@ -148,30 +153,30 @@ Caused by:
 - AVIFには寸法属性を付けません（対応予定: [#49](https://github.com/nnenn0/genbit/issues/49)）。写真の転送量を減らしたい場合は、WebPに変換してください。
 - SVGには寸法属性を付けません（対応予定: [#50](https://github.com/nnenn0/genbit/issues/50)）。SVGを使う場合は、ファイルのルート要素に `<svg width="600" height="400" viewBox="0 0 600 400">` のように、単位なしのピクセル数で `width`・`height` を書いてください。SVGはテキストなので、エディターで書き足せます。書いておくと表示の大きさが決まります。読み込み時のレイアウトシフトは防げません。
 
-寸法の取得と検査は記事本文で使う画像だけに行います。`static/` にあっても本文で参照しない画像、テンプレートに直接書いた画像、OGP画像は対象外です。
+寸法の取得と検査は記事本文で使う画像だけに行います。ページの素材や `static/` にあっても本文で参照しない画像、テンプレートに直接書いた画像、OGP画像は対象外です。
 
-genbitは画像ファイルを変換しません。`static/` に置いた画像は、形式・寸法・ファイル名を変えずに `dist/` へコピーします。転送量を減らしたい場合は、`static/` に置く前に外部ツールで事前に処理してください。処理の例を次に挙げます。
+genbitは画像ファイルを変換しません。ページの素材と `static/` の画像は、形式・寸法・ファイル名を変えずに `dist/` へコピーします。転送量を減らしたい場合は、置く前に外部ツールで事前に処理してください。処理の例を次に挙げます。
 
 - 表示する幅より大きな画像の縮小
 - 写真のWebPへの変換
 - 図やスクリーンショットのPNGの可逆圧縮
 
-ツールには `cwebp`、`oxipng`、ImageMagickなどがあります。変換前の画像は `static/` の外に保管してください。`static/` 以下のファイルはすべて公開されます。
+ツールには `cwebp`、`oxipng`、ImageMagickなどがあります。変換前の画像は `content/` と `static/` の外に保管してください。ページのディレクトリと `static/` のファイルはすべて公開されます。
 
 1つの画像には、事前に処理した1つのファイルをMarkdownの画像記法で参照します。本文で形式を出し分ける手段（`<picture>` 要素など）はありません。
 
 ### 画像のURLのハッシュ
 
-Markdownの画像記法で `static/` 内のファイルを参照すると、ファイルの内容から計算したハッシュを `src` のクエリ `v` に付けます。ファイルの形式は問わず、SVGやAVIFにも付けます。
+Markdownの画像記法でページの素材や `static/` のファイルを参照すると、ファイルの内容から計算したハッシュを `src` のクエリ `v` に付けます。ファイルの形式は問わず、SVGやAVIFにも付けます。
 
 ```markdown
-![図](/assets/img/diagram.svg)
+![図](diagram.svg)
 ```
 
 は、次のように出力します。
 
 ```html
-<img src="/assets/img/diagram.svg?v=3f2a9c0d1e4b5a67" alt="図" loading="lazy" decoding="async">
+<img src="diagram.svg?v=3f2a9c0d1e4b5a67" alt="図" loading="lazy" decoding="async">
 ```
 
 画像の内容を変えるとURLが変わるため、公開先で画像を長期間キャッシュする設定にしても、差し替えた画像が表示されます。公開先の設定は[キャッシュの設定](output.md#キャッシュの設定)を参照してください。
@@ -193,7 +198,7 @@ HTMLを禁止するのは、本文のすべてのリンクと画像に、リン�
 エラーは記事のパスと、記事ファイルの先頭から数えた行番号を表示します。行番号はフロントマターを含むファイル全体の行で、複数ある場合は最初の1か所だけを表示します。
 
 ```text
-Error: cannot parse /path/to/site/content/entries/a.md
+Error: cannot parse /path/to/site/content/entries/a/index.md
 
 Caused by:
     raw HTML is not allowed in Markdown at line 12; write it with Markdown syntax, or use a code span or `\<` to show it as text

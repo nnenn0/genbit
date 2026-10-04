@@ -1,4 +1,4 @@
-use crate::{content_hash::ContentHash, input::SiteInput, route};
+use crate::{content_hash::ContentHash, input::SiteInput, output::CopiedFile, route};
 use anyhow::{Context, Result, bail, ensure};
 use imagesize::{ImageError, ImageType};
 use std::{
@@ -29,14 +29,14 @@ pub(crate) struct Images<'a> {
 
 impl<'a> Images<'a> {
     /// Takes the files under `static/`, as paths relative to it.
-    pub(crate) fn new(root: &'a Path, files: &[PathBuf]) -> Result<Self> {
+    /// Takes every file copied into the output, so that a URL finds the file it serves.
+    pub(crate) fn new(root: &'a Path, files: &[CopiedFile]) -> Result<Self> {
         let files = files
             .iter()
-            .map(|path| {
-                let site_relative = Path::new("static").join(path);
-                let url = crate::route::slash_path(path)
-                    .with_context(|| format!("invalid static file {}", site_relative.display()))?;
-                Ok((format!("/{url}"), site_relative))
+            .map(|file| {
+                let url = route::slash_path(&file.output)
+                    .with_context(|| format!("invalid file {}", file.source.display()))?;
+                Ok((format!("/{url}"), file.source.clone()))
             })
             .collect::<Result<_>>()?;
         Ok(Self {
@@ -225,6 +225,16 @@ mod tests {
         Ok(())
     }
 
+    fn static_files(names: &[&str]) -> Vec<CopiedFile> {
+        names
+            .iter()
+            .map(|name| CopiedFile {
+                output: PathBuf::from(name),
+                source: Path::new("static").join(name),
+            })
+            .collect()
+    }
+
     fn probe_error(bytes: &[u8], image_extension: bool) -> Result<String> {
         let error = probe(&mut Cursor::new(bytes), image_extension)
             .err()
@@ -304,14 +314,13 @@ mod tests {
         fs::write(&unused, b"unused")?;
         let mut images = Images::new(
             root.path(),
-            &[
+            &static_files(&[
                 "image.png",
                 "copy.png",
                 "notes.data",
                 "broken.png",
                 "unused.png",
-            ]
-            .map(PathBuf::from),
+            ]),
         )?;
         fs::remove_file(unused)?;
         let png_image = Image {
@@ -439,7 +448,7 @@ mod tests {
         fs::create_dir(root.path().join("static"))?;
         let image = root.path().join("static/image.png");
         fs::write(&image, b"image")?;
-        let mut images = Images::new(root.path(), &[PathBuf::from("image.png")])?;
+        let mut images = Images::new(root.path(), &static_files(&["image.png"]))?;
         fs::remove_file(&image)?;
         std::os::unix::fs::symlink(root.path().join("outside.png"), &image)?;
         let error = images

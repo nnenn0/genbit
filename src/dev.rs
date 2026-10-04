@@ -1,4 +1,3 @@
-use crate::route::{Route, is_reserved_url};
 use anyhow::{Context, Result};
 use axum::{
     Router,
@@ -111,7 +110,6 @@ fn router(root: &Path, reload_tx: broadcast::Sender<()>) -> Router {
         .fallback_service(
             ServeDir::new(&dist).not_found_service(ServeFile::new(dist.join("404.html"))),
         )
-        .layer(middleware::from_fn_with_state(dist, serve_clean_url))
         .layer(middleware::from_fn(disable_caching))
         .with_state(reload_tx)
 }
@@ -132,27 +130,6 @@ async fn disable_caching(mut request: Request, next: Next) -> Response {
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
-}
-
-async fn serve_clean_url(
-    State(dist): State<PathBuf>,
-    mut request: Request,
-    next: Next,
-) -> Response {
-    let path = request.uri().path();
-    if let Some(route) = Route::from_request_path(path)
-        && !is_reserved_url(route.url())
-        && dist.join(route.output()).is_file()
-    {
-        let suffix = request
-            .uri()
-            .query()
-            .map_or_else(String::new, |query| format!("?{query}"));
-        if let Ok(uri) = format!("{}.html{suffix}", route.url()).parse() {
-            *request.uri_mut() = uri;
-        }
-    }
-    next.run(request).await
 }
 
 async fn events(

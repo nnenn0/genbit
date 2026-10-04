@@ -7,7 +7,10 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use jiff::{Zoned, civil::DateTime, tz::TimeZone};
 use serde::{Deserialize, Deserializer, de::Error as _};
-use std::path::{Component, Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Component, Path, PathBuf},
+};
 use toml::value::{Datetime, Value};
 
 #[derive(Default, Deserialize)]
@@ -45,8 +48,9 @@ impl FrontMatter {
         );
         let title = self.title.unwrap_or_else(|| {
             relative
-                .file_stem()
-                .and_then(|stem| stem.to_str())
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
                 .unwrap_or("Untitled")
                 .to_owned()
         });
@@ -170,6 +174,68 @@ pub(crate) struct Article {
     pub(crate) source: PathBuf,
 }
 
+/// The files of `content/`, as paths relative to it.
+pub(crate) struct ContentFiles {
+    /// The `index.md` of each page.
+    pub(crate) pages: Vec<PathBuf>,
+    /// The other files, each directly in a page directory, copied unchanged.
+    pub(crate) assets: Vec<PathBuf>,
+}
+
+/// Sorts the files of `content/` into pages and their assets. A page is a directory that holds
+/// `index.md`; it holds files only, so pages never nest.
+pub(crate) fn sort_files(files: Vec<PathBuf>) -> Result<ContentFiles> {
+    ensure!(
+        !files.iter().any(|file| file == Path::new("index.md")),
+        "content/index.md is not supported; the home page is generated from config.toml and templates/root.html"
+    );
+    let page_directories = files
+        .iter()
+        .filter(|file| is_page_source(file))
+        .filter_map(|file| file.parent())
+        .map(Path::to_path_buf)
+        .collect::<BTreeSet<_>>();
+    for file in &files {
+        let directory = file.parent().unwrap_or(Path::new(""));
+        if let Some(page) = directory
+            .ancestors()
+            .skip(1)
+            .find(|ancestor| page_directories.contains(*ancestor))
+        {
+            bail!(
+                "content/{} is in a subdirectory of the page content/{}; a page directory holds files only",
+                file.display(),
+                page.display()
+            );
+        }
+    }
+    let mut pages = Vec::new();
+    let mut assets = Vec::new();
+    for file in files {
+        let directory = file.parent().unwrap_or(Path::new(""));
+        if is_page_source(&file) {
+            pages.push(file);
+        } else if file.extension().is_some_and(|ext| ext == "md") {
+            bail!(
+                "content/{} is not supported; write each page as index.md in its own directory",
+                file.display()
+            );
+        } else if page_directories.contains(directory) {
+            assets.push(file);
+        } else {
+            bail!(
+                "content/{} is not in a page directory; put it next to a page's index.md, or in static/",
+                file.display()
+            );
+        }
+    }
+    Ok(ContentFiles { pages, assets })
+}
+
+fn is_page_source(file: &Path) -> bool {
+    file.file_name().is_some_and(|name| name == "index.md")
+}
+
 pub(crate) fn parse(
     source: &str,
     relative: &Path,
@@ -245,6 +311,57 @@ mod tests {
 
     fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Result<Article> {
         super::parse(source, relative, timezone, |_, _| Ok(None))
+    }
+
+    #[test]
+    fn sorts_content_files_into_pages_and_their_assets() -> Result<()> {
+        let files = [
+            "about/index.md",
+            "entries/a/index.md",
+            "entries/a/figure.png",
+            "entries/b/index.md",
+        ]
+        .map(PathBuf::from);
+        let sorted = sort_files(files.to_vec())?;
+        assert_eq!(
+            sorted.pages,
+            ["about/index.md", "entries/a/index.md", "entries/b/index.md"].map(PathBuf::from)
+        );
+        assert_eq!(sorted.assets, [PathBuf::from("entries/a/figure.png")]);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_files_outside_the_page_rule() -> Result<()> {
+        for (files, expected) in [
+            (vec!["index.md"], "content/index.md is not supported"),
+            (
+                vec!["entries/a/index.md", "entries/a/b/index.md"],
+                "content/entries/a/b/index.md is in a subdirectory of the page content/entries/a",
+            ),
+            (
+                vec!["entries/a/index.md", "entries/a/images/x.png"],
+                "content/entries/a/images/x.png is in a subdirectory of the page content/entries/a",
+            ),
+            (
+                vec!["entries/a/index.md", "entries/a/notes.md"],
+                "content/entries/a/notes.md is not supported; write each page as index.md",
+            ),
+            (
+                vec!["entries/post.md"],
+                "content/entries/post.md is not supported",
+            ),
+            (
+                vec!["entries/a/index.md", "entries/x.png"],
+                "content/entries/x.png is not in a page directory",
+            ),
+        ] {
+            let error = sort_files(files.into_iter().map(PathBuf::from).collect())
+                .err()
+                .with_context(|| format!("accepted files for {expected}"))?;
+            assert!(error.to_string().contains(expected), "{error:#}");
+        }
+        Ok(())
     }
 
     #[test]
@@ -340,7 +457,7 @@ mod tests {
                 "description is required",
             ),
         ] {
-            let error = parse(source, Path::new("post.md"), &TimeZone::UTC)
+            let error = parse(source, Path::new("post/index.md"), &TimeZone::UTC)
                 .err()
                 .context(format!("accepted {source:?}"))?;
             assert!(
@@ -366,7 +483,7 @@ mod tests {
                 &format!(
                     "+++\ncreated_at = {created_at}\nupdated_at = {updated_at}\ndescription = 'Post'\n+++\n"
                 ),
-                Path::new("post.md"),
+                Path::new("post/index.md"),
                 &TimeZone::UTC,
             )?;
             assert_eq!(rfc3339(&article.created_at), expected_created);
@@ -387,7 +504,7 @@ mod tests {
                 "line 3, column 8",
             ),
         ] {
-            let error = parse(source, Path::new("post.md"), &TimeZone::UTC)
+            let error = parse(source, Path::new("post/index.md"), &TimeZone::UTC)
                 .err()
                 .context(format!("accepted {source:?}"))?;
             assert!(
@@ -401,14 +518,14 @@ mod tests {
     #[test]
     fn validates_tags() -> Result<()> {
         let source = "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = ['react', 'react-19', 'web-security']\n+++\nBody";
-        let article = parse(source, Path::new("post.md"), &TimeZone::UTC)?;
+        let article = parse(source, Path::new("post/index.md"), &TimeZone::UTC)?;
         assert_eq!(
             article.tags.iter().map(Tag::as_str).collect::<Vec<_>>(),
             ["react", "react-19", "web-security"]
         );
         let untagged = parse(
             "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\n+++\nBody",
-            Path::new("post.md"),
+            Path::new("post/index.md"),
             &TimeZone::UTC,
         )?;
         assert!(untagged.tags.is_empty());
@@ -423,13 +540,12 @@ mod tests {
             "['']",
             "['react', 'react']",
             "['untagged']",
-            "['index']",
         ] {
             let source = format!(
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\nBody"
             );
             assert!(
-                parse(&source, Path::new("post.md"), &TimeZone::UTC).is_err(),
+                parse(&source, Path::new("post/index.md"), &TimeZone::UTC).is_err(),
                 "accepted {tags}"
             );
         }
@@ -448,7 +564,7 @@ mod tests {
                 &format!(
                     "+++\ncreated_at = {source}\nupdated_at = {source}\ndescription = 'Post'\n+++\n"
                 ),
-                Path::new("post.md"),
+                Path::new("post/index.md"),
                 &timezone,
             )?;
             assert_eq!(rfc3339(&article.created_at), expected, "{source}");
@@ -479,7 +595,7 @@ mod tests {
                 8,
             ),
         ] {
-            let error = parse(&source, Path::new("post.md"), &TimeZone::UTC)
+            let error = parse(&source, Path::new("post/index.md"), &TimeZone::UTC)
                 .err()
                 .context(format!("accepted {source:?}"))?;
             let expected = format!("raw HTML is not allowed in Markdown at line {line};");

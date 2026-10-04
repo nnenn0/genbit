@@ -336,7 +336,7 @@ mod tests {
         )?;
         let articles = [content::parse(
             "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
-            Path::new("post.md"),
+            Path::new("post/index.md"),
             &site.timezone,
             |_, _| Ok(None),
         )?];
@@ -375,7 +375,7 @@ mod tests {
         assert_eq!(fields.get("tags"), Some(&serde_json::json!(["untagged"])));
         assert_eq!(
             fields.get("url").and_then(serde_json::Value::as_str),
-            Some("/post")
+            Some("/post/")
         );
         let timestamp = serde_json::json!({
             "datetime": "2026-09-17T10:30:00+09:00",
