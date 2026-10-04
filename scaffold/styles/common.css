@@ -41,4 +41,4 @@ p + p { margin-top: 1.25em; }
 img { display: block; max-width: 100%; height: auto; margin-inline: auto; }
 .unmarked-list { padding: 0; list-style: none; }
 .unmarked-list li + li { margin-top: 1rem; }
-.entry-list time { display: block; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.entry-meta { display: block; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }

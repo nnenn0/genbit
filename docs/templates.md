@@ -61,7 +61,7 @@
 - `404.html` は `metadata` ブロックを上書きして `noindex` を指定し、canonical・Open Graph・JSON-LDを出しません。
 - `page.html` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。下書きでは、タイトルの後に「draft」の印（`.draft-badge`）を付けます。
 - `root.html` は記事一覧の後に、タグ一覧とRSSフィードへのリンクを表示します。
-- `entry-list.html` は `entries` を描画します。マーカーを消して項目の間隔をそろえる `.unmarked-list` と、日付を表示する `.entry-list time` のスタイルは `common.css` にあります。`.unmarked-list` は `tags.html` のタグ一覧でも使います。下書きには、タイトルの後に「draft」の印（`.draft-badge`）を付けます。
+- `entry-list.html` は `entries` を描画します。マーカーを消して項目の間隔をそろえる `.unmarked-list` と、タイトルの下に日付を表示する `.entry-meta` のスタイルは `common.css` にあります。`.unmarked-list` は `tags.html` のタグ一覧でも使います。下書きには、日付の後に「draft」の印（`.draft-badge`）を付けます。
 - faviconはPNGを先に指定し、SVG対応ブラウザー向けのSVGも併記します。
 
 ## CSS
