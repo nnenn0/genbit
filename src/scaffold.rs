@@ -55,6 +55,7 @@ const FILES: &[(&str, &str)] = &[
         "static/assets/site/favicon.svg",
         include_str!("../scaffold/static/assets/site/favicon.svg"),
     ),
+    ("drafts/entries/.gitkeep", ""),
     (".gitignore", "/dist/\n"),
 ];
 
@@ -95,6 +96,8 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
         "content",
         "content/entries",
         "content/entries/hello-world",
+        "drafts",
+        "drafts/entries",
         "static",
         "static/assets",
         "static/assets/img",

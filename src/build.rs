@@ -18,36 +18,52 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// What a build does with the output it plans.
+/// What a build reads and what it does with the output it plans.
 #[derive(Clone, Copy)]
-pub(crate) enum Mode {
+pub(crate) enum Mode<'a> {
     /// Replace `dist/`.
     Publish,
     /// Run every step and check, but leave `dist/` unchanged.
     DryRun,
-    /// Replace `dist/` with pages that reload when `genbit dev` rebuilds.
-    Dev,
+    /// Lay `drafts/` over `content/`, and replace `output` with pages that reload when
+    /// `genbit dev` rebuilds. `dist/` is left unchanged, so drafts never reach it.
+    Dev { output: &'a Path },
 }
 
 /// Returns the number of HTML pages.
-pub(crate) fn run(root: &Path, mode: Mode) -> Result<usize> {
+pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
     let input = SiteInput::new(root);
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let content = content::sort_files(files(&input, "content")?)?;
+    let content = content::sort_files(files(&input, "content")?, "content")?;
+    let drafts = match mode {
+        Mode::Dev { .. } => input
+            .optional_files(Path::new("drafts"))?
+            .map(|files| content::sort_files(without_gitkeep(files), "drafts"))
+            .transpose()?,
+        Mode::Publish | Mode::DryRun => None,
+    }
+    .unwrap_or_default();
+    content::check_drafts(&content, &drafts)?;
     let copied = files(&input, "static")?
         .into_iter()
         .map(|path| (path, "static"))
         .chain(content.assets.into_iter().map(|path| (path, "content")))
+        .chain(drafts.assets.into_iter().map(|path| (path, "drafts")))
         .map(|(path, directory)| CopiedFile {
             source: Path::new(directory).join(&path),
             output: path,
         })
         .collect::<Vec<_>>();
+    let pages = content
+        .pages
+        .into_iter()
+        .map(|path| (path, "content"))
+        .chain(drafts.pages.into_iter().map(|path| (path, "drafts")))
+        .collect();
     let images = Images::new(root, &copied)?;
-    let (mut articles, image_hashes) =
-        load_articles(&input, content.pages, &config.timezone, images)?;
+    let (mut articles, image_hashes) = load_articles(&input, pages, &config.timezone, images)?;
     articles.sort_by(|left, right| {
         right
             .created_at
@@ -55,7 +71,7 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<usize> {
             .then_with(|| left.route.url().cmp(right.route.url()))
     });
     let tags = TagIndex::new(&articles);
-    let reload_script = matches!(mode, Mode::Dev).then_some(crate::dev::RELOAD_SCRIPT);
+    let reload_script = matches!(mode, Mode::Dev { .. }).then_some(crate::dev::RELOAD_SCRIPT);
     let renderer = Renderer::load(&input, &articles, reload_script)?;
     let pages = render_pages(&renderer, &config, &articles, &tags)?;
     let page_count = pages.len();
@@ -80,11 +96,13 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<usize> {
             plan.urls(),
         )?;
     }
+    let dist = root.join("dist");
     match mode {
         Mode::DryRun => {
-            output::check_destination(&input)?;
+            output::check_destination(&dist)?;
         }
-        Mode::Publish | Mode::Dev => plan.publish(&input)?,
+        Mode::Publish => plan.publish(&input, &dist)?,
+        Mode::Dev { output } => plan.publish(&input, output)?,
     }
     Ok(page_count)
 }
@@ -115,27 +133,31 @@ fn render_pages(
     .collect()
 }
 
-/// Lists the files under `directory`, leaving out the `.gitkeep` files that keep empty
-/// directories in Git.
+/// Lists the files under `directory`, leaving out `.gitkeep`.
 fn files(input: &SiteInput<'_>, directory: &str) -> Result<Vec<PathBuf>> {
-    Ok(input
-        .files(Path::new(directory))?
-        .into_iter()
-        .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
-        .collect())
+    Ok(without_gitkeep(input.files(Path::new(directory))?))
 }
 
+/// Leaves out the `.gitkeep` files that keep empty directories in Git.
+fn without_gitkeep(files: Vec<PathBuf>) -> Vec<PathBuf> {
+    files
+        .into_iter()
+        .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
+        .collect()
+}
+
+/// Takes each page's `index.md` with the directory it is in, `content` or `drafts`.
 fn load_articles(
     input: &SiteInput<'_>,
-    pages: Vec<PathBuf>,
+    pages: Vec<(PathBuf, &str)>,
     timezone: &TimeZone,
     mut images: Images<'_>,
 ) -> Result<(Vec<Article>, BTreeMap<PathBuf, ContentHash>)> {
     let articles = pages
         .into_iter()
-        .map(|path| {
-            let site_relative = Path::new("content").join(&path);
-            content::parse(
+        .map(|(path, directory)| {
+            let site_relative = Path::new(directory).join(&path);
+            let mut article = content::parse(
                 &input.read_text(&site_relative)?,
                 &path,
                 timezone,
@@ -144,9 +166,12 @@ fn load_articles(
             .with_context(|| {
                 format!(
                     "cannot parse {}",
-                    input.root().join(site_relative).display()
+                    input.root().join(&site_relative).display()
                 )
-            })
+            })?;
+            article.draft = directory == "drafts";
+            article.source = site_relative;
+            Ok(article)
         })
         .collect::<Result<_>>()?;
     // Hashes are complete only once every article has been rendered.

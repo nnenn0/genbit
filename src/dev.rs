@@ -26,7 +26,8 @@ pub(crate) const RELOAD_SCRIPT: &str =
 const QUIET_PERIOD: Duration = Duration::from_millis(100);
 const MAX_WAIT: Duration = Duration::from_millis(500);
 
-pub(crate) async fn run(root: PathBuf, address: SocketAddr) -> Result<()> {
+/// Builds the preview into `output`, which must not exist yet, and serves it.
+pub(crate) async fn run(root: PathBuf, output: PathBuf, address: SocketAddr) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .with_context(|| format!("cannot bind {address}"))?;
@@ -49,25 +50,27 @@ pub(crate) async fn run(root: PathBuf, address: SocketAddr) -> Result<()> {
         .with_context(|| format!("cannot watch {}", root.display()))?;
 
     // 停止のシグナルは初回ビルドの前から受け付け、配信中も同じものを待つ。シグナルでは待機を
-    // やめて正常終了する。実行中のビルドはランタイムの破棄時に完了を待つため、`dist/` の
+    // やめて正常終了する。実行中のビルドはランタイムの破棄時に完了を待つため、出力の
     // 切り替え途中では終わらない。
     let shutdown = shutdown_signal();
     tokio::pin!(shutdown);
 
     let count = tokio::select! {
-        result = build_site(root.clone()) => result?,
+        result = build_site(root.clone(), output.clone()) => result?,
         result = &mut shutdown => return stopped(result),
     };
-    println!("Built {count} pages into dist/");
+    println!("Built {count} pages for preview");
 
     let (reload_tx, _) = broadcast::channel(16);
-    let app = router(&root, reload_tx.clone());
+    let app = router(&output, reload_tx.clone());
     let actual = listener
         .local_addr()
         .context("cannot read server address")?;
     println!("Server running at http://{actual}");
 
-    let rebuild = rebuild_on_changes(change_rx, reload_tx, move || build_site(root.clone()));
+    let rebuild = rebuild_on_changes(change_rx, reload_tx, move || {
+        build_site(root.clone(), output.clone())
+    });
     tokio::select! {
         result = axum::serve(listener, app) => result.context("development server failed"),
         () = rebuild => Ok(()),
@@ -97,24 +100,25 @@ async fn shutdown_signal() -> Result<()> {
         .context("cannot listen for Ctrl+C")
 }
 
-async fn build_site(root: PathBuf) -> Result<usize> {
-    tokio::task::spawn_blocking(move || crate::build::run(&root, crate::build::Mode::Dev))
-        .await
-        .context("build task failed")?
+async fn build_site(root: PathBuf, output: PathBuf) -> Result<usize> {
+    tokio::task::spawn_blocking(move || {
+        crate::build::run(&root, crate::build::Mode::Dev { output: &output })
+    })
+    .await
+    .context("build task failed")?
 }
 
-fn router(root: &Path, reload_tx: broadcast::Sender<()>) -> Router {
-    let dist = root.join("dist");
+fn router(output: &Path, reload_tx: broadcast::Sender<()>) -> Router {
     Router::new()
         .route("/__genbit/reload", get(events))
         .fallback_service(
-            ServeDir::new(&dist).not_found_service(ServeFile::new(dist.join("404.html"))),
+            ServeDir::new(output).not_found_service(ServeFile::new(output.join("404.html"))),
         )
         .layer(middleware::from_fn(disable_caching))
         .with_state(reload_tx)
 }
 
-/// Always answers with the current `dist/`. `ServeDir` validators come from file metadata, and
+/// Always answers with the current preview. `ServeDir` validators come from file metadata, and
 /// `Last-Modified` alone cannot tell apart two builds within the same second.
 async fn disable_caching(mut request: Request, next: Next) -> Response {
     for name in [
@@ -144,7 +148,7 @@ fn relevant_change(root: &Path, event: &notify::Event) -> bool {
     !matches!(event.kind, EventKind::Access(_))
         && event.paths.iter().any(|path| {
             path == &root.join("config.toml")
-                || ["content", "templates", "styles", "static"]
+                || ["content", "drafts", "templates", "styles", "static"]
                     .iter()
                     .any(|directory| path.starts_with(root.join(directory)))
         })

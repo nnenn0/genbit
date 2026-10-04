@@ -29,6 +29,7 @@ struct PublicArticle<'a> {
     created_at: PublicTimestamp,
     updated_at: PublicTimestamp,
     tags: Vec<&'a str>,
+    draft: bool,
 }
 
 impl<'a> From<&'a Article> for PublicArticle<'a> {
@@ -40,6 +41,7 @@ impl<'a> From<&'a Article> for PublicArticle<'a> {
             created_at: PublicTimestamp::from(&article.created_at),
             updated_at: PublicTimestamp::from(&article.updated_at),
             tags: article_tags(article),
+            draft: article.draft,
         }
     }
 }
@@ -371,7 +373,8 @@ mod tests {
         assert!(single.get("entries").is_none());
         let value = serde_json::to_value(&public)?;
         let fields = value.as_object().context("article view is not an object")?;
-        assert_eq!(fields.len(), 6);
+        assert_eq!(fields.len(), 7);
+        assert_eq!(fields.get("draft"), Some(&serde_json::json!(false)));
         assert_eq!(fields.get("tags"), Some(&serde_json::json!(["untagged"])));
         assert_eq!(
             fields.get("url").and_then(serde_json::Value::as_str),

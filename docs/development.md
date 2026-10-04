@@ -62,14 +62,7 @@ docker compose run --rm \
 
 ホストのブラウザーで `http://127.0.0.1:3000` を開きます。
 
-macOSのDocker Desktopでは、bind mount越しのファイル削除イベントがコンテナに届かない場合があります（[docker/for-mac#7246](https://github.com/docker/for-mac/issues/7246)）。削除したページが残った場合は、別のコンテナでビルドし、ブラウザーを再読み込みしてください。
-
-```sh
-docker compose run --rm \
-  --volume "$SITE_DIR:/site" \
-  --workdir /site \
-  cli run --locked --manifest-path /workspace/Cargo.toml -- build
-```
+macOSのDocker Desktopでは、bind mount越しのファイル削除イベントがコンテナに届かない場合があります（[docker/for-mac#7246](https://github.com/docker/for-mac/issues/7246)）。削除したページが残った場合は、`dev` を起動し直してください。`dev` の出力はコンテナ内の一時ディレクトリにあり、起動のたびに作り直します。
 
 ファイルの作成・編集とSSEによる再読み込みは、この環境でも動作します。
 

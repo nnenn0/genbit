@@ -137,16 +137,12 @@ pub(crate) fn validate_links(
     served: &BTreeSet<String>,
 ) -> Result<()> {
     for link in links {
-        let target = resolve_link(page_url, link).with_context(|| {
-            format!(
-                "invalid internal link in content/{}: {link}",
-                source.display()
-            )
-        })?;
+        let target = resolve_link(page_url, link)
+            .with_context(|| format!("invalid internal link in {}: {link}", source.display()))?;
         if let Some(target) = target {
             ensure!(
                 served.contains(&target),
-                "broken internal link in content/{}: {link} resolves to {target}, which is not generated",
+                "broken internal link in {}: {link} resolves to {target}, which is not generated",
                 source.display()
             );
         }
@@ -440,7 +436,7 @@ mod tests {
             ("tags/rust/index.html", "tag"),
             ("assets/Photo.png", "static/assets/Photo.png"),
         ])?;
-        let source = Path::new("entries/a/index.md");
+        let source = Path::new("content/entries/a/index.md");
         let valid = [
             "../foo/",
             "../foo",

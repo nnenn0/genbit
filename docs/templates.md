@@ -38,7 +38,7 @@
 | `tag.html` | `tag`: タグ名、`entries`: そのタグの記事（作成日時の新しい順） |
 | `404.html` | `site` と `css` のみ |
 
-`entries` の各要素と `article` には、`title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。`url` は `/entries/hello-world/` のように `/` で終わる記事のURLです。`created_at` と `updated_at` は次の値を持つオブジェクトです。
+`entries` の各要素と `article` には、`title`、`description`、`url`、`created_at`、`updated_at`、`tags`、`draft` が入ります。`url` は `/entries/hello-world/` のように `/` で終わる記事のURLです。`draft` は `genbit dev` で `drafts/` から読んだ[下書き](content.md#下書き)なら `true` で、`genbit build` では常に `false` です。`created_at` と `updated_at` は次の値を持つオブジェクトです。
 
 | 値 | 形式 | 例 |
 | --- | --- | --- |
@@ -58,9 +58,9 @@
 
 - `base.html` はタイトル、meta description、canonicalリンク、Open Graph、JSON-LD、favicon、RSSの自動検出用リンクを出力します。子テンプレートはこのブロックを上書きします。
 - `404.html` は `metadata` ブロックを上書きして `noindex` を指定し、canonical・Open Graph・JSON-LDを出しません。
-- `page.html` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。
+- `page.html` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。下書きでは、タイトルの後に「下書き」の印（`.draft-badge`）を付けます。
 - `root.html` は記事一覧の後に、タグ一覧とRSSフィードへのリンクを表示します。
-- `entry-list.html` は `entries` を描画します。マーカーを消して項目の間隔をそろえる `.unmarked-list` と、日付を表示する `.entry-list time` のスタイルは `common.css` にあります。`.unmarked-list` は `tags.html` のタグ一覧でも使います。
+- `entry-list.html` は `entries` を描画します。マーカーを消して項目の間隔をそろえる `.unmarked-list` と、日付を表示する `.entry-list time` のスタイルは `common.css` にあります。`.unmarked-list` は `tags.html` のタグ一覧でも使います。下書きには、タイトルの後に「下書き」の印（`.draft-badge`）を付けます。
 - faviconはPNGを先に指定し、SVG対応ブラウザー向けのSVGも併記します。
 
 ## CSS
