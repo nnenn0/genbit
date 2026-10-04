@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block main %}
 <article>
-  <h1>{{ article.title }}{% if article.draft %}<span class="draft-badge">下書き</span>{% endif %}</h1>
+  <h1>{{ article.title }}{% if article.draft %}<span class="draft-badge">draft</span>{% endif %}</h1>
   <dl class="article-meta">
     <dt>created_at</dt>
     <dd><time datetime="{{ article.created_at.datetime }}">{{ article.created_at.date }}</time></dd>

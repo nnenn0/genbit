@@ -18,7 +18,8 @@ use tera::{Context, Tera};
 pub(crate) struct Renderer {
     tera: Tera,
     styles: BTreeMap<String, String>,
-    reload_script: Option<&'static str>,
+    /// Whether `genbit dev` renders the pages, which then reload on rebuilds and may show drafts.
+    preview: bool,
 }
 
 #[derive(Serialize)]
@@ -68,6 +69,7 @@ impl From<&Zoned> for PublicTimestamp {
 struct Page<'a, V> {
     site: &'a Config,
     css: &'a str,
+    preview: bool,
     #[serde(flatten)]
     view: V,
 }
@@ -114,11 +116,7 @@ struct TagView<'a, 'b> {
 }
 
 impl Renderer {
-    pub(crate) fn load(
-        input: &SiteInput<'_>,
-        articles: &[Article],
-        reload_script: Option<&'static str>,
-    ) -> Result<Self> {
+    pub(crate) fn load(input: &SiteInput<'_>, articles: &[Article], preview: bool) -> Result<Self> {
         let tera = load_templates(input)?;
         ensure!(
             tera.get_template_names().any(|name| name == "tags.html")
@@ -131,7 +129,7 @@ impl Renderer {
         Ok(Self {
             tera,
             styles,
-            reload_script,
+            preview,
         })
     }
 
@@ -258,6 +256,7 @@ impl Renderer {
         let page = Page {
             site: config,
             css,
+            preview: self.preview,
             view,
         };
         let context =
@@ -266,8 +265,8 @@ impl Renderer {
             .tera
             .render(template, &context)
             .with_context(|| format!("cannot render {source} with template {template}"))?;
-        if let Some(script) = self.reload_script {
-            html.push_str(script);
+        if self.preview {
+            html.push_str(crate::dev::RELOAD_SCRIPT);
         }
         let minified = minify_html::minify(
             html.as_bytes(),
@@ -345,6 +344,7 @@ mod tests {
         let home = Context::from_serialize(&Page {
             site: &site,
             css: "",
+            preview: false,
             view: HomeView {
                 description: site.description.as_str(),
                 canonical_url: site.site_url.as_str(),
@@ -353,6 +353,10 @@ mod tests {
             },
         })?;
         assert!(home.get("site").is_some() && home.get("css").is_some());
+        assert_eq!(
+            home.get("preview").and_then(tera::Value::as_bool),
+            Some(false)
+        );
         assert!(home.get("entries").is_some());
         assert!(home.get("article").is_none());
 
@@ -361,6 +365,7 @@ mod tests {
         let single = Context::from_serialize(&Page {
             site: &site,
             css: "",
+            preview: false,
             view: ArticleView {
                 description: article.description.as_str(),
                 canonical_url: "http://127.0.0.1:3000/post",

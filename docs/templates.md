@@ -27,6 +27,7 @@
 | `site.site_url` | 正規化した `site_url` |
 | `site.og_image` | 絶対URLに解決した `og_image` |
 | `css` | このテンプレート用のCSS。[CSS](#css)を参照。 |
+| `preview` | `genbit dev` のプレビューなら `true`、`genbit build` なら `false`。下書きの印のスタイルのように、プレビューでだけ使うものを出し分けます。 |
 
 トップページ・記事・タグ一覧・タグ別ページには、`description`、`canonical_url`、`json_ld` も渡します。タグ一覧とタグ別ページの `description` は固定の日本語の文（`記事のタグ一覧`、`{tag} の記事一覧`）で、`json_ld` はサイトの `WebSite` の構造化データです。
 
@@ -56,11 +57,11 @@
 
 ## 初期テンプレート
 
-- `base.html` はタイトル、meta description、canonicalリンク、Open Graph、JSON-LD、favicon、RSSの自動検出用リンクを出力します。子テンプレートはこのブロックを上書きします。
+- `base.html` はタイトル、meta description、canonicalリンク、Open Graph、JSON-LD、favicon、RSSの自動検出用リンクを出力します。`preview` が `true` のときだけ、下書きの印（`.draft-badge`）のスタイルを出力します。公開するページには入りません。子テンプレートはこのブロックを上書きします。
 - `404.html` は `metadata` ブロックを上書きして `noindex` を指定し、canonical・Open Graph・JSON-LDを出しません。
-- `page.html` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。下書きでは、タイトルの後に「下書き」の印（`.draft-badge`）を付けます。
+- `page.html` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。下書きでは、タイトルの後に「draft」の印（`.draft-badge`）を付けます。
 - `root.html` は記事一覧の後に、タグ一覧とRSSフィードへのリンクを表示します。
-- `entry-list.html` は `entries` を描画します。マーカーを消して項目の間隔をそろえる `.unmarked-list` と、日付を表示する `.entry-list time` のスタイルは `common.css` にあります。`.unmarked-list` は `tags.html` のタグ一覧でも使います。下書きには、タイトルの後に「下書き」の印（`.draft-badge`）を付けます。
+- `entry-list.html` は `entries` を描画します。マーカーを消して項目の間隔をそろえる `.unmarked-list` と、日付を表示する `.entry-list time` のスタイルは `common.css` にあります。`.unmarked-list` は `tags.html` のタグ一覧でも使います。下書きには、タイトルの後に「draft」の印（`.draft-badge`）を付けます。
 - faviconはPNGを先に指定し、SVG対応ブラウザー向けのSVGも併記します。
 
 ## CSS

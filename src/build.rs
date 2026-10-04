@@ -71,8 +71,7 @@ pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
             .then_with(|| left.route.url().cmp(right.route.url()))
     });
     let tags = TagIndex::new(&articles);
-    let reload_script = matches!(mode, Mode::Dev { .. }).then_some(crate::dev::RELOAD_SCRIPT);
-    let renderer = Renderer::load(&input, &articles, reload_script)?;
+    let renderer = Renderer::load(&input, &articles, matches!(mode, Mode::Dev { .. }))?;
     let pages = render_pages(&renderer, &config, &articles, &tags)?;
     let page_count = pages.len();
     let artifacts = pages

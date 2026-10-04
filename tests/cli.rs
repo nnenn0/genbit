@@ -1658,7 +1658,8 @@ fn build_and_dry_run_ignore_drafts_even_when_they_are_broken() -> Result<()> {
     assert!(!site.join("dist/entries/wip").exists());
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(!home.contains("/entries/wip/"), "{home}");
-    assert!(!home.contains("class=draft-badge"), "{home}");
+    // The badge style is only for previews, so published pages carry none of it.
+    assert!(!home.contains("draft-badge"), "{home}");
 
     write_file(
         site.join("content/entries/hello-world/index.md"),
@@ -1699,6 +1700,7 @@ fn dev_shows_drafts_with_marks_and_leaves_dist_unchanged() -> Result<()> {
     let home = http_body(&address, "/")?;
     assert!(home.contains("href=/entries/wip/"), "{home}");
     assert_eq!(home.matches("class=draft-badge").count(), 1, "{home}");
+    assert!(home.contains(".draft-badge{"), "{home}");
     let draft = http_body(&address, "/entries/wip/")?;
     assert!(draft.contains("class=draft-badge"), "{draft}");
     assert!(draft.contains("width=300"), "{draft}");
