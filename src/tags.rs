@@ -6,7 +6,7 @@ use anyhow::{Error, ensure};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// A tag written in front matter: lowercase kebab-case, and neither reserved name.
+/// A tag written in front matter: lowercase kebab-case, and not the reserved `untagged`.
 #[derive(Debug, Deserialize)]
 #[serde(try_from = "String")]
 pub(crate) struct Tag(String);
@@ -28,11 +28,6 @@ impl TryFrom<String> for Tag {
         ensure!(
             tag != UNTAGGED_TAG,
             "tag \"untagged\" is reserved for articles without tags"
-        );
-        // `/tags/index/` would collide with the clean URL of the tag list, `tags/index.html`.
-        ensure!(
-            tag != "index",
-            "tag \"index\" is reserved because /tags/index serves the tag list"
         );
         Ok(Self(tag))
     }
@@ -138,7 +133,7 @@ mod tests {
             &format!(
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\n"
             ),
-            Path::new(&format!("{name}.md")),
+            Path::new(&format!("{name}/index.md")),
             &TimeZone::UTC,
             |_, _| Ok(None),
         )
@@ -170,9 +165,9 @@ mod tests {
         assert_eq!(
             groups,
             [
-                ("rust", "/tags/rust/".to_owned(), vec!["/a", "/c"]),
-                ("web", "/tags/web/".to_owned(), vec!["/a"]),
-                ("untagged", "/tags/untagged/".to_owned(), vec!["/b"]),
+                ("rust", "/tags/rust/".to_owned(), vec!["/a/", "/c/"]),
+                ("web", "/tags/web/".to_owned(), vec!["/a/"]),
+                ("untagged", "/tags/untagged/".to_owned(), vec!["/b/"]),
             ]
         );
         let [tagged, untagged, _] = &articles;

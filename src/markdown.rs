@@ -29,7 +29,7 @@ pub(crate) fn parse(source: &str) -> Result<Parsed<'_>, RawHtml> {
             Event::Html(_) | Event::InlineHtml(_) => Err(RawHtml {
                 offset: range.start,
             }),
-            other => Ok(rewrite_article_link(other)),
+            other => Ok(other),
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Parsed { events: parsed })
@@ -49,23 +49,6 @@ impl Parsed<'_> {
             html: output,
             links,
         })
-    }
-}
-
-fn rewrite_article_link(event: Event<'_>) -> Event<'_> {
-    match event {
-        Event::Start(Tag::Link {
-            link_type,
-            dest_url,
-            title,
-            id,
-        }) if link_type != LinkType::Email => Event::Start(Tag::Link {
-            link_type,
-            dest_url: article_url(&dest_url).map_or(dest_url, Into::into),
-            title,
-            id,
-        }),
-        other => other,
     }
 }
 
@@ -270,15 +253,6 @@ fn unique_heading_id(text: &str, used: &mut HashSet<String>) -> String {
         suffix += 1;
     }
     id
-}
-
-fn article_url(url: &str) -> Option<String> {
-    let (path, suffix) = crate::route::split_site_link(url)?;
-    if path.starts_with('/') {
-        return None;
-    }
-    path.strip_suffix(".md")
-        .map(|stem| format!("{stem}{suffix}"))
 }
 
 /// Adds `v=<version>` to the query, before any fragment. The key `v` is reserved for it.
@@ -511,8 +485,8 @@ mod tests {
 
     #[test]
     fn collects_internal_links_inside_tables() -> Result<()> {
-        let rendered = render("| Page |\n| --- |\n| [Top](/) |\n| [Next](next.md) |\n")?;
-        assert_eq!(rendered.links, ["/", "next"]);
+        let rendered = render("| Page |\n| --- |\n| [Top](/) |\n| [Next](../next/) |\n")?;
+        assert_eq!(rendered.links, ["/", "../next/"]);
         Ok(())
     }
 
@@ -625,36 +599,16 @@ mod tests {
     }
 
     #[test]
-    fn rewrites_relative_article_links_without_changing_other_urls() -> Result<()> {
-        for (url, expected) in [
-            ("other.md", "other"),
-            ("../other.md#section", "../other#section"),
-            (
-                "posts/other.md?view=full#section",
-                "posts/other?view=full#section",
-            ),
-            (
-                "https://example.com/other.md",
-                "https://example.com/other.md",
-            ),
-            ("mailto:other.md", "mailto:other.md"),
-            ("/other.md", "/other.md"),
-            ("//example.com/other.md", "//example.com/other.md"),
-            ("#section", "#section"),
-            ("other.html", "other.html"),
-        ] {
-            let html = render_html(&format!("[article]({url})"))?;
-            assert!(html.contains(&format!("href=\"{expected}\"")), "{html}");
-        }
-        let image = render_html("![image](other.md)")?;
-        assert!(image.contains("src=\"other.md\""), "{image}");
+    fn leaves_markdown_file_links_unchanged() -> Result<()> {
+        let html = render_html("[article](../other/index.md)")?;
+        assert!(html.contains("href=\"../other/index.md\""), "{html}");
         Ok(())
     }
 
     #[test]
     fn opens_external_links_in_new_tabs() -> Result<()> {
         let html = render_html(
-            "[web](https://example.com/?a=1&b=2 \"A & B\") [cdn](//cdn.example.com) [local](next.md) [section](#top)",
+            "[web](https://example.com/?a=1&b=2 \"A & B\") [cdn](//cdn.example.com) [local](../next/) [section](#top)",
         )?;
         assert!(html.contains("href=\"https://example.com/?a=1&amp;b=2\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"A &amp; B\""), "{html}");
         assert!(
@@ -663,7 +617,7 @@ mod tests {
             ),
             "{html}"
         );
-        assert!(html.contains("href=\"next\""), "{html}");
+        assert!(html.contains("href=\"../next/\""), "{html}");
         assert!(html.contains("href=\"#top\""), "{html}");
         assert_eq!(html.matches("target=\"_blank\"").count(), 2, "{html}");
         Ok(())
@@ -689,22 +643,22 @@ mod tests {
     #[test]
     fn collects_rendered_internal_link_and_image_targets() -> Result<()> {
         let rendered = render(concat!(
-            "[next](next.md#x) ![photo](../img/a.png) [abs](/about) [top](#top)\n\n",
+            "[next](../next/#x) ![photo](../img/a.png) [abs](/about) [top](#top)\n\n",
             "[web](https://example.com) <https://example.com/auto> <someone@example.com> ",
             "[mail](mailto:a@example.com)\n\n",
             "## [heading](gone.md) ![icon](icon.png)\n\n",
-            "# [title](kept.md)\n",
+            "# [title](../kept/)\n",
         ))?;
         assert_eq!(
             rendered.links,
             [
-                "next#x",
+                "../next/#x",
                 "../img/a.png",
                 "/about",
                 "#top",
                 "mailto:a@example.com",
                 "icon.png",
-                "kept"
+                "../kept/"
             ]
         );
         Ok(())
@@ -786,9 +740,9 @@ mod tests {
     }
 
     #[test]
-    fn preserves_md_email_addresses_when_rewriting_article_links() -> Result<()> {
+    fn preserves_md_email_addresses() -> Result<()> {
         let rendered = render(
-            "<person@example.md> [mail](mailto:person@example.md) [next](next.md?x=1#section)",
+            "<person@example.md> [mail](mailto:person@example.md) [next](../next/?x=1#section)",
         )?;
         assert_eq!(
             rendered
@@ -802,10 +756,10 @@ mod tests {
                 .html
                 .contains("<a href=\"mailto:person@example.md\">person@example.md</a>")
         );
-        assert!(rendered.html.contains("href=\"next?x=1#section\""));
+        assert!(rendered.html.contains("href=\"../next/?x=1#section\""));
         assert_eq!(
             rendered.links,
-            ["mailto:person@example.md", "next?x=1#section"]
+            ["mailto:person@example.md", "../next/?x=1#section"]
         );
         Ok(())
     }

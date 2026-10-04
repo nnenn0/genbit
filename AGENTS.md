@@ -27,10 +27,10 @@
 | --- | --- |
 | `src/main.rs` | clap の `new` / `build` / `dev` エントリーポイント。`build` と `dev` はカレントディレクトリをサイトルートにする。 |
 | `src/scaffold.rs` と `scaffold/` | `new` のサイト作成処理と同梱する初期テンプレート・CSS・記事・favicon。`include_str!` でビルド時に同梱するため、初期サイトを変えるときは生成サイトの契約と統合テストも確認する。既存の利用者サイトは自動更新されない。 |
-| `src/content.rs`、`src/markdown.rs` | TOML フロントマターの検証、Markdown→HTML。記事の日付形式の変更時は生成結果を確認する。 |
+| `src/content.rs`、`src/markdown.rs` | `content/` のファイルのページと素材への振り分け、TOML フロントマターの検証、Markdown→HTML。記事の日付形式の変更時は生成結果を確認する。 |
 | `src/image_size.rs` | 記事本文で画像として参照する `static/` のファイルの内容ハッシュと、PNG・JPEG・GIF・WebPの寸法を取得し、EXIFの表示方向を反映する。対象形式の画像で寸法を取得できない場合はエラーにする。取得結果（画像でないファイルを含む）はビルド内でキャッシュする。 |
 | `src/content_hash.rs` | 画像URLに付けるSHA-256のハッシュと、実際に書き込んだバイト列からハッシュを計算する書き込み。 |
-| `src/route.rs` | 記事のURLと出力先の対応、サイト内の相対パスを `/` 区切りにする変換（名前の `\` は拒否）、開発サーバーの拡張子なしURL判定、配信URLの衝突・予約領域検査。URL形式の変更時は生成結果と配信を確認する。 |
+| `src/route.rs` | 記事のURLと出力先の対応、サイト内の相対パスを `/` 区切りにする変換（名前の `\` は拒否）、配信URLの集合と予約領域検査。URL形式の変更時は生成結果と配信を確認する。 |
 | `src/config.rs` | `config.toml` の読み込み後の検証とサイトURL・OGP画像URLの正規化。公開URLの組み立てを担う。 |
 | `src/text.rs` | 設定と記事の `title`・`description` を、空でなく XML で表せない制御文字を含まない `PublishableText` にする。出力に書く文字列の検査はここを通す。 |
 | `src/render.rs` | テンプレート・CSSの読み込み、公開ビュー、Tera描画、HTML圧縮。記事の内部型を直接テンプレートへ渡さない。 |
@@ -49,17 +49,17 @@
 
 - 単一のバイナリ。API サーバーや DB 層はない。`dev` の HTTP エンドポイントは静的ファイル配信と `GET /__genbit/reload`（SSE）のみ。
 - `new <name>` は名前を ASCII 英数字・`-`・`_`（先頭は英数字）に検証し、新しいディレクトリへ `config.toml`、`/dist/` を除外する `.gitignore`、`scaffold/` の素材を書き込む。既存のパスは上書きしない。
-- `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、`timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/**/*.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
+- `build` はサイト直下の `config.toml`（必須の `title`、`description`、`site_url`、`og_image`、`timezone`）を読み、`templates/**/*.html` を Tera に登録し、`content/` の各ページの `index.md` を `Article` に変換する。`content/index.md` は使えず、トップページは記事とは別に `root.html` と設定から生成する。
 - 記事の TOML フロントマターには引用符なしのローカル日時 `created_at = YYYY-MM-DD HH:MM` が必須。`updated_at` も同形式で必須。日付のみ・秒付きは受け付けず、日付と時刻の区切りは `T` も可。日時は `timezone`（IANA 名のみ）の地域の時刻として jiff の `Zoned` に変換し、更新日時は作成日時以降にする。`description` は必須で空にできない。`title` がない場合はファイル名、`template` がない場合は `page.html`。未知のフィールドはエラー。
-- 記事の相対パスはそのまま保ち、`.md` を `.html` に置き換えて出力する。例: `content/entries/a.md` → `dist/entries/a.html`、記事URLは `/entries/a`。パス要素は ASCII 英数字・`-`・`_` に制限される。記事と `dev` は共通の `Route` 規則を使う。
+- `index.md` を持つディレクトリが1つのページで、`index.html` に出力する。例: `content/entries/a/index.md` → `dist/entries/a/index.html`、記事URLは `/entries/a/`。ページのディレクトリにある他のファイルは素材として同じパスへコピーする。ページの中のサブディレクトリ（入れ子のページを含む）、`index.md` 以外の `.md`、ページの外のファイル、`content/index.md` はエラー。`.gitkeep` は `content/`・`static/` とも読み飛ばす。ページのディレクトリ名は ASCII 英数字・`-`・`_` に制限される。
 - 記事本文の生 HTML は禁止する。`markdown.rs` はパーサー直後の位置情報付きイベントで `Event::Html`・`Event::InlineHtml`（コメントを含む）を検査し、最初の箇所の本文内バイト位置をエラーで返す。見出し・画像などの加工は検査を通ったイベント列だけに行い、加工で genbit 自身が生成する `Event::Html` は検査しない。`content.rs` がその位置を記事ファイル全体の1始まりの行番号（BOM・フロントマター・CRLF を含む）に変換する。コードスパン・コードブロック・エスケープ・文字参照・オートリンクは許可する。
-- Markdown の相対 `.md` リンクはイベント処理で拡張子なしのURLに変換する。クエリとアンカーは保持し、外部 URL・ルート相対 URL・画像の参照先は変えない。
-- 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at`・`updated_at` は `datetime`（時差付き RFC 3339）・`date`・`time` を持つオブジェクトで、JSON-LD と sitemap も同じ時差付き日時を使う。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`markdown.rs` は構文検査と描画を分け、描画時のコールバック経由で `image_size.rs` が参照先の寸法を取得する。ローカルPNG・JPEG・GIF・WebPには寸法を `width`・`height` として必ず付け、JPEGのEXIF Orientation 5〜8では幅と高さを交換する。内容がこの4形式の画像、または拡張子がこの4形式を示すファイルで、寸法・EXIFを解析できない場合、Orientationが1〜8でない場合、PNG・WebPのOrientationが5〜8の場合（ブラウザーで表示方向が一致しない）はビルドエラーにする。外部URLと、拡張子も内容も4形式でないファイル（SVG・AVIFなど）は属性なしとする。imagesizeとkamadak-exifを用い、ピクセルのデコードや変換は行わない。`static/` のファイルに解決される画像は形式を問わず、`src` のフラグメントの前にクエリ `v=<内容のSHA-256の先頭16桁>` を追加する。参照先のクエリにキー `v`（パーセントデコード後に比較）があればビルドエラー。リンク検証は元の参照先で行い、コピー時に書き込んだバイト列のSHA-256全体が描画時と異なれば公開前に失敗する。初期画像CSSは `styles/common.css` に置く。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
+- Markdown のリンクは書き換えない。記事へのリンクは `../b/` のように記事URLで書く。
+- 全記事を作成日時降順、同時刻なら URL 順で並べる。この順序の先頭20件から `dist/feed.xml`（RSS 2.0、`pubDate` は `created_at` と `timezone`）を生成し、sitemap には含めない。テンプレートに渡す `created_at`・`updated_at` は `datetime`（時差付き RFC 3339）・`date`・`time` を持つオブジェクトで、JSON-LD と sitemap も同じ時差付き日時を使う。`render.rs` の専用ビューから共通の `site` と `css`、トップページ専用の `entries`、記事ページ専用の `article` と `content` を渡す。Markdown 画像はイベント処理で `loading="lazy"` と `decoding="async"` を付ける。`markdown.rs` は構文検査と描画を分け、描画時のコールバック経由で `image_size.rs` が参照先の寸法を取得する。ローカルPNG・JPEG・GIF・WebPには寸法を `width`・`height` として必ず付け、JPEGのEXIF Orientation 5〜8では幅と高さを交換する。内容がこの4形式の画像、または拡張子がこの4形式を示すファイルで、寸法・EXIFを解析できない場合、Orientationが1〜8でない場合、PNG・WebPのOrientationが5〜8の場合（ブラウザーで表示方向が一致しない）はビルドエラーにする。外部URLと、拡張子も内容も4形式でないファイル（SVG・AVIFなど）は属性なしとする。imagesizeとkamadak-exifを用い、ピクセルのデコードや変換は行わない。ページの素材または `static/` のファイルに解決される画像は形式を問わず、`src` のフラグメントの前にクエリ `v=<内容のSHA-256の先頭16桁>` を追加する。参照先のクエリにキー `v`（パーセントデコード後に比較）があればビルドエラー。リンク検証は元の参照先で行い、コピー時に書き込んだバイト列のSHA-256全体が描画時と異なれば公開前に失敗する。初期画像CSSは `styles/common.css` に置く。`styles/common.css` は必須で、使用テンプレートと同名の CSS は任意。CSS はテンプレートごとに組み立て、HTML ごとに埋め込み圧縮する。
 - 記事のリンクと画像の参照先は `markdown.rs` が出力するとおりに集め、`OutputPlan` が確定した配信URLの集合と `route.rs` で照合する。相対パスは記事URLを基準にブラウザーと同じく解決し、スキーム付きURL・同一ページ内リンクは対象外。
 - URLのスキームは先頭の構文で判定し、`/files/a:b.png` のようなパス内のコロンは内部参照として扱う。HTTP(S)の外部リンク属性はスキームの大文字・小文字を区別しない。パスは一度だけデコードし、`%2e` などのドット要素も解決する。パス内の `%2F`・`%5C` とバックスラッシュはビルドエラーにし、通常の `/` で区切ることを求める。クエリとアンカー内のエンコードはこの制限の対象外。
 - `build --dry-run` は通常の `build` と同じ経路で `OutputPlan` の作成とリンク検証まで行い、`dist/` の所有チェックだけして公開（ステージング・入れ替え）をしない。
 - `static/` の通常ファイルはステージング領域へ直接コピーし、コピー時にも入力パスとファイル種別を検査する。出力パスの重複、大小文字だけ異なる衝突、ファイルとディレクトリの衝突に加え、記事・静的ファイルの配信URL衝突と `/__genbit` 配下の使用を拒否する。`dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけ入れ替える。入力ディレクトリ内のシンボリックリンクは拒否する。
-- `dev` はポート確保と監視登録の後に初回ビルドし、既定の `127.0.0.1:3000` で `dist/` を配信する。記事の拡張子なしURLも対応する `.html` から配信する。配信の応答には `Cache-Control: no-store` を付け、条件付きリクエストのヘッダーは削除してから配信する。`config.toml` と `content/`・`templates/`・`styles/`・`static/` の変更通知は容量1で保持し、100 msの静穏期間または500 msの最大待機後に単一の再ビルドを行う。ビルド中の変更は次回に処理し、成功時だけSSEを送る。SIGINT・SIGTERM では実行中のビルドの完了を待って正常終了する。開発用スクリプトは `build` の出力には入らない。
+- `dev` はポート確保と監視登録の後に初回ビルドし、既定の `127.0.0.1:3000` で `dist/` を配信する。ディレクトリのURLには `index.html` を返し、末尾の `/` がないURLは `tower-http` の `ServeDir` が `/` 付きへリダイレクトする。配信の応答には `Cache-Control: no-store` を付け、条件付きリクエストのヘッダーは削除してから配信する。`config.toml` と `content/`・`templates/`・`styles/`・`static/` の変更通知は容量1で保持し、100 msの静穏期間または500 msの最大待機後に単一の再ビルドを行う。ビルド中の変更は次回に処理し、成功時だけSSEを送る。SIGINT・SIGTERM では実行中のビルドの完了を待って正常終了する。開発用スクリプトは `build` の出力には入らない。
 
 ## Development Commands
 

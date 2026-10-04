@@ -38,7 +38,7 @@
 | `tag.html` | `tag`: タグ名、`entries`: そのタグの記事（作成日時の新しい順） |
 | `404.html` | `site` と `css` のみ |
 
-`entries` の各要素と `article` には、`title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。`created_at` と `updated_at` は次の値を持つオブジェクトです。
+`entries` の各要素と `article` には、`title`、`description`、`url`、`created_at`、`updated_at`、`tags` が入ります。`url` は `/entries/hello-world/` のように `/` で終わる記事のURLです。`created_at` と `updated_at` は次の値を持つオブジェクトです。
 
 | 値 | 形式 | 例 |
 | --- | --- | --- |

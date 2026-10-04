@@ -18,7 +18,7 @@ cd "$work"
 "$bin" new site
 cd site
 "$bin" build
-for file in dist/index.html dist/entries/hello-world.html dist/feed.xml; do
+for file in dist/index.html dist/entries/hello-world/index.html dist/feed.xml; do
     if [ ! -s "$file" ]; then
         echo "missing or empty $file" >&2
         exit 1

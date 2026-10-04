@@ -48,8 +48,8 @@ const FILES: &[(&str, &str)] = &[
     ),
     ("styles/tag.css", include_str!("../scaffold/styles/tag.css")),
     (
-        "content/entries/hello-world.md",
-        include_str!("../scaffold/content/entries/hello-world.md"),
+        "content/entries/hello-world/index.md",
+        include_str!("../scaffold/content/entries/hello-world/index.md"),
     ),
     (
         "static/assets/site/favicon.svg",
@@ -94,6 +94,7 @@ fn write_site(root: &Path, name: &str) -> Result<()> {
         "styles",
         "content",
         "content/entries",
+        "content/entries/hello-world",
         "static",
         "static/assets",
         "static/assets/img",

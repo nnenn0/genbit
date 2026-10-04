@@ -16,17 +16,18 @@ pub(crate) struct Route {
 }
 
 impl Route {
+    /// Takes the path of a page's `index.md`, relative to `content/`.
     pub(crate) fn from_content_path(relative: &Path) -> Result<Self> {
         ensure!(
-            relative.extension().is_some_and(|ext| ext == "md"),
-            "expected a .md file"
+            relative.file_name().is_some_and(|name| name == "index.md"),
+            "expected an index.md file"
         );
+        let directory = relative.parent().unwrap_or(Path::new(""));
         ensure!(
-            relative != Path::new("index.md"),
+            !directory.as_os_str().is_empty(),
             "content/index.md is not supported; the home page is generated from config.toml and templates/root.html"
         );
-        let stem = relative.with_extension("");
-        let segments = stem
+        let segments = directory
             .components()
             .map(|part| {
                 let Component::Normal(segment) = part else {
@@ -35,29 +36,15 @@ impl Route {
                 let segment = segment.to_str().context("content path must be UTF-8")?;
                 ensure!(
                     valid_segment(segment),
-                    "content paths must use ASCII letters, numbers, hyphens or underscores"
+                    "page directory names must use ASCII letters, numbers, hyphens or underscores"
                 );
                 Ok(segment)
             })
             .collect::<Result<Vec<_>>>()?;
-        Ok(Self::from_segments(&segments))
-    }
-
-    /// Decodes each segment as link validation does, so every validated link is also served.
-    pub(crate) fn from_request_path(path: &str) -> Option<Self> {
-        let relative = path.strip_prefix('/')?;
-        if relative.is_empty() {
-            return None;
-        }
-        let segments = relative
-            .split('/')
-            .map(|segment| decode_path_segment(segment).ok())
-            .collect::<Option<Vec<_>>>()?;
-        let segments = segments.iter().map(String::as_str).collect::<Vec<_>>();
-        segments
-            .iter()
-            .all(|segment| valid_segment(segment))
-            .then(|| Self::from_segments(&segments))
+        Ok(Self {
+            url: format!("/{}/", segments.join("/")),
+            output: segments.iter().collect::<PathBuf>().join("index.html"),
+        })
     }
 
     pub(crate) fn url(&self) -> &str {
@@ -66,13 +53,6 @@ impl Route {
 
     pub(crate) fn output(&self) -> &Path {
         &self.output
-    }
-
-    fn from_segments(segments: &[&str]) -> Self {
-        Self {
-            url: format!("/{}", segments.join("/")),
-            output: segments.iter().collect::<PathBuf>().with_extension("html"),
-        }
     }
 }
 
@@ -250,12 +230,6 @@ pub(crate) fn is_reserved_url(path: &str) -> bool {
 
 fn served_urls(path: &str) -> Vec<String> {
     let mut urls = vec![format!("/{path}")];
-    if let Some(stem) = path.strip_suffix(".html") {
-        let clean = format!("/{stem}");
-        if Route::from_request_path(&clean).is_some() {
-            urls.push(clean);
-        }
-    }
     if path == "index.html" {
         urls.push("/".to_owned());
     } else if let Some(directory) = path.strip_suffix("/index.html") {
@@ -275,68 +249,37 @@ mod tests {
     use std::{collections::BTreeSet, path::Path};
 
     #[test]
-    fn content_and_request_paths_share_the_same_route() -> Result<()> {
+    fn page_directories_map_to_urls_with_trailing_slashes() -> Result<()> {
         for (source, url, output) in [
-            ("root.md", "/root", "root.html"),
-            ("about.md", "/about", "about.html"),
-            ("entries/index.md", "/entries/index", "entries/index.html"),
-            ("entries/hello.md", "/entries/hello", "entries/hello.html"),
+            ("about/index.md", "/about/", "about/index.html"),
+            (
+                "entries/hello/index.md",
+                "/entries/hello/",
+                "entries/hello/index.html",
+            ),
         ] {
             let route = Route::from_content_path(Path::new(source))?;
             assert_eq!(route.url(), url);
             assert_eq!(route.output(), Path::new(output));
-            let request = Route::from_request_path(url)
-                .ok_or_else(|| anyhow::anyhow!("invalid test URL {url}"))?;
-            assert_eq!(request.url(), route.url());
-            assert_eq!(request.output(), route.output());
         }
         Ok(())
     }
 
     #[test]
-    fn request_paths_are_percent_decoded_like_validated_links() -> Result<()> {
-        let request = Route::from_request_path("/entries/%68ello-world")
-            .context("rejected percent-encoded request path")?;
-        assert_eq!(request.url(), "/entries/hello-world");
-        assert_eq!(request.output(), Path::new("entries/hello-world.html"));
-        assert_eq!(
-            resolve_link("/", "/entries/%68ello-world")?.as_deref(),
-            Some(request.url())
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_unsupported_content_and_request_paths() {
+    fn rejects_unsupported_content_paths() {
         for path in [
-            "../escape.md",
-            "/absolute.md",
-            "a?b.md",
-            "a\\b.md",
-            ".md",
+            "../escape/index.md",
+            "/absolute/index.md",
+            "a?b/index.md",
+            "a\\b/index.md",
+            "a.b/index.md",
             "index.md",
+            "entries/post.md",
         ] {
             assert!(
                 Route::from_content_path(Path::new(path)).is_err(),
                 "accepted {path}"
             );
-        }
-        for path in [
-            "",
-            "/",
-            "foo",
-            "//foo",
-            "/foo/",
-            "/a//b",
-            "/a.html",
-            "/a?x=1",
-            "/あ",
-            "/a%2Fb",
-            "/a%2e",
-            "/a%zz",
-            "/%E3%81%82",
-        ] {
-            assert!(Route::from_request_path(path).is_none(), "accepted {path}");
         }
     }
 
@@ -357,22 +300,22 @@ mod tests {
     }
 
     #[test]
-    fn records_direct_clean_and_directory_index_urls() {
-        assert_eq!(served_urls("index.html"), ["/index.html", "/index", "/"]);
+    fn records_direct_and_directory_index_urls() {
+        assert_eq!(served_urls("index.html"), ["/index.html", "/"]);
         assert_eq!(
             served_urls("posts/index.html"),
-            ["/posts/index.html", "/posts/index", "/posts", "/posts/"]
+            ["/posts/index.html", "/posts", "/posts/"]
         );
+        assert_eq!(served_urls("posts.html"), ["/posts.html"]);
         assert_eq!(served_urls("posts/file.txt"), ["/posts/file.txt"]);
     }
 
     #[test]
     fn detects_served_url_collisions_and_reserved_paths() -> Result<()> {
         for (left, right, url) in [
-            ("foo.html", "foo", "/foo"),
-            ("foo.html", "foo/index.html", "/foo"),
             ("foo/index.html", "foo", "/foo"),
-            ("index.html", "index", "/index"),
+            ("foo/index.html", "Foo/index.html", "/Foo/index.html"),
+            ("index.html", "Index.html", "/Index.html"),
         ] {
             let error = validate_served_urls([(left, "first"), (right, "second")])
                 .err()
@@ -382,7 +325,7 @@ mod tests {
         for path in [
             "__genbit",
             "__genbit/reload.html",
-            "__genbit.html",
+            "__genbit/index.html",
             "__genbit/asset.txt",
         ] {
             let error = validate_served_urls([(path, "source")])
@@ -435,6 +378,10 @@ mod tests {
             );
         }
         assert_eq!(resolve_link("/about", "foo")?.as_deref(), Some("/foo"));
+        assert_eq!(
+            resolve_link("/entries/a/", "figure.png")?.as_deref(),
+            Some("/entries/a/figure.png")
+        );
         Ok(())
     }
 
@@ -466,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_encoded_path_separators_in_links_and_requests() -> Result<()> {
+    fn rejects_encoded_path_separators_in_links() -> Result<()> {
         for link in [
             "/entries%2Ffoo",
             "/entries%2ffoo",
@@ -477,7 +424,6 @@ mod tests {
                 .err()
                 .context("accepted encoded separator")?;
             assert!(error.to_string().contains("path separator"), "{error:#}");
-            assert!(Route::from_request_path(link).is_none());
         }
         assert_eq!(
             resolve_link("/", "/foo?q=%2F#%5C")?.as_deref(),
@@ -489,42 +435,51 @@ mod tests {
     #[test]
     fn validates_links_against_served_urls_exactly() -> Result<()> {
         let served = validate_served_urls([
-            ("entries/foo.html", "article"),
+            ("entries/foo/index.html", "article"),
+            ("entries/a/figure.png", "content/entries/a/figure.png"),
             ("tags/rust/index.html", "tag"),
             ("assets/Photo.png", "static/assets/Photo.png"),
         ])?;
-        let source = Path::new("entries/a.md");
+        let source = Path::new("entries/a/index.md");
         let valid = [
-            "foo",
-            "/entries/foo.html#x",
+            "../foo/",
+            "../foo",
+            "/entries/foo/index.html#x",
+            "figure.png",
             "/tags/rust",
             "/tags/rust/",
-            "../assets/Photo.png",
+            "../../assets/Photo.png",
             "https://example.com/missing",
         ]
         .map(str::to_owned);
-        validate_links("/entries/a", &valid, source, &served)?;
+        validate_links("/entries/a/", &valid, source, &served)?;
         for (link, target) in [
-            ("missing", "/entries/missing"),
-            ("foo/", "/entries/foo/"),
-            ("/Entries/foo", "/Entries/foo"),
+            ("../missing/", "/entries/missing/"),
+            ("../foo/index", "/entries/foo/index"),
+            ("/Entries/foo/", "/Entries/foo/"),
             ("/assets/photo.png", "/assets/photo.png"),
         ] {
-            let error = validate_links("/entries/a", &[link.to_owned()], source, &served)
+            let error = validate_links("/entries/a/", &[link.to_owned()], source, &served)
                 .err()
                 .context("accepted broken link")?;
             assert_eq!(
                 error.to_string(),
                 format!(
-                    "broken internal link in content/entries/a.md: {link} resolves to {target}, which is not generated"
+                    "broken internal link in content/entries/a/index.md: {link} resolves to {target}, which is not generated"
                 )
             );
         }
-        let error = validate_links("/entries/a", &["a%zz".to_owned()], source, &BTreeSet::new())
-            .err()
-            .context("accepted invalid link")?;
+        let error = validate_links(
+            "/entries/a/",
+            &["a%zz".to_owned()],
+            source,
+            &BTreeSet::new(),
+        )
+        .err()
+        .context("accepted invalid link")?;
         assert!(
-            format!("{error:#}").contains("invalid internal link in content/entries/a.md: a%zz"),
+            format!("{error:#}")
+                .contains("invalid internal link in content/entries/a/index.md: a%zz"),
             "{error:#}"
         );
         Ok(())
