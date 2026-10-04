@@ -171,10 +171,14 @@ pub(crate) struct Article {
     pub(crate) tags: Vec<Tag>,
     pub(crate) html: String,
     pub(crate) links: Vec<String>,
+    /// The `index.md`, relative to the site root.
     pub(crate) source: PathBuf,
+    /// Whether the page comes from `drafts/`, which only `genbit dev` builds.
+    pub(crate) draft: bool,
 }
 
-/// The files of `content/`, as paths relative to it.
+/// The files of `content/` or `drafts/`, as paths relative to that directory.
+#[derive(Default)]
 pub(crate) struct ContentFiles {
     /// The `index.md` of each page.
     pub(crate) pages: Vec<PathBuf>,
@@ -182,12 +186,12 @@ pub(crate) struct ContentFiles {
     pub(crate) assets: Vec<PathBuf>,
 }
 
-/// Sorts the files of `content/` into pages and their assets. A page is a directory that holds
-/// `index.md`; it holds files only, so pages never nest.
-pub(crate) fn sort_files(files: Vec<PathBuf>) -> Result<ContentFiles> {
+/// Sorts the files of `directory` (`content` or `drafts`) into pages and their assets. A page is
+/// a directory that holds `index.md`; it holds files only, so pages never nest.
+pub(crate) fn sort_files(files: Vec<PathBuf>, directory: &str) -> Result<ContentFiles> {
     ensure!(
         !files.iter().any(|file| file == Path::new("index.md")),
-        "content/index.md is not supported; the home page is generated from config.toml and templates/root.html"
+        "{directory}/index.md is not supported; the home page is generated from config.toml and templates/root.html"
     );
     let page_directories = files
         .iter()
@@ -196,14 +200,14 @@ pub(crate) fn sort_files(files: Vec<PathBuf>) -> Result<ContentFiles> {
         .map(Path::to_path_buf)
         .collect::<BTreeSet<_>>();
     for file in &files {
-        let directory = file.parent().unwrap_or(Path::new(""));
-        if let Some(page) = directory
+        let parent = file.parent().unwrap_or(Path::new(""));
+        if let Some(page) = parent
             .ancestors()
             .skip(1)
             .find(|ancestor| page_directories.contains(*ancestor))
         {
             bail!(
-                "content/{} is in a subdirectory of the page content/{}; a page directory holds files only",
+                "{directory}/{} is in a subdirectory of the page {directory}/{}; a page directory holds files only",
                 file.display(),
                 page.display()
             );
@@ -212,24 +216,51 @@ pub(crate) fn sort_files(files: Vec<PathBuf>) -> Result<ContentFiles> {
     let mut pages = Vec::new();
     let mut assets = Vec::new();
     for file in files {
-        let directory = file.parent().unwrap_or(Path::new(""));
+        let parent = file.parent().unwrap_or(Path::new(""));
         if is_page_source(&file) {
             pages.push(file);
         } else if file.extension().is_some_and(|ext| ext == "md") {
             bail!(
-                "content/{} is not supported; write each page as index.md in its own directory",
+                "{directory}/{} is not supported; write each page as index.md in its own directory",
                 file.display()
             );
-        } else if page_directories.contains(directory) {
+        } else if page_directories.contains(parent) {
             assets.push(file);
         } else {
             bail!(
-                "content/{} is not in a page directory; put it next to a page's index.md, or in static/",
+                "{directory}/{} is not in a page directory; put it next to a page's index.md, or in static/",
                 file.display()
             );
         }
     }
     Ok(ContentFiles { pages, assets })
+}
+
+/// Checks that drafts, laid over `content/`, keep one page per directory and no nesting.
+pub(crate) fn check_drafts(content: &ContentFiles, drafts: &ContentFiles) -> Result<()> {
+    let published = content
+        .pages
+        .iter()
+        .filter_map(|page| page.parent())
+        .collect::<BTreeSet<_>>();
+    for draft in drafts.pages.iter().filter_map(|page| page.parent()) {
+        ensure!(
+            !published.contains(draft),
+            "drafts/{0}/ is already published as content/{0}/; delete the draft",
+            draft.display()
+        );
+        if let Some(page) = published
+            .iter()
+            .find(|page| draft.starts_with(page) || page.starts_with(draft))
+        {
+            bail!(
+                "the draft drafts/{}/ and the page content/{}/ would nest; a page directory holds files only",
+                draft.display(),
+                page.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 fn is_page_source(file: &Path) -> bool {
@@ -262,7 +293,8 @@ pub(crate) fn parse(
         tags: meta.tags,
         html: rendered.html,
         links: rendered.links,
-        source: relative.to_path_buf(),
+        source: Path::new("content").join(relative),
+        draft: false,
     })
 }
 
@@ -322,7 +354,7 @@ mod tests {
             "entries/b/index.md",
         ]
         .map(PathBuf::from);
-        let sorted = sort_files(files.to_vec())?;
+        let sorted = sort_files(files.to_vec(), "content")?;
         assert_eq!(
             sorted.pages,
             ["about/index.md", "entries/a/index.md", "entries/b/index.md"].map(PathBuf::from)
@@ -356,11 +388,50 @@ mod tests {
                 "content/entries/x.png is not in a page directory",
             ),
         ] {
-            let error = sort_files(files.into_iter().map(PathBuf::from).collect())
+            let error = sort_files(files.into_iter().map(PathBuf::from).collect(), "content")
                 .err()
                 .with_context(|| format!("accepted files for {expected}"))?;
             assert!(error.to_string().contains(expected), "{error:#}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn drafts_cannot_share_or_nest_with_published_pages() -> Result<()> {
+        let sorted = |files: &[&str], directory| {
+            sort_files(files.iter().map(PathBuf::from).collect(), directory)
+        };
+        let content = sorted(&["entries/a/index.md"], "content")?;
+        check_drafts(&content, &sorted(&["entries/b/index.md"], "drafts")?)?;
+        check_drafts(&content, &sorted(&["entries/ab/index.md"], "drafts")?)?;
+        for (draft, expected) in [
+            (
+                "entries/a/index.md",
+                "drafts/entries/a/ is already published as content/entries/a/",
+            ),
+            (
+                "entries/a/b/index.md",
+                "the draft drafts/entries/a/b/ and the page content/entries/a/ would nest",
+            ),
+            (
+                "entries/index.md",
+                "the draft drafts/entries/ and the page content/entries/a/ would nest",
+            ),
+        ] {
+            let error = check_drafts(&content, &sorted(&[draft], "drafts")?)
+                .err()
+                .with_context(|| format!("accepted {draft}"))?;
+            assert!(error.to_string().contains(expected), "{error:#}");
+        }
+        let error = sorted(&["entries/x.png"], "drafts")
+            .err()
+            .context("accepted a draft file outside a page")?;
+        assert!(
+            error
+                .to_string()
+                .contains("drafts/entries/x.png is not in a page directory"),
+            "{error:#}"
+        );
         Ok(())
     }
 

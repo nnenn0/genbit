@@ -75,11 +75,21 @@ fn main() -> Result<()> {
         }
         Command::Dev { host, port } => {
             let root = std::env::current_dir()?;
+            // dev は下書きを含むプレビューをサイトの外に作り、`dist/` を変えない。ランタイムより
+            // 先に作るので、停止時に実行中のビルドを待ってから消える。
+            let preview = tempfile::Builder::new()
+                .prefix("genbit-dev-")
+                .tempdir()
+                .context("cannot create the preview directory")?;
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .context("cannot start development runtime")?;
-            runtime.block_on(dev::run(root, (host, port).into()))
+            runtime.block_on(dev::run(
+                root,
+                preview.path().join("site"),
+                (host, port).into(),
+            ))
         }
     }
 }

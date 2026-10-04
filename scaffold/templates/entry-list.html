@@ -1,5 +1,5 @@
-<ul class="entry-list unmarked-list">
+<ul class="unmarked-list">
   {% for entry in entries %}
-  <li><a href="{{ entry.url }}">{{ entry.title }}</a><time datetime="{{ entry.created_at.datetime }}">{{ entry.created_at.date }}</time></li>
+  <li><a href="{{ entry.url }}">{{ entry.title }}</a><span class="entry-meta"><time datetime="{{ entry.created_at.datetime }}">{{ entry.created_at.date }}</time>{% if entry.draft %}<span class="draft-badge">draft</span>{% endif %}</span></li>
   {% endfor %}
 </ul>

@@ -71,17 +71,22 @@ impl OutputPlan {
         &self.urls
     }
 
-    pub(crate) fn publish(self, input: &SiteInput<'_>) -> Result<()> {
-        let exists = check_destination(input)?;
-        let staged = self.stage(input)?;
-        staged.publish(input.root(), exists)
+    /// Replaces `destination` with the planned output. The staging and backup directories are
+    /// created next to it, so that renaming them stays on one filesystem.
+    pub(crate) fn publish(self, input: &SiteInput<'_>, destination: &Path) -> Result<()> {
+        let exists = check_destination(destination)?;
+        let parent = destination
+            .parent()
+            .context("output directory has no parent")?;
+        let staged = self.stage(input, parent)?;
+        staged.publish(destination, exists)
     }
 
-    fn stage(self, input: &SiteInput<'_>) -> Result<StagedOutput> {
+    fn stage(self, input: &SiteInput<'_>, parent: &Path) -> Result<StagedOutput> {
         let directory = tempfile::Builder::new()
             .prefix(".genbit-build-")
-            .tempdir_in(input.root())
-            .with_context(|| format!("cannot stage build in {}", input.root().display()))?;
+            .tempdir_in(parent)
+            .with_context(|| format!("cannot stage build in {}", parent.display()))?;
         for artifact in self.artifacts {
             let target = directory.path().join(&artifact.path);
             let parent = target.parent().context("output file has no parent")?;
@@ -115,25 +120,32 @@ impl OutputPlan {
 }
 
 impl StagedOutput {
-    fn publish(self, root: &Path, exists: bool) -> Result<()> {
-        let dist = root.join("dist");
+    fn publish(self, destination: &Path, exists: bool) -> Result<()> {
+        let parent = destination
+            .parent()
+            .context("output directory has no parent")?;
+        let name = destination
+            .file_name()
+            .context("output directory has no name")?;
         // Keep old output until all new files have been written. The two renames are not a single atomic swap.
         let backup = tempfile::Builder::new()
             .prefix(".genbit-backup-")
-            .tempdir_in(root)?;
-        let old = backup.path().join("dist");
+            .tempdir_in(parent)?;
+        let old = backup.path().join(name);
         if exists {
-            fs::rename(&dist, &old).context("cannot preserve previous dist")?;
+            fs::rename(destination, &old)
+                .with_context(|| format!("cannot preserve previous {}", destination.display()))?;
         }
-        if let Err(error) = fs::rename(self.directory.path(), &dist) {
-            if exists && let Err(restore) = fs::rename(&old, &dist) {
+        if let Err(error) = fs::rename(self.directory.path(), destination) {
+            if exists && let Err(restore) = fs::rename(&old, destination) {
                 let retained = backup.keep();
                 bail!(
-                    "cannot publish dist: {error}; restore failed: {restore}; previous output retained at {}",
+                    "cannot publish {}: {error}; restore failed: {restore}; previous output retained at {}",
+                    destination.display(),
                     retained.display()
                 );
             }
-            return Err(error).context("cannot publish dist");
+            return Err(error).with_context(|| format!("cannot publish {}", destination.display()));
         }
         Ok(())
     }
@@ -228,9 +240,8 @@ fn parent_directories(path: &str) -> impl Iterator<Item = &str> {
 }
 
 /// Returns whether `dist` exists, failing when it is not output that genbit may replace.
-pub(crate) fn check_destination(input: &SiteInput<'_>) -> Result<bool> {
-    let dist = input.root().join("dist");
-    match fs::symlink_metadata(&dist) {
+pub(crate) fn check_destination(dist: &Path) -> Result<bool> {
+    match fs::symlink_metadata(dist) {
         Ok(metadata) => {
             ensure!(
                 metadata.is_dir() && !metadata.file_type().is_symlink(),
@@ -325,7 +336,7 @@ mod tests {
             b"old output".to_vec(),
             "home",
         )])?
-        .publish(&input)?;
+        .publish(&input, &root.join("dist"))?;
 
         fs::create_dir(root.join("static"))?;
         fs::write(root.join("static/asset.bin"), [0, 1, 2, 255])?;
@@ -342,7 +353,7 @@ mod tests {
         fs::remove_file(root.join("static/asset.bin"))?;
 
         let error = plan
-            .publish(&input)
+            .publish(&input, &root.join("dist"))
             .err()
             .context("accepted vanished input")?;
         assert!(
@@ -372,7 +383,7 @@ mod tests {
             b"old output".to_vec(),
             "home",
         )])?
-        .publish(&input)?;
+        .publish(&input, &root.join("dist"))?;
 
         fs::create_dir(root.join("static"))?;
         let rendered = ContentHash::of_reader(&mut b"rendered".as_slice())?;
@@ -388,7 +399,7 @@ mod tests {
         };
         fs::write(root.join("static/photo.png"), b"edited")?;
         let error = plan()?
-            .publish(&input)
+            .publish(&input, &root.join("dist"))
             .err()
             .context("accepted a copy that differs from the hashed file")?;
         assert!(
@@ -399,7 +410,7 @@ mod tests {
         assert!(!root.join("dist/photo.png").exists());
 
         fs::write(root.join("static/photo.png"), b"rendered")?;
-        plan()?.publish(&input)?;
+        plan()?.publish(&input, &root.join("dist"))?;
         assert_eq!(fs::read(root.join("dist/photo.png"))?, b"rendered");
         Ok(())
     }
@@ -417,7 +428,7 @@ mod tests {
             b"old output".to_vec(),
             "home",
         )])?
-        .publish(&input)?;
+        .publish(&input, &root.join("dist"))?;
 
         fs::create_dir(root.join("static"))?;
         fs::write(root.join("static/asset.bin"), [0, 1, 2, 255])?;
@@ -433,7 +444,7 @@ mod tests {
         symlink(&outside, root.join("static/asset.bin"))?;
 
         let error = plan
-            .publish(&input)
+            .publish(&input, &root.join("dist"))
             .err()
             .context("accepted symlink input")?;
         assert!(

@@ -380,6 +380,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
         "static/assets/site/favicon.svg",
         "static/assets/site/favicon.png",
         "static/assets/site/ogp.png",
+        "drafts/entries/.gitkeep",
         ".gitignore",
     ] {
         assert!(root.join(file).is_file(), "missing {file}");
@@ -1587,7 +1588,7 @@ fn dev_keeps_serving_after_failed_rebuild_and_reloads_after_fix() -> Result<()> 
     let site = workspace.new_site("blog")?;
     let (server, address) = DevProcess::start_listening(&site)?;
     let mut events = open_reload_stream(&address, &server)?;
-    let before = fs::read_to_string(site.join("dist/index.html"))?;
+    let before = http_body(&address, "/")?;
 
     write_file(
         site.join("content/entries/hello-world/index.md"),
@@ -1595,7 +1596,7 @@ fn dev_keeps_serving_after_failed_rebuild_and_reloads_after_fix() -> Result<()> 
     )?;
     assert_sse_silent(&mut events, Duration::from_millis(500), &server)?;
     server.wait_for_log("Rebuild failed")?;
-    assert!(http_get(&address, "/")?.contains(&before));
+    assert_eq!(http_body(&address, "/")?, before);
 
     events.set_read_timeout(Some(Duration::from_secs(8)))?;
     write_file(
@@ -1614,7 +1615,7 @@ fn dev_keeps_the_last_output_when_raw_html_is_added() -> Result<()> {
     let site = workspace.new_site("blog")?;
     let (server, address) = DevProcess::start_listening(&site)?;
     let mut events = open_reload_stream(&address, &server)?;
-    let before = fs::read_to_string(site.join("dist/entries/hello-world/index.html"))?;
+    let before = http_body(&address, "/entries/hello-world/")?;
 
     write_file(
         site.join("content/entries/hello-world/index.md"),
@@ -1622,11 +1623,8 @@ fn dev_keeps_the_last_output_when_raw_html_is_added() -> Result<()> {
     )?;
     assert_sse_silent(&mut events, Duration::from_millis(500), &server)?;
     server.wait_for_log("raw HTML is not allowed in Markdown at line 8")?;
-    assert!(http_get(&address, "/entries/hello-world/")?.contains(&before));
-    assert_eq!(
-        fs::read_to_string(site.join("dist/entries/hello-world/index.html"))?,
-        before
-    );
+    assert_eq!(http_body(&address, "/entries/hello-world/")?, before);
+    assert!(!site.join("dist").exists());
     Ok(())
 }
 
@@ -1645,6 +1643,113 @@ fn dev_reloads_after_an_article_is_removed() -> Result<()> {
     fs::remove_file(site.join("content/about/index.md"))?;
     read_sse_until(&mut events, &mut Vec::new(), b"data: reload", &server)?;
     assert_not_found_page(&address, "/about/")?;
+    Ok(())
+}
+
+#[test]
+fn build_and_dry_run_ignore_drafts_even_when_they_are_broken() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    write_file(site.join("drafts/entries/wip/index.md"), "+++\ntitle = [\n")?;
+    write_file(site.join("drafts/entries/wip/photo.png"), "not an image")?;
+    write_file(site.join("drafts/notes.txt"), "outside any page")?;
+    assert!(dry_run_site(&site)?.status.success());
+    build_ok(&site)?;
+    assert!(!site.join("dist/entries/wip").exists());
+    let home = fs::read_to_string(site.join("dist/index.html"))?;
+    assert!(!home.contains("/entries/wip/"), "{home}");
+    // The badge style is only for previews, so published pages carry none of it.
+    assert!(!home.contains("draft-badge"), "{home}");
+
+    write_file(
+        site.join("content/entries/hello-world/index.md"),
+        article_source(&[], "[draft](../wip/)\n"),
+    )?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("broken internal link in content/entries/hello-world/index.md: ../wip/"),
+        "{stderr}"
+    );
+    Ok(())
+}
+
+#[test]
+fn dev_shows_drafts_with_marks_and_leaves_dist_unchanged() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    write_file(
+        site.join("drafts/entries/wip/index.md"),
+        article_source(
+            &[
+                ("title", Some("'Work in progress'")),
+                ("created_at", Some("2026-09-20 00:00")),
+                ("updated_at", Some("2026-09-20 00:00")),
+                ("tags", Some("['draft-only']")),
+            ],
+            "![photo](photo.png)\n\n[published](../hello-world/)\n",
+        ),
+    )?;
+    fs::write(
+        site.join("drafts/entries/wip/photo.png"),
+        include_bytes!("fixtures/images/basic.png"),
+    )?;
+    let (server, address) = DevProcess::start_listening(&site)?;
+
+    let home = http_body(&address, "/")?;
+    assert!(home.contains("href=/entries/wip/"), "{home}");
+    assert_eq!(home.matches("class=draft-badge").count(), 1, "{home}");
+    assert!(home.contains(".draft-badge{"), "{home}");
+    let draft = http_body(&address, "/entries/wip/")?;
+    assert!(draft.contains("class=draft-badge"), "{draft}");
+    assert!(draft.contains("width=300"), "{draft}");
+    image_version(&draft, "photo.png?v=")?;
+    assert!(http_get(&address, "/entries/wip/photo.png")?.starts_with("HTTP/1.1 200"));
+    assert!(http_body(&address, "/tags/draft-only/")?.contains("href=/entries/wip/"));
+    let published = http_body(&address, "/entries/hello-world/")?;
+    assert!(!published.contains("class=draft-badge"), "{published}");
+
+    let mut events = open_reload_stream(&address, &server)?;
+    write_file(
+        site.join("drafts/entries/wip/index.md"),
+        article_source(&[], "# Edited draft\n"),
+    )?;
+    read_sse_until(&mut events, &mut Vec::new(), b"data: reload", &server)?;
+    assert!(http_body(&address, "/entries/wip/")?.contains("Edited draft"));
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    Ok(())
+}
+
+#[test]
+fn dev_rejects_drafts_that_share_or_nest_with_published_pages() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    for (draft, expected) in [
+        (
+            "drafts/entries/hello-world/index.md",
+            "drafts/entries/hello-world/ is already published as content/entries/hello-world/",
+        ),
+        (
+            "drafts/entries/hello-world/part/index.md",
+            "the draft drafts/entries/hello-world/part/ and the page content/entries/hello-world/ would nest",
+        ),
+        (
+            "drafts/entries/x.png",
+            "drafts/entries/x.png is not in a page directory",
+        ),
+    ] {
+        write_file(site.join(draft), article_source(&[], "Draft\n"))?;
+        let error = DevProcess::start_listening(&site)
+            .err()
+            .with_context(|| format!("dev accepted {draft}"))?;
+        assert!(
+            format!("{error:#}").contains(expected),
+            "{draft}: {error:#}"
+        );
+        fs::remove_dir_all(site.join("drafts/entries"))?;
+        fs::create_dir(site.join("drafts/entries"))?;
+    }
     Ok(())
 }
 
@@ -1673,7 +1778,7 @@ fn dev_stops_cleanly_on_ctrl_c() -> Result<()> {
 
     let status = server.stop("INT")?;
     assert!(status.success(), "{status}\n{}", server.logs());
-    assert!(site.join("dist/index.html").is_file());
+    assert!(!site.join("dist").exists());
     assert!(!fs::read_dir(&site)?.any(|entry| {
         entry.is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with(".genbit-"))
     }));
@@ -1714,6 +1819,16 @@ fn http_get(address: &str, path: &str) -> Result<String> {
     http_get_with_header(address, path, "")
 }
 
+/// Returns the body of a successful response, leaving out headers such as `Date`.
+fn http_body(address: &str, path: &str) -> Result<String> {
+    let response = http_get(address, path)?;
+    ensure!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let (_, body) = response
+        .split_once("\r\n\r\n")
+        .with_context(|| format!("no header end: {response}"))?;
+    Ok(body.to_owned())
+}
+
 /// `header` is a complete header line such as `If-None-Match: *\r\n`, or empty.
 fn http_get_with_header(address: &str, path: &str, header: &str) -> Result<String> {
     let mut stream = TcpStream::connect(address)?;
@@ -1722,9 +1837,10 @@ fn http_get_with_header(address: &str, path: &str, header: &str) -> Result<Strin
         format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n{header}Connection: close\r\n\r\n")
             .as_bytes(),
     )?;
-    let mut response = String::new();
-    stream.read_to_string(&mut response)?;
-    Ok(response)
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response)?;
+    // Images are not UTF-8; their responses are only checked for the status line.
+    Ok(String::from_utf8_lossy(&response).into_owned())
 }
 
 #[test]

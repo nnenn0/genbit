@@ -25,6 +25,7 @@
 - **バイナリ1つ** — サイトの作成・ビルド・プレビューを1つのCLIで行います。
 - **Markdown + Tera** — 記事はTOMLフロントマター付きのMarkdownで書き、ページは[Tera](https://keats.github.io/tera/)テンプレートで組み立てます。
 - **ライブリロード** — `genbit dev` は保存のたびに再ビルドし、SSEでブラウザーを再読み込みします。再ビルドに失敗しても、最後に成功したサイトを配信し続けます。
+- **下書き** — `drafts/` の記事は `genbit dev` だけで印付きでプレビューし、`genbit build` の出力には含めません。
 - **CSSのインライン化とHTML圧縮** — CSSはテンプレートごとにインライン展開し、全ページを圧縮します。初期テーマはJavaScriptなしでOSのライト/ダーク設定に追従します。
 - **メタデータとRSSの生成** — canonicalリンク、`sitemap.xml`、`robots.txt`、Open Graph、JSON-LD、RSS 2.0フィードを生成します。
 - **本文の画像の寸法とキャッシュ対策** — ローカルのPNG・JPEG・GIF・WebPに `width`・`height` 属性を自動で付け、読み込みによるレイアウトシフトを防ぎます。画像のURLには内容のハッシュを付けるため、長期間キャッシュしても差し替えが反映されます。
@@ -99,7 +100,7 @@ genbit build    # dist/ にサイトを生成
 | `genbit new <name>` | 設定・テンプレート・CSS・サンプル記事を含む新しいサイトのディレクトリを作ります。名前にはASCII英数字・`-`・`_` を使え、先頭は英数字にします。既存のパスは上書きしません。 |
 | `genbit build` | カレントディレクトリのサイトを `dist/` へビルドします。記事内のサイト内リンクの参照先がなければ失敗します。 |
 | `genbit build --dry-run` | ビルドと同じ検査をすべて行い、`dist/` は変更しません。 |
-| `genbit dev [--host <ip>] [--port <port>]` | ビルドして `dist/` を配信し（既定は `127.0.0.1:3000`）、変更があれば再ビルドして再読み込みします。 |
+| `genbit dev [--host <ip>] [--port <port>]` | 下書きを含めてビルドして配信し（既定は `127.0.0.1:3000`）、変更があれば再ビルドして再読み込みします。`dist/` は変更しません。 |
 
 ## サイトの構成
 
@@ -109,6 +110,7 @@ my-blog/
 ├── config.toml          # title, description, site_url, og_image, timezone
 ├── content/             # 記事のディレクトリ → /entries/hello-world/
 │   └── entries/hello-world/index.md   # 画像などの素材も同じディレクトリに置く
+├── drafts/              # 下書き。content/ と同じ構成で、genbit dev だけが読む
 ├── templates/           # Teraテンプレート: base, page, root, tags, tag, entry-list, 404
 ├── styles/              # common.css と、テンプレート別の任意CSS
 └── static/              # そのままコピー（assets/img/ に複数の記事で使う画像、assets/site/ にfavicon・OGP画像）

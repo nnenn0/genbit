@@ -65,9 +65,16 @@ impl<'a> SiteInput<'a> {
     /// Lists the regular files under `relative`, as paths relative to it.
     pub(crate) fn files(&self, relative: &Path) -> Result<Vec<PathBuf>> {
         let path = self.root.join(relative);
-        let metadata = self
-            .inspect(&path)?
-            .with_context(|| format!("cannot inspect {}", path.display()))?;
+        self.optional_files(relative)?
+            .with_context(|| format!("cannot inspect {}", path.display()))
+    }
+
+    /// Lists the regular files under `relative` like `files`, or returns `None` when it does not exist.
+    pub(crate) fn optional_files(&self, relative: &Path) -> Result<Option<Vec<PathBuf>>> {
+        let path = self.root.join(relative);
+        let Some(metadata) = self.inspect(&path)? else {
+            return Ok(None);
+        };
         ensure!(
             metadata.is_dir(),
             "expected a real directory: {}",
@@ -76,7 +83,7 @@ impl<'a> SiteInput<'a> {
         let mut result = Vec::new();
         collect_files(&path, Path::new(""), &mut result)?;
         result.sort();
-        Ok(result)
+        Ok(Some(result))
     }
 
     fn required_file(&self, relative: &Path) -> Result<PathBuf> {
