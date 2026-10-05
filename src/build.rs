@@ -3,7 +3,7 @@ use crate::{
     content::{self, Article},
     content_hash::ContentHash,
     image_size::Images,
-    input::SiteInput,
+    input::{SiteInput, Tree},
     metadata,
     output::{self, Artifact, CopiedFile, OutputPlan},
     render::Renderer,
@@ -36,11 +36,11 @@ pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let content = content::sort_files(files(&input, "content")?, "content")?;
+    let content = content::sort_files(content_tree(input.tree(Path::new("content"))?), "content")?;
     let drafts = match mode {
         Mode::Dev { .. } => input
-            .optional_files(Path::new("drafts"))?
-            .map(|files| content::sort_files(without_gitkeep(files), "drafts"))
+            .optional_tree(Path::new("drafts"))?
+            .map(|tree| content::sort_files(content_tree(tree), "drafts"))
             .transpose()?,
         Mode::Publish | Mode::DryRun => None,
     }
@@ -135,6 +135,13 @@ fn render_pages(
 /// Lists the files under `directory`, leaving out `.gitkeep`.
 fn files(input: &SiteInput<'_>, directory: &str) -> Result<Vec<PathBuf>> {
     Ok(without_gitkeep(input.files(Path::new(directory))?))
+}
+
+fn content_tree(tree: Tree) -> Tree {
+    Tree {
+        files: without_gitkeep(tree.files),
+        directories: tree.directories,
+    }
 }
 
 /// Leaves out the `.gitkeep` files that keep empty directories in Git.

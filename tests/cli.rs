@@ -623,7 +623,24 @@ fn content_files_outside_the_page_rule_fail_and_preserve_dist() -> Result<()> {
         assert_eq!(snapshot(&site.join("dist"))?, before);
         fs::remove_file(&path)?;
     }
-    fs::remove_dir(site.join("content/entries/hello-world/images"))?;
+    let images = site.join("content/entries/hello-world/images");
+    let expected = "content/entries/hello-world/images/ is a subdirectory of the page content/entries/hello-world";
+    for keep in [false, true] {
+        if keep {
+            write_file(images.join(".gitkeep"), "")?;
+        }
+        let stderr = build_err(&site)?;
+        assert!(stderr.contains(expected), "gitkeep {keep}: {stderr}");
+        let output = dry_run_site(&site)?;
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected),
+            "dry run, gitkeep {keep}: {stderr}"
+        );
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+    }
+    fs::remove_dir_all(images)?;
     build_ok(&site)?;
     Ok(())
 }

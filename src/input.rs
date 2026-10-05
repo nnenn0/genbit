@@ -6,6 +6,13 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+/// The regular files and the directories under a directory, as paths relative to it.
+#[derive(Default)]
+pub(crate) struct Tree {
+    pub(crate) files: Vec<PathBuf>,
+    pub(crate) directories: Vec<PathBuf>,
+}
+
 pub(crate) struct SiteInput<'a> {
     root: &'a Path,
 }
@@ -64,13 +71,18 @@ impl<'a> SiteInput<'a> {
 
     /// Lists the regular files under `relative`, as paths relative to it.
     pub(crate) fn files(&self, relative: &Path) -> Result<Vec<PathBuf>> {
+        Ok(self.tree(relative)?.files)
+    }
+
+    /// Lists the regular files and the directories under `relative`.
+    pub(crate) fn tree(&self, relative: &Path) -> Result<Tree> {
         let path = self.root.join(relative);
-        self.optional_files(relative)?
+        self.optional_tree(relative)?
             .with_context(|| format!("cannot inspect {}", path.display()))
     }
 
-    /// Lists the regular files under `relative` like `files`, or returns `None` when it does not exist.
-    pub(crate) fn optional_files(&self, relative: &Path) -> Result<Option<Vec<PathBuf>>> {
+    /// Lists like `tree`, or returns `None` when `relative` does not exist.
+    pub(crate) fn optional_tree(&self, relative: &Path) -> Result<Option<Tree>> {
         let path = self.root.join(relative);
         let Some(metadata) = self.inspect(&path)? else {
             return Ok(None);
@@ -80,10 +92,11 @@ impl<'a> SiteInput<'a> {
             "expected a real directory: {}",
             path.display()
         );
-        let mut result = Vec::new();
-        collect_files(&path, Path::new(""), &mut result)?;
-        result.sort();
-        Ok(Some(result))
+        let mut tree = Tree::default();
+        collect_tree(&path, Path::new(""), &mut tree)?;
+        tree.files.sort();
+        tree.directories.sort();
+        Ok(Some(tree))
     }
 
     fn required_file(&self, relative: &Path) -> Result<PathBuf> {
@@ -156,7 +169,7 @@ fn copy_error(source: &Path, target: &Path) -> String {
     format!("cannot copy {} to {}", source.display(), target.display())
 }
 
-fn collect_files(directory: &Path, prefix: &Path, result: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_tree(directory: &Path, prefix: &Path, tree: &mut Tree) -> Result<()> {
     for entry in
         fs::read_dir(directory).with_context(|| format!("cannot read {}", directory.display()))?
     {
@@ -173,14 +186,15 @@ fn collect_files(directory: &Path, prefix: &Path, result: &mut Vec<PathBuf>) -> 
             path.display()
         );
         if kind.is_dir() {
-            collect_files(&path, &relative, result)?;
+            collect_tree(&path, &relative, tree)?;
+            tree.directories.push(relative);
         } else {
             ensure!(
                 kind.is_file(),
                 "expected a regular file: {}",
                 path.display()
             );
-            result.push(relative);
+            tree.files.push(relative);
         }
     }
     Ok(())
