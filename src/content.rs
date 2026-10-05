@@ -1,5 +1,6 @@
 use crate::{
     image_size::Image,
+    input::Tree,
     route::Route,
     tags::{Tag, Tags},
     text::PublishableText,
@@ -188,7 +189,8 @@ pub(crate) struct ContentFiles {
 
 /// Sorts the files of `directory` (`content` or `drafts`) into pages and their assets. A page is
 /// a directory that holds `index.md`; it holds files only, so pages never nest.
-pub(crate) fn sort_files(files: Vec<PathBuf>, directory: &str) -> Result<ContentFiles> {
+pub(crate) fn sort_files(tree: Tree, directory: &str) -> Result<ContentFiles> {
+    let Tree { files, directories } = tree;
     ensure!(
         !files.iter().any(|file| file == Path::new("index.md")),
         "{directory}/index.md is not supported; the home page is generated from config.toml and templates/root.html"
@@ -209,6 +211,20 @@ pub(crate) fn sort_files(files: Vec<PathBuf>, directory: &str) -> Result<Content
             bail!(
                 "{directory}/{} is in a subdirectory of the page {directory}/{}; a page directory holds files only",
                 file.display(),
+                page.display()
+            );
+        }
+    }
+    // Directories with no files, or only `.gitkeep`, would pass the check above until a file is added.
+    for subdirectory in &directories {
+        if let Some(page) = subdirectory
+            .ancestors()
+            .skip(1)
+            .find(|ancestor| page_directories.contains(*ancestor))
+        {
+            bail!(
+                "{directory}/{}/ is a subdirectory of the page {directory}/{}; a page directory holds files only",
+                subdirectory.display(),
                 page.display()
             );
         }
@@ -345,16 +361,31 @@ mod tests {
         super::parse(source, relative, timezone, |_, _| Ok(None))
     }
 
+    /// Lists `files` with every directory that holds them, as `SiteInput::tree` does.
+    fn tree(files: &[&str]) -> Tree {
+        let files = files.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let directories = files
+            .iter()
+            .flat_map(|file| file.ancestors().skip(1))
+            .filter(|directory| !directory.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        Tree { files, directories }
+    }
+
     #[test]
     fn sorts_content_files_into_pages_and_their_assets() -> Result<()> {
-        let files = [
-            "about/index.md",
-            "entries/a/index.md",
-            "entries/a/figure.png",
-            "entries/b/index.md",
-        ]
-        .map(PathBuf::from);
-        let sorted = sort_files(files.to_vec(), "content")?;
+        let sorted = sort_files(
+            tree(&[
+                "about/index.md",
+                "entries/a/index.md",
+                "entries/a/figure.png",
+                "entries/b/index.md",
+            ]),
+            "content",
+        )?;
         assert_eq!(
             sorted.pages,
             ["about/index.md", "entries/a/index.md", "entries/b/index.md"].map(PathBuf::from)
@@ -388,7 +419,7 @@ mod tests {
                 "content/entries/x.png is not in a page directory",
             ),
         ] {
-            let error = sort_files(files.into_iter().map(PathBuf::from).collect(), "content")
+            let error = sort_files(tree(&files), "content")
                 .err()
                 .with_context(|| format!("accepted files for {expected}"))?;
             assert!(error.to_string().contains(expected), "{error:#}");
@@ -397,10 +428,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_empty_subdirectories_of_a_page() -> Result<()> {
+        let mut listed = tree(&["entries/a/index.md"]);
+        listed.directories.push(PathBuf::from("entries/a/images"));
+        let error = sort_files(listed, "content")
+            .err()
+            .context("accepted an empty subdirectory of a page")?;
+        assert!(
+            error.to_string().contains(
+                "content/entries/a/images/ is a subdirectory of the page content/entries/a"
+            ),
+            "{error:#}"
+        );
+        let mut listed = tree(&["entries/a/index.md"]);
+        listed.directories.push(PathBuf::from("entries/b"));
+        sort_files(listed, "content")?;
+        Ok(())
+    }
+
+    #[test]
     fn drafts_cannot_share_or_nest_with_published_pages() -> Result<()> {
-        let sorted = |files: &[&str], directory| {
-            sort_files(files.iter().map(PathBuf::from).collect(), directory)
-        };
+        let sorted = |files: &[&str], directory| sort_files(tree(files), directory);
         let content = sorted(&["entries/a/index.md"], "content")?;
         check_drafts(&content, &sorted(&["entries/b/index.md"], "drafts")?)?;
         check_drafts(&content, &sorted(&["entries/ab/index.md"], "drafts")?)?;
