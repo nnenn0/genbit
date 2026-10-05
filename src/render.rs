@@ -227,7 +227,7 @@ impl Renderer {
                 content: &article.html,
             },
             article.route.output().to_path_buf(),
-            &format!("content/{}", article.source.display()),
+            &article.source.display().to_string(),
         )
     }
 
@@ -337,6 +337,7 @@ mod tests {
         )?;
         let articles = [content::parse(
             "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
+            "content",
             Path::new("post/index.md"),
             &site.timezone,
             |_, _| Ok(None),

@@ -283,8 +283,10 @@ fn is_page_source(file: &Path) -> bool {
     file.file_name().is_some_and(|name| name == "index.md")
 }
 
+/// Parses the `index.md` at `relative` under `directory`, `content` or `drafts`.
 pub(crate) fn parse(
     source: &str,
+    directory: &str,
     relative: &Path,
     timezone: &TimeZone,
     mut image: impl FnMut(&str, &str) -> Result<Option<Image>>,
@@ -309,8 +311,8 @@ pub(crate) fn parse(
         tags: meta.tags,
         html: rendered.html,
         links: rendered.links,
-        source: Path::new("content").join(relative),
-        draft: false,
+        source: Path::new(directory).join(relative),
+        draft: directory == "drafts",
     })
 }
 
@@ -358,7 +360,7 @@ mod tests {
     use super::*;
 
     fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Result<Article> {
-        super::parse(source, relative, timezone, |_, _| Ok(None))
+        super::parse(source, "content", relative, timezone, |_, _| Ok(None))
     }
 
     /// Lists `files` with every directory that holds them, as `SiteInput::tree` does.
