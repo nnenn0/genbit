@@ -16,7 +16,7 @@ pub(crate) struct Route {
 }
 
 impl Route {
-    /// Takes the path of a page's `index.md`, relative to `content/`.
+    /// Takes the path of a page's `index.md`, relative to `content/` or `drafts/`.
     pub(crate) fn from_content_path(relative: &Path) -> Result<Self> {
         ensure!(
             relative.file_name().is_some_and(|name| name == "index.md"),

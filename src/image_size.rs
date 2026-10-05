@@ -28,7 +28,6 @@ pub(crate) struct Images<'a> {
 }
 
 impl<'a> Images<'a> {
-    /// Takes the files under `static/`, as paths relative to it.
     /// Takes every file copied into the output, so that a URL finds the file it serves.
     pub(crate) fn new(root: &'a Path, files: &[CopiedFile]) -> Result<Self> {
         let files = files
@@ -46,9 +45,9 @@ impl<'a> Images<'a> {
         })
     }
 
-    /// Returns `None` for targets outside `static/`.
+    /// Returns `None` for targets that no copied file serves.
     pub(crate) fn get(&mut self, page: &str, url: &str) -> Result<Option<Image>> {
-        // Invalid and missing targets are diagnosed by the existing link validator.
+        // Invalid and missing targets are diagnosed by link validation.
         let Ok(Some(target)) = route::resolve_link(page, url) else {
             return Ok(None);
         };

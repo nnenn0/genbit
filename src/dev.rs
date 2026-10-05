@@ -50,8 +50,7 @@ pub(crate) async fn run(root: PathBuf, output: PathBuf, address: SocketAddr) -> 
         .with_context(|| format!("cannot watch {}", root.display()))?;
 
     // 停止のシグナルは初回ビルドの前から受け付け、配信中も同じものを待つ。シグナルでは待機を
-    // やめて正常終了する。実行中のビルドはランタイムの破棄時に完了を待つため、出力の
-    // 切り替え途中では終わらない。
+    // やめて正常終了する。
     let shutdown = shutdown_signal();
     tokio::pin!(shutdown);
 

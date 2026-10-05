@@ -131,7 +131,7 @@ pub(crate) fn sitemap(
 }
 
 /// Builds an RSS 2.0 feed of the newest articles. `articles` must already be
-/// sorted newest first, as for the home page.
+/// sorted newest first.
 pub(crate) fn feed(config: &Config, articles: &[Article]) -> Artifact {
     Artifact::generated(
         PathBuf::from(FEED_URL.trim_start_matches('/')),

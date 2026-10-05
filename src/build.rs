@@ -132,7 +132,6 @@ fn render_pages(
     .collect()
 }
 
-/// Lists the files under `directory`, leaving out `.gitkeep`.
 fn files(input: &SiteInput<'_>, directory: &str) -> Result<Vec<PathBuf>> {
     Ok(without_gitkeep(input.files(Path::new(directory))?))
 }
