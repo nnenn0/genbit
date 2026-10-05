@@ -11,8 +11,8 @@ ignore = [
     # rkyv 0.7 は minify-html -> lightningcss -> parcel_sourcemap 経由で入る。
     # parcel_sourcemap がアーカイブを読むのは `SourceMap::from_buffer` だけで、
     # lightningcss と minify-html はこれを呼ばない。genbit は rkyv の
-    # アーカイブを扱わないため影響しない。parcel_sourcemap 2.1.1 が最新で、
-    # 修正版の rkyv 0.8 へは上流の更新なしに移れない。
+    # アーカイブを扱わないため影響しない。修正版の rkyv 0.8 へは
+    # parcel_sourcemap の更新なしに移れない。
     { id = "RUSTSEC-2026-0235", reason = "rkyv archives are never read; no upstream fix for parcel_sourcemap" },
 ]
 

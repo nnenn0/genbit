@@ -187,8 +187,6 @@ fn build_err(site: &Path) -> Result<String> {
     Ok(stderr)
 }
 
-/// Renders TOML lines from `defaults`. Each override replaces a field with a
-/// raw TOML value, or removes it when the value is `None`.
 /// Returns the hash that genbit added to the first image whose `src` starts with `source`.
 fn image_version(html: &str, source: &str) -> Result<String> {
     // The minifier quotes the value because the query contains `=`.
@@ -214,6 +212,8 @@ fn image_version(html: &str, source: &str) -> Result<String> {
     Ok(version.to_owned())
 }
 
+/// Renders TOML lines from `defaults`. Each override replaces a field with a
+/// raw TOML value, or removes it when the value is `None`.
 fn toml_fields(defaults: &[(&str, &str)], overrides: &[(&str, Option<&str>)]) -> String {
     let mut fields = defaults.to_vec();
     for &(key, value) in overrides {
@@ -385,7 +385,7 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     ] {
         assert!(root.join(file).is_file(), "missing {file}");
     }
-    // Article images go here; files with fixed URLs are kept apart in static/assets/site.
+    // Images shared by several articles go here; files with fixed URLs are kept apart in static/assets/site.
     assert!(
         fs::read_dir(root.join("static/assets/img"))?
             .next()

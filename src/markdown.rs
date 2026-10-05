@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 pub(crate) struct Rendered {
     pub(crate) html: String,
-    /// Link and image targets written to the HTML, except external links, for checking against the site.
+    /// The targets that `site_links` selects, for checking against the site.
     pub(crate) links: Vec<String>,
 }
 
