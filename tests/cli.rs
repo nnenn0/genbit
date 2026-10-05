@@ -1739,6 +1739,33 @@ fn dev_shows_drafts_with_marks_and_leaves_dist_unchanged() -> Result<()> {
 }
 
 #[test]
+fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    write_file(site.join("templates/broken.html"), "{{ missing }}")?;
+    let broken = article_source(&[("template", Some("'broken.html'"))], "Body\n");
+
+    write_file(site.join("content/entries/post/index.md"), &broken)?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("cannot render content/entries/post/index.md with template broken.html"),
+        "{stderr}"
+    );
+
+    fs::remove_dir_all(site.join("content/entries/post"))?;
+    write_file(site.join("drafts/entries/wip/index.md"), &broken)?;
+    let error = DevProcess::start_listening(&site)
+        .err()
+        .context("dev accepted a draft that cannot render")?;
+    assert!(
+        format!("{error:#}")
+            .contains("cannot render drafts/entries/wip/index.md with template broken.html"),
+        "{error:#}"
+    );
+    Ok(())
+}
+
+#[test]
 fn dev_rejects_drafts_that_share_or_nest_with_published_pages() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

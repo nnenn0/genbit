@@ -162,8 +162,9 @@ fn load_articles(
         .into_iter()
         .map(|(path, directory)| {
             let site_relative = Path::new(directory).join(&path);
-            let mut article = content::parse(
+            content::parse(
                 &input.read_text(&site_relative)?,
+                directory,
                 &path,
                 timezone,
                 |page, url| images.get(page, url),
@@ -173,10 +174,7 @@ fn load_articles(
                     "cannot parse {}",
                     input.root().join(&site_relative).display()
                 )
-            })?;
-            article.draft = directory == "drafts";
-            article.source = site_relative;
-            Ok(article)
+            })
         })
         .collect::<Result<_>>()?;
     // Hashes are complete only once every article has been rendered.
