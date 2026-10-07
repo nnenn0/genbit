@@ -1,11 +1,11 @@
-fn layout(ctx, page-title, og-type, header-content, main-content) =>
-  document(ctx, page-title, seo(ctx, page-title, og-type), header-content, main-content)
+fn layout(ctx, page-title, description, og-type, header-content, main-content) =>
+  document(ctx, page-title, seo(ctx, page-title, description, og-type), header-content, main-content)
 
-fn seo(ctx, page-title, og-type) => [
-  meta({name: "description", content: ctx.description}),
+fn seo(ctx, page-title, description, og-type) => [
+  meta({name: "description", content: description}),
   link({rel: "canonical", href: ctx.canonical-url}),
   meta({property: "og:title", content: page-title}),
-  meta({property: "og:description", content: ctx.description}),
+  meta({property: "og:description", content: description}),
   meta({property: "og:type", content: og-type}),
   meta({property: "og:url", content: ctx.canonical-url}),
   meta({property: "og:site_name", content: ctx.site.title}),

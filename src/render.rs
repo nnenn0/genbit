@@ -40,11 +40,7 @@ impl Renderer {
                 ])
             })
             .collect::<Vec<_>>();
-        let mut variables = indexed(
-            "記事のタグ一覧",
-            &config.site_url.join_root_path(TAGS_INDEX_URL),
-            json_ld,
-        )?;
+        let mut variables = indexed(&config.site_url.join_root_path(TAGS_INDEX_URL), json_ld)?;
         variables.push(("tags", Value::from(tags)));
         self.render(
             config,
@@ -63,11 +59,7 @@ impl Renderer {
     ) -> Result<Artifact> {
         let tag = group.name;
         let url = group.url();
-        let mut variables = indexed(
-            &format!("{tag} の記事一覧"),
-            &config.site_url.join_root_path(&url),
-            json_ld,
-        )?;
+        let mut variables = indexed(&config.site_url.join_root_path(&url), json_ld)?;
         variables.push(("tag", Value::from(tag)));
         variables.push(("entries", entries(group.articles.iter().copied())));
         self.render(
@@ -85,11 +77,7 @@ impl Renderer {
         articles: &[Article],
         json_ld: &str,
     ) -> Result<Artifact> {
-        let mut variables = indexed(
-            config.description.as_str(),
-            config.site_url.as_str(),
-            json_ld,
-        )?;
+        let mut variables = indexed(config.site_url.as_str(), json_ld)?;
         variables.push(("entries", entries(articles)));
         self.render(
             config,
@@ -107,7 +95,7 @@ impl Renderer {
         canonical_url: &str,
         json_ld: &str,
     ) -> Result<Artifact> {
-        let mut variables = indexed(article.description.as_str(), canonical_url, json_ld)?;
+        let mut variables = indexed(canonical_url, json_ld)?;
         variables.push(("article", entry(article)));
         variables.push(("content", Value::from(article.content.clone())));
         self.render(
@@ -173,13 +161,8 @@ fn site(config: &Config) -> Value {
     ])
 }
 
-fn indexed(
-    description: &str,
-    canonical_url: &str,
-    json_ld: &str,
-) -> Result<Vec<(&'static str, Value)>> {
+fn indexed(canonical_url: &str, json_ld: &str) -> Result<Vec<(&'static str, Value)>> {
     Ok(vec![
-        ("description", Value::from(description)),
         ("canonical-url", Value::from(canonical_url)),
         (
             "json-ld",

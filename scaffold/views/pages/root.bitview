@@ -1,5 +1,5 @@
 fn root(ctx) =>
-  layout(ctx, ctx.site.title, "website",
+  layout(ctx, ctx.site.title, ctx.site.description, "website",
     h1(ctx.site.title),
     [
       entry-list(ctx.entries),

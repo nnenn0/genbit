@@ -81,7 +81,6 @@ fn tag-link(tag) => a({href: tag.url}, tag.name)
 
 | 変数 | 内容 |
 | --- | --- |
-| `description` | ページの説明文。記事は `description`、トップページは `config.toml` の `description`、タグ一覧とタグ別ページは固定の日本語の文（`記事のタグ一覧`、`{tag} の記事一覧`） |
 | `canonical-url` | ページの絶対URL |
 | `json-ld` | 構造化データの `<script type="application/ld+json">` 要素。記事は `BlogPosting`、それ以外はサイトの `WebSite` |
 
@@ -137,7 +136,7 @@ CSSは各HTMLへインライン展開し、HTMLとともに圧縮します。
 部品は、主な関数と同じ名前のファイルに置いています。`views/components/` の分け方は自由に変えて構いません。
 
 - `components/document.bitview` は全ページの骨組みで、タイトル、favicon、RSSの自動検出用リンク、`style` を出力します。`<html lang="ja">` もここで指定します。
-- `components/layout.bitview` は、`document` にmeta description、canonicalリンク、Open Graph、JSON-LDを加えた骨組みです。`root`・`page`・`tags`・`tag` が使います。これらの要素を出力する `seo` も同じファイルに置きます。
+- `components/layout.bitview` は、`document` にmeta description、canonicalリンク、Open Graph、JSON-LDを加えた骨組みです。`root`・`page`・`tags`・`tag` が使います。これらの要素を出力する `seo` も同じファイルに置きます。説明文は各ページが渡します（トップページは `config.toml` の `description`、記事は記事の `description`、タグ一覧とタグ別ページは固定の文）。
 - `components/home-link.bitview` は、ヘッダーに置くトップページへのリンクです。
 - `components/entry-list.bitview` は記事の一覧で、トップページとタグ別ページが使います。
 - `components/timestamp.bitview` は日時を `<time>` 要素で表示します。

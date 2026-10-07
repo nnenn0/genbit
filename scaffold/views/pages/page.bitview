@@ -1,5 +1,5 @@
 fn page(ctx) =>
-  layout(ctx, concat(ctx.article.title, " | ", ctx.site.title), "article",
+  layout(ctx, concat(ctx.article.title, " | ", ctx.site.title), ctx.article.description, "article",
     home-link(ctx),
     article(
       h1(ctx.article.title, draft-badge(ctx.article)),

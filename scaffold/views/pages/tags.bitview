@@ -1,5 +1,5 @@
 fn tags(ctx) =>
-  layout(ctx, concat("tags | ", ctx.site.title), "website",
+  layout(ctx, concat("tags | ", ctx.site.title), "記事のタグ一覧", "website",
     home-link(ctx),
     [
       h1("tags"),
