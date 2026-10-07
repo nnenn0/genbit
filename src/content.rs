@@ -171,7 +171,7 @@ pub(crate) struct Article {
     pub(crate) updated_at: Zoned,
     pub(crate) template: TemplateName,
     pub(crate) tags: Vec<Tag>,
-    pub(crate) html: String,
+    pub(crate) content: bitview::Html,
     pub(crate) links: Vec<String>,
     /// The `index.md`, relative to the site root.
     pub(crate) source: PathBuf,
@@ -332,7 +332,7 @@ pub(crate) fn parse(
         updated_at: meta.updated_at,
         template: meta.template,
         tags: meta.tags,
-        html: rendered.html,
+        content: rendered.content,
         links: rendered.links,
         source: directory.path().join(relative),
         draft: directory == ContentDir::Drafts,

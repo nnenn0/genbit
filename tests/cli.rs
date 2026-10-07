@@ -2409,7 +2409,7 @@ fn internal_links_to_generated_pages_and_static_files_build() -> Result<()> {
                 "![ogp](/assets/site/ogp.png) ![relative](../../assets/site/ogp.png) ",
                 "![encoded](/files/%E7%94%BB%E5%83%8F.png) ![raw](/files/画像.png)\n\n",
                 "[web](https://example.com/missing) [plain](http://example.com/missing) ",
-                "[mail](mailto:someone@example.com) [tel](tel:+81-3-0000-0000) ",
+                "[mail](mailto:someone@example.com) ",
                 "[top](#top) <someone@example.com>\n\n",
                 "## [unwrapped](missing/)\n",
             ),
@@ -2491,6 +2491,49 @@ fn broken_internal_links_fail_and_preserve_dist() -> Result<()> {
     );
     assert!(stderr.contains("invalid percent-encoding"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
+    Ok(())
+}
+
+#[test]
+fn links_with_unsafe_schemes_fail_and_preserve_dist() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (body, target, scheme) in [
+        (
+            "[x](javascript:alert(1))",
+            "link javascript:alert(1)",
+            "javascript",
+        ),
+        (
+            "[x](tel:+81-3-0000-0000)",
+            "link tel:+81-3-0000-0000",
+            "tel",
+        ),
+        (
+            "![x](data:image/png;base64,AAAA)",
+            "image data:image/png;base64,AAAA",
+            "data",
+        ),
+    ] {
+        write_file(
+            site.join("content/entries/hello-world/index.md"),
+            article_source(&[], body),
+        )?;
+        let stderr = build_err(&site)?;
+        assert!(
+            stderr.contains("cannot parse")
+                && stderr.contains("content/entries/hello-world/index.md"),
+            "{stderr}"
+        );
+        assert!(stderr.contains(&format!("invalid {target}")), "{stderr}");
+        assert!(
+            stderr.contains(&format!("has the URL scheme {scheme}:")),
+            "{stderr}"
+        );
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+    }
     Ok(())
 }
 

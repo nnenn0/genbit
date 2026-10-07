@@ -88,7 +88,7 @@ struct ArticleView<'a> {
     canonical_url: &'a str,
     json_ld: &'a str,
     article: PublicArticle<'a>,
-    content: &'a str,
+    content: String,
 }
 
 #[derive(Serialize)]
@@ -225,7 +225,7 @@ impl Renderer {
                 canonical_url,
                 json_ld,
                 article: PublicArticle::from(article),
-                content: &article.html,
+                content: article.content.to_fragment(),
             },
             article.route.output().to_path_buf(),
             &article.source.display().to_string(),
@@ -373,7 +373,7 @@ mod tests {
                 canonical_url: "http://127.0.0.1:3000/post",
                 json_ld: "{}",
                 article: PublicArticle::from(article),
-                content: &article.html,
+                content: article.content.to_fragment(),
             },
         })?;
         assert!(single.get("article").is_some());

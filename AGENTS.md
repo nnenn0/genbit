@@ -18,7 +18,7 @@
 | --- | --- |
 | `src/main.rs` | clap のエントリーポイント。`build` と `dev` はカレントディレクトリをサイトルートにする。 |
 | `src/scaffold.rs`、`scaffold/` | `new` が書き込む初期サイト。`include_str!` で同梱する。既存の利用者サイトは自動更新されない。 |
-| `src/content.rs`、`src/markdown.rs` | `content/`・`drafts/` のページと素材の振り分け、フロントマターの検証、Markdown→HTML。 |
+| `src/content.rs`、`src/markdown.rs` | `content/`・`drafts/` のページと素材の振り分け、フロントマターの検証、Markdown から `bitview::Html` への変換。 |
 | `src/images.rs`、`src/content_hash.rs` | 本文の画像の寸法・表示方向と、画像URLに付ける内容のハッシュ。 |
 | `src/route.rs` | 記事URLと出力先の対応、相対パスの解決、配信URLの集合と予約領域の検査。 |
 | `src/config.rs`、`src/text.rs` | `config.toml` の検証と公開URLの組み立て。出力に書く `title`・`description` の検査とエスケープ（`escape_markup`）は `text.rs` を通す。 |
@@ -37,7 +37,8 @@
 
 コードだけでは理由が読み取りにくい設計を挙げる。変える場合は理由ごと見直す。
 
-- 記事本文の生 HTML は、パーサー直後の位置情報付きイベントで検査する。見出し・画像などの加工はその後に行い、加工で genbit 自身が生成する HTML は検査しない。本文のリンクと画像のすべてに検証と属性付与を同じ規則で適用するための禁止なので、例外を設けない。
+- 記事本文の生 HTML は、パーサー直後の位置情報付きイベントで検査する。本文のリンクと画像のすべてに検証と属性付与を同じ規則で適用するための禁止なので、例外を設けない。
+- 本文は pulldown-cmark のイベントから `bitview::Html` の要素を組み立てる。HTML を文字列で組み立てず、エスケープ・URL のスキーム・属性の検査は bitview に任せる。
 - テンプレートへは `render.rs` の公開ビューだけを渡し、記事の内部型を直接渡さない。テンプレート変数は利用者向けの仕様（`docs/templates.md`）。
 - リンクの検証は、`markdown.rs` が出力した参照先を、`OutputPlan` が確定した配信URLの集合と照合する。`build --dry-run` も同じ経路を通り、公開だけを行わない。
 - 画像URLのハッシュは描画時に計算し、コピー時に書き込んだバイト列のハッシュと照合する。食い違えば公開前に失敗する。
