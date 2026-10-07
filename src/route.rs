@@ -3,11 +3,23 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 pub(crate) const FEED_URL: &str = "/feed.xml";
+pub(crate) const SITEMAP_URL: &str = "/sitemap.xml";
 pub(crate) const TAGS_INDEX_URL: &str = "/tags/";
 pub(crate) const UNTAGGED_TAG: &str = "untagged";
 
 pub(crate) fn tag_url(tag: &str) -> String {
     format!("{TAGS_INDEX_URL}{tag}/")
+}
+
+/// The output file, relative to `dist/`, that serves a root-relative URL. A URL ending in `/` is
+/// served by the `index.html` in that directory.
+pub(crate) fn output_path(url: &str) -> PathBuf {
+    let path = Path::new(url.trim_start_matches('/'));
+    if url.ends_with('/') {
+        path.join("index.html")
+    } else {
+        path.to_path_buf()
+    }
 }
 
 pub(crate) struct Route {
@@ -41,9 +53,10 @@ impl Route {
                 Ok(segment)
             })
             .collect::<Result<Vec<_>>>()?;
+        let url = format!("/{}/", segments.join("/"));
         Ok(Self {
-            url: format!("/{}/", segments.join("/")),
-            output: segments.iter().collect::<PathBuf>().join("index.html"),
+            output: output_path(&url),
+            url,
         })
     }
 
@@ -92,12 +105,12 @@ pub(crate) fn validate_served_urls<'a>(
 ) -> Result<BTreeSet<String>> {
     let mut claimed = BTreeMap::new();
     let mut urls = BTreeSet::new();
-    for (path, source) in files {
+    for (path, origin) in files {
         for url in served_urls(path) {
             let key = url.to_ascii_lowercase();
-            ensure!(!is_reserved_url(&url), "reserved URL {url} from {source}");
-            if let Some(previous) = claimed.insert(key, source) {
-                bail!("URL collision at {url}: {previous} and {source}");
+            ensure!(!is_reserved_url(&url), "reserved URL {url} from {origin}");
+            if let Some(previous) = claimed.insert(key, origin) {
+                bail!("URL collision at {url}: {previous} and {origin}");
             }
             urls.insert(url);
         }
@@ -238,7 +251,7 @@ fn served_urls(path: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Route, is_reserved_url, resolve_link, served_urls, slash_path, validate_links,
+        Route, is_reserved_url, output_path, resolve_link, served_urls, slash_path, validate_links,
         validate_served_urls,
     };
     use anyhow::{Context, Result};
@@ -259,6 +272,18 @@ mod tests {
             assert_eq!(route.output(), Path::new(output));
         }
         Ok(())
+    }
+
+    #[test]
+    fn directory_urls_are_served_by_index_html() {
+        for (url, output) in [
+            ("/", "index.html"),
+            ("/tags/", "tags/index.html"),
+            ("/tags/rust/", "tags/rust/index.html"),
+            ("/feed.xml", "feed.xml"),
+        ] {
+            assert_eq!(output_path(url), Path::new(output), "{url}");
+        }
     }
 
     #[test]

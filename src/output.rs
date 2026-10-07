@@ -13,7 +13,8 @@ const MARKER_CONTENT: &str = "genbit output v1\n";
 pub(crate) struct Artifact {
     path: PathBuf,
     content: ArtifactContent,
-    source: String,
+    /// What produces the file, for errors: a source path or a label such as `<generated feed>`.
+    origin: String,
 }
 
 enum ArtifactContent {
@@ -43,20 +44,20 @@ struct StagedOutput {
 }
 
 impl Artifact {
-    pub(crate) fn generated(path: PathBuf, bytes: Vec<u8>, source: &str) -> Self {
+    pub(crate) fn generated(path: PathBuf, bytes: Vec<u8>, origin: &str) -> Self {
         Self {
             path,
             content: ArtifactContent::Generated(bytes),
-            source: source.to_owned(),
+            origin: origin.to_owned(),
         }
     }
 
     pub(crate) fn copy_from(path: PathBuf, source: PathBuf, hash: Option<ContentHash>) -> Self {
-        let description = source.display().to_string();
+        let origin = source.display().to_string();
         Self {
             path,
             content: ArtifactContent::CopyFrom { source, hash },
-            source: description,
+            origin,
         }
     }
 }
@@ -95,7 +96,7 @@ impl OutputPlan {
             match artifact.content {
                 ArtifactContent::Generated(bytes) => {
                     fs::write(&target, bytes).with_context(|| {
-                        format!("cannot write {} from {}", target.display(), artifact.source)
+                        format!("cannot write {} from {}", target.display(), artifact.origin)
                     })?;
                 }
                 ArtifactContent::CopyFrom { source, hash: None } => {
@@ -151,10 +152,10 @@ impl StagedOutput {
     }
 }
 
-/// An output path joined with `/`, and the source that produces it.
+/// An output path joined with `/`, and the origin of the artifact that produces it.
 struct PlannedFile<'a> {
     path: String,
-    source: &'a str,
+    origin: &'a str,
 }
 
 fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
@@ -165,7 +166,7 @@ fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
                 format!(
                     "invalid output path {} from {}",
                     artifact.path.display(),
-                    artifact.source
+                    artifact.origin
                 )
             })?;
             ensure!(
@@ -176,14 +177,14 @@ fn validate(artifacts: &[Artifact]) -> Result<BTreeSet<String>> {
             );
             Ok(PlannedFile {
                 path,
-                source: &artifact.source,
+                origin: &artifact.origin,
             })
         })
         .collect::<Result<Vec<_>>>()?;
     ensure_one_spelling_per_directory(&files)?;
     let claimed = claim_paths(&files)?;
     ensure_no_file_is_a_directory(&claimed)?;
-    crate::route::validate_served_urls(files.iter().map(|file| (file.path.as_str(), file.source)))
+    crate::route::validate_served_urls(files.iter().map(|file| (file.path.as_str(), file.origin)))
 }
 
 /// Directories are shared by name on case-insensitive filesystems, so each needs one spelling.
@@ -191,29 +192,29 @@ fn ensure_one_spelling_per_directory(files: &[PlannedFile<'_>]) -> Result<()> {
     let mut spellings = BTreeMap::new();
     for file in files {
         for directory in parent_directories(&file.path) {
-            let (previous, previous_source) = spellings
+            let (previous, previous_origin) = spellings
                 .entry(directory.to_lowercase())
-                .or_insert((directory, file.source));
+                .or_insert((directory, file.origin));
             ensure!(
                 *previous == directory,
-                "output directory case collision: {previous} from {previous_source} and {directory} from {}",
-                file.source
+                "output directory case collision: {previous} from {previous_origin} and {directory} from {}",
+                file.origin
             );
         }
     }
     Ok(())
 }
 
-/// Returns the source of each path by its lowercase spelling. Case-insensitive comparison keeps
+/// Returns the origin of each path by its lowercase spelling. Case-insensitive comparison keeps
 /// generated sites portable to common macOS/Windows filesystems.
 fn claim_paths<'a>(files: &[PlannedFile<'a>]) -> Result<BTreeMap<String, &'a str>> {
     let mut claimed = BTreeMap::new();
     for file in files {
-        if let Some(previous) = claimed.insert(file.path.to_lowercase(), file.source) {
+        if let Some(previous) = claimed.insert(file.path.to_lowercase(), file.origin) {
             bail!(
                 "output collision at {}: {previous} and {}",
                 file.path,
-                file.source
+                file.origin
             );
         }
     }
@@ -221,12 +222,12 @@ fn claim_paths<'a>(files: &[PlannedFile<'a>]) -> Result<BTreeMap<String, &'a str
 }
 
 fn ensure_no_file_is_a_directory(claimed: &BTreeMap<String, &str>) -> Result<()> {
-    for (path, source) in claimed {
+    for (path, origin) in claimed {
         if let Some((parent, previous)) = parent_directories(path)
             .find_map(|parent| claimed.get(parent).map(|previous| (parent, previous)))
         {
             bail!(
-                "output collision: {previous} creates file {parent}, required as directory by {source}"
+                "output collision: {previous} creates file {parent}, required as directory by {origin}"
             );
         }
     }

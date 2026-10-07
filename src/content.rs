@@ -308,17 +308,17 @@ fn is_page_source(file: &Path) -> bool {
 
 /// Parses the `index.md` at `relative` under `directory`.
 pub(crate) fn parse(
-    source: &str,
+    text: &str,
     directory: ContentDir,
     relative: &Path,
     timezone: &TimeZone,
     mut image: impl FnMut(&str, &str) -> Result<Option<Image>>,
 ) -> Result<Article> {
-    let (front_matter, body) = split_front_matter(source)?;
+    let (front_matter, body) = split_front_matter(text)?;
     let route = Route::from_content_path(relative)?;
     let meta = front_matter.resolve(relative, timezone)?;
     let parsed = crate::markdown::parse(body).map_err(|error| {
-        let line = line_number(source, source.len() - body.len() + error.offset);
+        let line = line_number(text, text.len() - body.len() + error.offset);
         anyhow::anyhow!(
             "raw HTML is not allowed in Markdown at line {line}; write it with Markdown syntax, or use a code span or `\\<` to show it as text"
         )
@@ -340,35 +340,35 @@ pub(crate) fn parse(
 }
 
 /// Returns the 1-based line of a byte offset, counting CRLF, LF, and lone CR as line breaks like Markdown parsers do.
-fn line_number(source: &str, offset: usize) -> usize {
-    let before = source.as_bytes().get(..offset).unwrap_or_default();
+fn line_number(text: &str, offset: usize) -> usize {
+    let before = text.as_bytes().get(..offset).unwrap_or_default();
     let breaks = before
         .iter()
         .enumerate()
         .filter(|&(index, &byte)| {
-            byte == b'\n' || (byte == b'\r' && source.as_bytes().get(index + 1) != Some(&b'\n'))
+            byte == b'\n' || (byte == b'\r' && text.as_bytes().get(index + 1) != Some(&b'\n'))
         })
         .count();
     breaks + 1
 }
 
-fn split_front_matter(source: &str) -> Result<(FrontMatter, &str)> {
-    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
-    let mut lines = source.split_inclusive('\n');
+fn split_front_matter(text: &str) -> Result<(FrontMatter, &str)> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut lines = text.split_inclusive('\n');
     let Some(first) = lines.next() else {
-        return Ok((FrontMatter::default(), source));
+        return Ok((FrontMatter::default(), text));
     };
     if first.trim_end() != "+++" {
-        return Ok((FrontMatter::default(), source));
+        return Ok((FrontMatter::default(), text));
     }
     let mut end = first.len();
     for line in lines {
         end += line.len();
         if line.trim_end() == "+++" {
-            let fields = source
+            let fields = text
                 .get(first.len()..end - line.len())
                 .context("invalid front matter fields boundary")?;
-            let body = source.get(end..).context("invalid body boundary")?;
+            let body = text.get(end..).context("invalid body boundary")?;
             // The leading newline stands for the opening `+++`, so TOML errors report file lines.
             let metadata: FrontMatter =
                 toml::from_str(&format!("\n{fields}")).context("invalid TOML front matter")?;

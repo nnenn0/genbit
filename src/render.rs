@@ -3,7 +3,7 @@ use crate::{
     content::{self, Article},
     input::SiteInput,
     output::Artifact,
-    route::TAGS_INDEX_URL,
+    route::{self, TAGS_INDEX_URL},
     tags::{TagGroup, TagIndex, article_tags},
 };
 use anyhow::{Context as _, Result, ensure};
@@ -157,7 +157,7 @@ impl Renderer {
                 json_ld,
                 tags: public_tags,
             },
-            PathBuf::from("tags/index.html"),
+            route::output_path(TAGS_INDEX_URL),
             "<generated tag index>",
         )
     }
@@ -169,6 +169,7 @@ impl Renderer {
         json_ld: &str,
     ) -> Result<Artifact> {
         let tag = group.name;
+        let url = group.url();
         let entries = group
             .articles
             .iter()
@@ -179,12 +180,12 @@ impl Renderer {
             "tag.html",
             TagView {
                 description: format!("{tag} の記事一覧"),
-                canonical_url: config.site_url.join_root_path(&group.url()),
+                canonical_url: config.site_url.join_root_path(&url),
                 json_ld,
                 tag,
                 entries,
             },
-            PathBuf::from("tags").join(tag).join("index.html"),
+            route::output_path(&url),
             &format!("<generated tag {tag}>"),
         )
     }
@@ -247,7 +248,7 @@ impl Renderer {
         template: &str,
         view: impl Serialize,
         output: PathBuf,
-        source: &str,
+        origin: &str,
     ) -> Result<Artifact> {
         let css = self
             .styles
@@ -264,7 +265,7 @@ impl Renderer {
         let mut html = self
             .tera
             .render(template, &context)
-            .with_context(|| format!("cannot render {source} with template {template}"))?;
+            .with_context(|| format!("cannot render {origin} with template {template}"))?;
         if self.preview {
             html.push_str(crate::dev::RELOAD_SCRIPT);
         }
@@ -276,7 +277,7 @@ impl Renderer {
                 ..minify_html::Cfg::default()
             },
         );
-        Ok(Artifact::generated(output, minified, source))
+        Ok(Artifact::generated(output, minified, origin))
     }
 }
 
