@@ -37,17 +37,18 @@ pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let content = content::classify_files(content_tree(input.tree(Content.path())?), Content)?;
+    let content = content::classify_files(without_gitkeep(input.tree(Content.path())?), Content)?;
     let drafts = match mode {
         Mode::Dev { .. } => input
             .optional_tree(Drafts.path())?
-            .map(|tree| content::classify_files(content_tree(tree), Drafts))
+            .map(|tree| content::classify_files(without_gitkeep(tree), Drafts))
             .transpose()?,
         Mode::Publish | Mode::DryRun => None,
     }
     .unwrap_or_default();
     content::check_drafts(&content, &drafts)?;
-    let copied = files(&input, "static")?
+    let copied = without_gitkeep(input.tree(Path::new("static"))?)
+        .files
         .into_iter()
         .map(|path| (path, Path::new("static")))
         .chain(
@@ -138,23 +139,11 @@ fn render_pages(
     .collect()
 }
 
-fn files(input: &SiteInput<'_>, directory: &str) -> Result<Vec<PathBuf>> {
-    Ok(without_gitkeep(input.files(Path::new(directory))?))
-}
-
-fn content_tree(tree: Tree) -> Tree {
-    Tree {
-        files: without_gitkeep(tree.files),
-        directories: tree.directories,
-    }
-}
-
 /// Leaves out the `.gitkeep` files that keep empty directories in Git.
-fn without_gitkeep(files: Vec<PathBuf>) -> Vec<PathBuf> {
-    files
-        .into_iter()
-        .filter(|path| path.file_name().is_none_or(|name| name != ".gitkeep"))
-        .collect()
+fn without_gitkeep(mut tree: Tree) -> Tree {
+    tree.files
+        .retain(|path| path.file_name().is_none_or(|name| name != ".gitkeep"));
+    tree
 }
 
 /// Takes each page's `index.md` with the directory it is in.
