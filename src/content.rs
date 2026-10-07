@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use std::{
     collections::BTreeSet,
     fmt,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 use toml::value::{Datetime, Value};
 
@@ -20,8 +20,6 @@ use toml::value::{Datetime, Value};
 struct FrontMatter {
     title: Option<String>,
     description: Option<String>,
-    #[serde(default)]
-    template: TemplateName,
     #[serde(default)]
     tags: Tags,
     #[serde(default, deserialize_with = "created_at")]
@@ -34,7 +32,6 @@ struct FrontMatter {
 struct ArticleMeta {
     title: PublishableText,
     description: PublishableText,
-    template: TemplateName,
     tags: Vec<Tag>,
     created_at: Zoned,
     updated_at: Zoned,
@@ -67,7 +64,6 @@ impl FrontMatter {
         Ok(ArticleMeta {
             title,
             description,
-            template: self.template,
             tags: self.tags.into_vec(),
             created_at,
             updated_at,
@@ -125,39 +121,6 @@ fn zoned(value: Option<DateTime>, field: &str, timezone: &TimeZone) -> Result<Zo
         .map_err(Into::into)
 }
 
-/// A template file under `templates/`, such as `page.html`.
-#[derive(Debug, Deserialize)]
-#[serde(try_from = "String")]
-pub(crate) struct TemplateName(String);
-
-impl TemplateName {
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Default for TemplateName {
-    fn default() -> Self {
-        Self("page.html".to_owned())
-    }
-}
-
-impl TryFrom<String> for TemplateName {
-    type Error = anyhow::Error;
-
-    fn try_from(name: String) -> Result<Self> {
-        ensure!(
-            !name.is_empty()
-                && Path::new(&name)
-                    .components()
-                    .all(|part| matches!(part, Component::Normal(_)))
-                && !name.contains('\\'),
-            "template must be a relative path inside templates/"
-        );
-        Ok(Self(name))
-    }
-}
-
 /// Formats a date-time for JSON-LD, sitemaps, and templates, e.g. `2026-09-23T09:30:00+09:00`.
 pub(crate) fn rfc3339(value: &Zoned) -> String {
     value.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string()
@@ -169,7 +132,6 @@ pub(crate) struct Article {
     pub(crate) route: Route,
     pub(crate) created_at: Zoned,
     pub(crate) updated_at: Zoned,
-    pub(crate) template: TemplateName,
     pub(crate) tags: Vec<Tag>,
     pub(crate) content: bitview::Html,
     pub(crate) links: Vec<String>,
@@ -330,7 +292,6 @@ pub(crate) fn parse(
         route,
         created_at: meta.created_at,
         updated_at: meta.updated_at,
-        template: meta.template,
         tags: meta.tags,
         content: rendered.content,
         links: rendered.links,
@@ -654,6 +615,10 @@ mod tests {
             (
                 "\u{feff}+++\r\n\r\ntags = ['React']\r\n+++\r\n",
                 "line 3, column 8",
+            ),
+            (
+                "+++\ndescription = 'Post'\ntemplate = 'page.html'\n+++\n",
+                "line 3, column 1",
             ),
         ] {
             let error = parse(source, Path::new("post/index.md"), &TimeZone::UTC)

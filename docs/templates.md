@@ -7,7 +7,7 @@
 | テンプレート | 描画するもの | 必須 |
 | --- | --- | --- |
 | `root.html` | トップページ `/` | 必須 |
-| `page.html` | 記事（フロントマターの `template` の既定値） | 全記事が別のテンプレートを指定していなければ必須 |
+| `page.html` | 記事 | 記事があれば必須 |
 | `tags.html` | タグ一覧 `/tags/` | 必須 |
 | `tag.html` | タグ別ページ `/tags/{tag}/` | 必須 |
 | `404.html` | `dist/404.html` | 必須 |
@@ -34,7 +34,7 @@
 | テンプレート | 追加の変数 |
 | --- | --- |
 | `root.html` | `entries`: 全記事（作成日時の新しい順） |
-| `page.html` などの記事テンプレート | `article`: 記事、`content`: MarkdownをHTMLに変換した本文 |
+| `page.html` | `article`: 記事、`content`: MarkdownをHTMLに変換した本文 |
 | `tags.html` | `tags`: `name`、`url`、`count` の配列 |
 | `tag.html` | `tag`: タグ名、`entries`: そのタグの記事（作成日時の新しい順） |
 | `404.html` | `site` と `css` のみ |

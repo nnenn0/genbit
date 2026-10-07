@@ -5,7 +5,6 @@
 ```markdown
 +++
 title = "最初の記事"
-template = "page.html"
 created_at = 2026-09-17 09:00
 updated_at = 2026-09-22 00:00
 description = "記事で扱う内容を簡潔に説明します。"
@@ -23,12 +22,11 @@ tags = ["react", "web-security"]
 | `updated_at` | 必須 | 最終更新日時。更新していない記事では `created_at` と同じ値にします。`created_at` より前にはできません。 |
 | `description` | 必須 | meta description、Open Graph、JSON-LD、RSSフィードに使う概要。空にはできません。 |
 | `title` | 任意 | 記事のタイトル。省略時はディレクトリ名。 |
-| `template` | 任意 | `templates/` 以下のテンプレート。省略時は `page.html`。 |
 | `tags` | 任意 | タグの配列。[タグ](#タグ)を参照。 |
 
 未知のフィールドはエラーになります。`title` と `description` には制御文字（タブ・改行を除く）を使えません。RSSフィードやHTMLを壊さないためです。
 
-TOMLとして読めない場合、未知のフィールドがある場合、日時・タグ・`template` の書式が正しくない場合は、エラーに記事ファイルの先頭から数えた行と列を表示します。
+TOMLとして読めない場合、未知のフィールドがある場合、日時・タグの書式が正しくない場合は、エラーに記事ファイルの先頭から数えた行と列を表示します。
 
 ### 日時
 

@@ -1486,15 +1486,15 @@ fn inlines_common_and_template_specific_css() -> Result<()> {
 }
 
 #[test]
-fn custom_article_template_receives_documented_fields() -> Result<()> {
+fn article_template_receives_documented_fields() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     fs::write(
-        site.join("templates/custom.html"),
+        site.join("templates/page.html"),
         "<html><head><style>{{ css | safe }}</style><script type=\"application/ld+json\">{{ json_ld | safe }}</script></head><body><p>{{ site.title }}</p><p>{{ canonical_url }}</p><p>{{ article.title }}|{{ article.description }}|{{ article.url }}|{{ article.created_at.datetime }}|{{ article.created_at.date }}|{{ article.created_at.time }}|{{ article.updated_at.datetime }}</p>{{ content | safe }}</body></html>",
     )?;
     fs::write(
-        site.join("styles/custom.css"),
+        site.join("styles/page.css"),
         "body { --custom-marker: yes; }",
     )?;
     write_file(
@@ -1503,7 +1503,6 @@ fn custom_article_template_receives_documented_fields() -> Result<()> {
             &[
                 ("title", Some("'Custom Post'")),
                 ("description", Some("'Custom summary'")),
-                ("template", Some("'custom.html'")),
                 ("created_at", Some("2026-09-17 10:30")),
                 ("updated_at", Some("2026-09-22 00:00")),
             ],
@@ -1760,24 +1759,25 @@ fn dev_shows_drafts_with_marks_and_leaves_dist_unchanged() -> Result<()> {
 fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    write_file(site.join("templates/broken.html"), "{{ missing }}")?;
-    let broken = article_source(&[("template", Some("'broken.html'"))], "Body\n");
-
-    write_file(site.join("content/entries/post/index.md"), &broken)?;
+    write_file(site.join("templates/page.html"), "{{ missing }}")?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr.contains("cannot render content/entries/post/index.md with template broken.html"),
+        stderr
+            .contains("cannot render content/entries/hello-world/index.md with template page.html"),
         "{stderr}"
     );
 
-    fs::remove_dir_all(site.join("content/entries/post"))?;
-    write_file(site.join("drafts/entries/wip/index.md"), &broken)?;
+    fs::create_dir_all(site.join("drafts/entries"))?;
+    fs::rename(
+        site.join("content/entries/hello-world"),
+        site.join("drafts/entries/wip"),
+    )?;
     let error = DevProcess::start_listening(&site)
         .err()
         .context("dev accepted a draft that cannot render")?;
     assert!(
         format!("{error:#}")
-            .contains("cannot render drafts/entries/wip/index.md with template broken.html"),
+            .contains("cannot render drafts/entries/wip/index.md with template page.html"),
         "{error:#}"
     );
     Ok(())
@@ -2183,64 +2183,37 @@ fn rejects_symlinks_in_site_inputs_without_touching_dist() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
-fn nested_template_css_rejects_parent_and_file_symlinks() -> Result<()> {
+fn template_css_rejects_file_and_directory_symlinks() -> Result<()> {
     use std::os::unix::fs::symlink;
 
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    fs::create_dir_all(site.join("templates/deep"))?;
-    fs::write(
-        site.join("templates/deep/page.html"),
-        "{% extends \"base.html\" %}{% block main %}Nested template{% endblock main %}",
-    )?;
-    fs::create_dir_all(site.join("styles/deep"))?;
-    fs::write(
-        site.join("styles/deep/page.css"),
-        "body { --nested-css: yes; }",
-    )?;
-    write_file(
-        site.join("content/deep/index.md"),
-        article_source(
-            &[
-                ("description", Some("'Nested article'")),
-                ("template", Some("'deep/page.html'")),
-            ],
-            "# Deep\n",
-        ),
-    )?;
-
+    fs::write(site.join("styles/page.css"), "body { --page-css: yes; }")?;
     build_ok(&site)?;
-    let before = fs::read_to_string(site.join("dist/deep/index.html"))?;
-    assert!(before.contains("Nested template") && before.contains("--nested-css"));
+    let before = snapshot(&site.join("dist"))?;
 
-    let parent = site.join("styles/deep");
-    let outside_dir = workspace.0.path().join("outside-deep");
-    fs::rename(&parent, &outside_dir)?;
-    symlink(&outside_dir, &parent)?;
-    let stderr = build_err(&site)?;
-    assert!(stderr.contains("symlinks are not supported"), "{stderr}");
-    assert!(stderr.contains("styles/deep"), "{stderr}");
-    assert_eq!(
-        fs::read_to_string(site.join("dist/deep/index.html"))?,
-        before
-    );
-    fs::remove_file(&parent)?;
-    fs::rename(&outside_dir, &parent)?;
-
-    let css = parent.join("page.css");
+    let css = site.join("styles/page.css");
     let outside_css = workspace.0.path().join("outside-page.css");
     fs::rename(&css, &outside_css)?;
     symlink(&outside_css, &css)?;
     let stderr = build_err(&site)?;
     assert!(stderr.contains("symlinks are not supported"), "{stderr}");
     assert!(stderr.contains("page.css"), "{stderr}");
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    fs::remove_file(&css)?;
+    fs::rename(&outside_css, &css)?;
+
+    let styles = site.join("styles");
+    let outside_dir = workspace.0.path().join("outside-styles");
+    fs::rename(&styles, &outside_dir)?;
+    symlink(&outside_dir, &styles)?;
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("symlinks are not supported"), "{stderr}");
+    assert!(stderr.contains("styles"), "{stderr}");
+    assert_eq!(snapshot(&site.join("dist"))?, before);
     assert_eq!(
-        fs::read_to_string(site.join("dist/deep/index.html"))?,
-        before
-    );
-    assert_eq!(
-        fs::read_to_string(&outside_css)?,
-        "body { --nested-css: yes; }"
+        fs::read_to_string(outside_dir.join("page.css"))?,
+        "body { --page-css: yes; }"
     );
     Ok(())
 }

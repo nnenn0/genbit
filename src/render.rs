@@ -116,15 +116,20 @@ struct TagView<'a, 'b> {
 }
 
 impl Renderer {
-    pub(crate) fn load(input: &SiteInput<'_>, articles: &[Article], preview: bool) -> Result<Self> {
+    pub(crate) fn load(input: &SiteInput<'_>, preview: bool) -> Result<Self> {
         let tera = load_templates(input)?;
         ensure!(
             tera.get_template_names().any(|name| name == "tags.html")
                 && tera.get_template_names().any(|name| name == "tag.html"),
             "tag pages require templates/tags.html and templates/tag.html"
         );
-        let mut templates = BTreeSet::from(["root.html", "404.html", "tags.html", "tag.html"]);
-        templates.extend(articles.iter().map(|article| article.template.as_str()));
+        let templates = BTreeSet::from([
+            "root.html",
+            "page.html",
+            "404.html",
+            "tags.html",
+            "tag.html",
+        ]);
         let styles = load_styles(input, &templates)?;
         Ok(Self {
             tera,
@@ -219,7 +224,7 @@ impl Renderer {
     ) -> Result<Artifact> {
         self.render(
             config,
-            article.template.as_str(),
+            "page.html",
             ArticleView {
                 description: article.description.as_str(),
                 canonical_url,
