@@ -13,6 +13,7 @@ pub(crate) struct Tree {
     pub(crate) directories: Vec<PathBuf>,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct SiteInput<'a> {
     root: &'a Path,
 }
