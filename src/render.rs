@@ -338,7 +338,7 @@ mod tests {
         )?;
         let articles = [content::parse(
             "+++\ncreated_at = 2026-09-17 10:30\nupdated_at = 2026-09-17 10:30\ndescription = 'Post description'\n+++\n# Post",
-            "content",
+            content::ContentDir::Content,
             Path::new("post/index.md"),
             &site.timezone,
             |_, _| Ok(None),

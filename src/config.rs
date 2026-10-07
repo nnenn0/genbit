@@ -43,7 +43,7 @@ impl TryFrom<RawConfig> for Config {
         let title = PublishableText::new(raw.title, "config.toml: title")?;
         let description = PublishableText::new(raw.description, "config.toml: description")?;
         let site_url = SiteUrl::parse(&raw.site_url)?;
-        let og_image = validate_og_image(&raw.og_image, &site_url)?;
+        let og_image = og_image_url(&raw.og_image, &site_url)?;
         let timezone = TimeZone::get(&raw.timezone).with_context(|| {
             format!(
                 "config.toml: timezone must be an IANA time zone name such as Asia/Tokyo: {}",
@@ -81,7 +81,8 @@ impl SiteUrl {
     }
 }
 
-fn validate_og_image(value: &str, site_url: &SiteUrl) -> Result<String> {
+/// Returns `og_image` as an absolute URL, joining a root-relative path to `site_url`.
+fn og_image_url(value: &str, site_url: &SiteUrl) -> Result<String> {
     if !value.starts_with('/') || value.starts_with("//") {
         parse_http_url(value, "og_image")?;
         return Ok(value.to_owned());
@@ -126,7 +127,7 @@ fn parse_http_url(value: &str, field: &str) -> Result<HttpUrl> {
         "config.toml: {field} must have a host without credentials"
     );
     ensure!(
-        valid_host(authority.host()),
+        is_valid_host(authority.host()),
         "config.toml: {field} must have a valid host name or IP address: {}",
         authority.host()
     );
@@ -143,7 +144,7 @@ fn parse_http_url(value: &str, field: &str) -> Result<HttpUrl> {
     Ok(HttpUrl { uri, origin })
 }
 
-fn valid_host(host: &str) -> bool {
+fn is_valid_host(host: &str) -> bool {
     if let Some(address) = host
         .strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))

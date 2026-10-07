@@ -22,7 +22,7 @@ impl TryFrom<String> for Tag {
 
     fn try_from(tag: String) -> Result<Self, Error> {
         ensure!(
-            valid_tag(&tag),
+            is_valid_tag(&tag),
             "invalid tag {tag:?}: use lowercase kebab-case"
         );
         ensure!(
@@ -33,7 +33,7 @@ impl TryFrom<String> for Tag {
     }
 }
 
-fn valid_tag(tag: &str) -> bool {
+fn is_valid_tag(tag: &str) -> bool {
     !tag.is_empty()
         && tag.split('-').all(|part| {
             !part.is_empty()
@@ -133,7 +133,7 @@ mod tests {
             &format!(
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\n"
             ),
-            "content",
+            content::ContentDir::Content,
             Path::new(&format!("{name}/index.md")),
             &TimeZone::UTC,
             |_, _| Ok(None),
