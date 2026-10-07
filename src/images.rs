@@ -29,7 +29,7 @@ pub(crate) struct Images<'a> {
 
 impl<'a> Images<'a> {
     /// Takes every file copied into the output, so that a URL finds the file it serves.
-    pub(crate) fn new(root: &'a Path, files: &[CopiedFile]) -> Result<Self> {
+    pub(crate) fn new(input: SiteInput<'a>, files: &[CopiedFile]) -> Result<Self> {
         let files = files
             .iter()
             .map(|file| {
@@ -39,7 +39,7 @@ impl<'a> Images<'a> {
             })
             .collect::<Result<_>>()?;
         Ok(Self {
-            input: SiteInput::new(root),
+            input,
             files,
             probed: BTreeMap::new(),
         })
@@ -312,7 +312,7 @@ mod tests {
         fs::write(&broken, b"broken")?;
         fs::write(&unused, b"unused")?;
         let mut images = Images::new(
-            root.path(),
+            SiteInput::new(root.path()),
             &static_files(&[
                 "image.png",
                 "copy.png",
@@ -447,7 +447,7 @@ mod tests {
         fs::create_dir(root.path().join("static"))?;
         let image = root.path().join("static/image.png");
         fs::write(&image, b"image")?;
-        let mut images = Images::new(root.path(), &static_files(&["image.png"]))?;
+        let mut images = Images::new(SiteInput::new(root.path()), &static_files(&["image.png"]))?;
         fs::remove_file(&image)?;
         std::os::unix::fs::symlink(root.path().join("outside.png"), &image)?;
         let error = images

@@ -63,7 +63,7 @@ pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
         .map(|path| (path, "content"))
         .chain(drafts.pages.into_iter().map(|path| (path, "drafts")))
         .collect();
-    let images = Images::new(root, &copied)?;
+    let images = Images::new(input, &copied)?;
     let (mut articles, image_hashes) = load_articles(&input, pages, &config.timezone, images)?;
     articles.sort_by(|left, right| {
         right
