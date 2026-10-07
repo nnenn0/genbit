@@ -41,7 +41,7 @@ impl<'a> From<&'a Article> for PublicArticle<'a> {
             url: article.route.url(),
             created_at: PublicTimestamp::from(&article.created_at),
             updated_at: PublicTimestamp::from(&article.updated_at),
-            tags: article_tags(article),
+            tags: article_tags(article).collect(),
             draft: article.draft,
         }
     }

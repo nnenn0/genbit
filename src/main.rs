@@ -3,7 +3,7 @@ mod config;
 mod content;
 mod content_hash;
 mod dev;
-mod image_size;
+mod images;
 mod input;
 mod markdown;
 mod metadata;

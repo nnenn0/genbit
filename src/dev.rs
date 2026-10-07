@@ -146,10 +146,15 @@ async fn events(
 fn relevant_change(root: &Path, event: &notify::Event) -> bool {
     !matches!(event.kind, EventKind::Access(_))
         && event.paths.iter().any(|path| {
-            path == &root.join("config.toml")
-                || ["content", "drafts", "templates", "styles", "static"]
-                    .iter()
-                    .any(|directory| path.starts_with(root.join(directory)))
+            let Ok(relative) = path.strip_prefix(root) else {
+                return false;
+            };
+            relative == Path::new("config.toml")
+                || relative.components().next().is_some_and(|first| {
+                    ["content", "drafts", "templates", "styles", "static"]
+                        .iter()
+                        .any(|directory| first.as_os_str() == *directory)
+                })
         })
 }
 
@@ -215,6 +220,8 @@ mod tests {
         let root = Path::new("/site");
         for path in [
             "content/post.md",
+            "content",
+            "drafts/a/index.md",
             "templates/base.html",
             "styles/main.css",
             "static/a.png",
@@ -227,6 +234,9 @@ mod tests {
             "dist/index.html",
             ".genbit-build-123/index.html",
             "README.md",
+            "contents/post.md",
+            "config.toml.bak",
+            "/elsewhere/content/post.md",
         ] {
             let event = Event::new(EventKind::Any).add_path(root.join(path));
             assert!(!relevant_change(root, &event), "{path}");

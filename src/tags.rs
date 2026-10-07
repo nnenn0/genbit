@@ -72,12 +72,12 @@ impl TryFrom<Vec<Tag>> for Tags {
 
 /// Returns the tags an article is listed under. Articles without tags are
 /// listed under the reserved `untagged` tag.
-pub(crate) fn article_tags(article: &Article) -> Vec<&str> {
-    if article.tags.is_empty() {
-        vec![UNTAGGED_TAG]
-    } else {
-        article.tags.iter().map(Tag::as_str).collect()
-    }
+pub(crate) fn article_tags(article: &Article) -> impl Iterator<Item = &str> {
+    article
+        .tags
+        .iter()
+        .map(Tag::as_str)
+        .chain(article.tags.is_empty().then_some(UNTAGGED_TAG))
 }
 
 /// Articles grouped by tag, ordered by tag name with `untagged` last. Each
@@ -172,8 +172,8 @@ mod tests {
             ]
         );
         let [tagged, untagged, _] = &articles;
-        assert_eq!(article_tags(untagged), ["untagged"]);
-        assert_eq!(article_tags(tagged), ["web", "rust"]);
+        assert_eq!(article_tags(untagged).collect::<Vec<_>>(), ["untagged"]);
+        assert_eq!(article_tags(tagged).collect::<Vec<_>>(), ["web", "rust"]);
         assert!(
             TagIndex::new(std::slice::from_ref(tagged))
                 .groups()
