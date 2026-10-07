@@ -22,7 +22,7 @@ impl TryFrom<String> for Tag {
 
     fn try_from(tag: String) -> Result<Self, Error> {
         ensure!(
-            valid_tag(&tag),
+            is_valid_tag(&tag),
             "invalid tag {tag:?}: use lowercase kebab-case"
         );
         ensure!(
@@ -33,7 +33,7 @@ impl TryFrom<String> for Tag {
     }
 }
 
-fn valid_tag(tag: &str) -> bool {
+fn is_valid_tag(tag: &str) -> bool {
     !tag.is_empty()
         && tag.split('-').all(|part| {
             !part.is_empty()

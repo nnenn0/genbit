@@ -47,7 +47,7 @@ impl Route {
                 };
                 let segment = segment.to_str().context("content path must be UTF-8")?;
                 ensure!(
-                    valid_segment(segment),
+                    is_valid_segment(segment),
                     "page directory names must use ASCII letters, numbers, hyphens or underscores"
                 );
                 Ok(segment)
@@ -69,7 +69,7 @@ impl Route {
     }
 }
 
-fn valid_segment(segment: &str) -> bool {
+fn is_valid_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment
             .bytes()
