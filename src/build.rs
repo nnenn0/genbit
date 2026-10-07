@@ -2,7 +2,7 @@ use crate::{
     config::Config,
     content::{self, Article},
     content_hash::ContentHash,
-    image_size::Images,
+    images::Images,
     input::{SiteInput, Tree},
     metadata,
     output::{self, Artifact, CopiedFile, OutputPlan},
@@ -36,11 +36,12 @@ pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let content = content::sort_files(content_tree(input.tree(Path::new("content"))?), "content")?;
+    let content =
+        content::classify_files(content_tree(input.tree(Path::new("content"))?), "content")?;
     let drafts = match mode {
         Mode::Dev { .. } => input
             .optional_tree(Path::new("drafts"))?
-            .map(|tree| content::sort_files(content_tree(tree), "drafts"))
+            .map(|tree| content::classify_files(content_tree(tree), "drafts"))
             .transpose()?,
         Mode::Publish | Mode::DryRun => None,
     }

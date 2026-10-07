@@ -1,4 +1,4 @@
-use crate::image_size::{Image, Size};
+use crate::images::{Image, Size};
 use pulldown_cmark::{
     CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd, html,
 };
@@ -344,7 +344,7 @@ mod tests {
     use super::Rendered;
     use crate::{
         content_hash::ContentHash,
-        image_size::{Image, Size},
+        images::{Image, Size},
     };
     use anyhow::{Result, anyhow};
 

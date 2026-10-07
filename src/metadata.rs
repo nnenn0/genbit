@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::{iter, path::PathBuf};
 
 const FEED_ITEM_LIMIT: usize = 20;
+const SITEMAP_URL_LIMIT: usize = 50_000;
 
 #[derive(Serialize)]
 struct WebsiteStructuredData<'a> {
@@ -98,16 +99,23 @@ pub(crate) fn sitemap(
             tags.groups()
                 .iter()
                 .map(|group| listing(base.join_root_path(&group.url()))),
-        )
-        .collect::<Vec<_>>();
-    ensure!(
-        urls.len() <= 50_000,
-        "sitemap.xml supports at most 50,000 URLs including generated pages"
-    );
+        );
+    Ok(Artifact::generated(
+        PathBuf::from("sitemap.xml"),
+        sitemap_xml(urls)?.into_bytes(),
+        "<generated sitemap>",
+    ))
+}
+
+fn sitemap_xml(urls: impl Iterator<Item = SitemapUrl>) -> Result<String> {
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
     );
-    for SitemapUrl { loc, lastmod } in urls {
+    for (index, SitemapUrl { loc, lastmod }) in urls.enumerate() {
+        ensure!(
+            index < SITEMAP_URL_LIMIT,
+            "sitemap.xml supports at most 50,000 URLs including generated pages"
+        );
         xml.push_str("  <url><loc>");
         xml.push_str(&xml_escape(&loc));
         xml.push_str("</loc>");
@@ -123,11 +131,7 @@ pub(crate) fn sitemap(
         xml.len() <= 50 * 1024 * 1024,
         "sitemap.xml exceeds the 50 MB uncompressed limit"
     );
-    Ok(Artifact::generated(
-        PathBuf::from("sitemap.xml"),
-        xml.into_bytes(),
-        "<generated sitemap>",
-    ))
+    Ok(xml)
 }
 
 /// Builds an RSS 2.0 feed of the newest articles. `articles` must already be
@@ -215,10 +219,26 @@ pub(crate) fn robots(base: &SiteUrl) -> Artifact {
 
 #[cfg(test)]
 mod tests {
-    use super::{feed_xml, json_ld};
+    use super::{SITEMAP_URL_LIMIT, SitemapUrl, feed_xml, json_ld, sitemap_xml};
     use crate::{config::Config, content};
-    use anyhow::Result;
+    use anyhow::{Context, Result};
     use std::path::Path;
+
+    #[test]
+    fn sitemap_rejects_more_than_50000_urls() -> Result<()> {
+        let urls = |count| {
+            (0..count).map(|index| SitemapUrl {
+                loc: format!("https://example.com/{index}/"),
+                lastmod: None,
+            })
+        };
+        sitemap_xml(urls(SITEMAP_URL_LIMIT))?;
+        let error = sitemap_xml(urls(SITEMAP_URL_LIMIT + 1))
+            .err()
+            .context("accepted more than 50,000 URLs")?;
+        assert!(error.to_string().contains("at most 50,000 URLs"));
+        Ok(())
+    }
 
     #[test]
     fn json_ld_cannot_close_script_element() -> Result<()> {
