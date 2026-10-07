@@ -133,7 +133,7 @@ mod tests {
             &format!(
                 "+++\ncreated_at = 2026-09-17 00:00\nupdated_at = 2026-09-17 00:00\ndescription = 'Post'\ntags = {tags}\n+++\n"
             ),
-            "content",
+            content::ContentDir::Content,
             Path::new(&format!("{name}/index.md")),
             &TimeZone::UTC,
             |_, _| Ok(None),
