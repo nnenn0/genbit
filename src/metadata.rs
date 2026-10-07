@@ -4,7 +4,6 @@ use crate::{
     output::Artifact,
     route::{self, FEED_URL, SITEMAP_URL, TAGS_INDEX_URL},
     tags::TagIndex,
-    text::escape_markup,
 };
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
@@ -189,6 +188,23 @@ fn push_element(xml: &mut String, indent: &str, name: &str, text: &str) {
     xml.push_str("</");
     xml.push_str(name);
     xml.push_str(">\n");
+}
+
+/// RSS descriptions are HTML inside XML, so these entities must be valid in both. Pages are
+/// escaped by bitview, not here.
+fn escape_markup(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
 }
 
 pub(crate) fn robots(base: &SiteUrl) -> Artifact {

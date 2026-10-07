@@ -21,7 +21,7 @@
 | `src/content.rs`、`src/markdown.rs` | `content/`・`drafts/` のページと素材の振り分け、フロントマターの検証、Markdown から `bitview::Html` への変換。 |
 | `src/images.rs`、`src/content_hash.rs` | 本文の画像の寸法・表示方向と、画像URLに付ける内容のハッシュ。 |
 | `src/route.rs` | 記事URLと出力先の対応、相対パスの解決、配信URLの集合と予約領域の検査。 |
-| `src/config.rs`、`src/text.rs` | `config.toml` の検証と公開URLの組み立て。出力に書く `title`・`description` の検査とエスケープ（`escape_markup`）は `text.rs` を通す。 |
+| `src/config.rs`、`src/text.rs` | `config.toml` の検証と公開URLの組み立て。出力に書く `title`・`description` の検査は `text.rs` を通す。HTML のエスケープは bitview、RSS と sitemap の XML のエスケープは `metadata.rs` が行う。 |
 | `src/views.rs` | `views/` の読み込みと構成の検査（ページのファイル、CSS の置き場所）、ページごとの CSS の組み立て。 |
 | `src/render.rs` | ビューへ渡す値の組み立て、bitview での描画、HTML圧縮。 |
 | `src/tags.rs` | タグの検証と記事のタグ分け。タグに関わる出力はすべてここを通す。 |
