@@ -14,15 +14,12 @@ use std::path::PathBuf;
 
 pub(crate) struct Renderer {
     views: Views,
-    /// Whether `genbit dev` renders the pages, which then reload on rebuilds and may show drafts.
-    preview: bool,
 }
 
 impl Renderer {
-    pub(crate) fn load(input: &SiteInput<'_>, preview: bool) -> Result<Self> {
+    pub(crate) fn load(input: &SiteInput<'_>) -> Result<Self> {
         Ok(Self {
             views: Views::load(input)?,
-            preview,
         })
     }
 
@@ -149,17 +146,12 @@ impl Renderer {
             ("style", Value::from(style.clone())),
         ];
         all.extend(variables);
-        let mut html = self
+        let html = self
             .views
             .program
             .render(page.name(), Value::record(all))
             .and_then(|html| html.to_document())
             .with_context(|| format!("cannot render {origin} with {}", page.file()))?;
-        // The only text added after serializing: a fixed script for `genbit dev`. Views cannot write
-        // scripts, and no input of the site reaches it.
-        if self.preview {
-            html.push_str(crate::dev::RELOAD_SCRIPT);
-        }
         let minified = minify_html::minify(
             html.as_bytes(),
             &minify_html::Cfg {

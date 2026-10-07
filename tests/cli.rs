@@ -1711,6 +1711,12 @@ fn dev_ignores_conditional_requests_and_disables_caching() -> Result<()> {
                         .contains("\r\ncache-control: no-store\r\n"),
                 "{path} with {header:?}: {response}"
             );
+            // Only HTML responses take the reload script.
+            assert_eq!(
+                response.contains("EventSource"),
+                path != "/asset.txt",
+                "{path}: {response}"
+            );
         }
     }
     Ok(())

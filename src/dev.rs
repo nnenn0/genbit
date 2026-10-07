@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use axum::{
     Router,
+    body::{Body, to_bytes},
     extract::{Request, State},
     http::{HeaderValue, header},
     middleware::{self, Next},
@@ -21,7 +22,7 @@ use tokio::time::Instant;
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 use tower_http::services::{ServeDir, ServeFile};
 
-pub(crate) const RELOAD_SCRIPT: &str =
+const RELOAD_SCRIPT: &str =
     "<script>new EventSource('/__genbit/reload').onmessage=()=>location.reload()</script>";
 const QUIET_PERIOD: Duration = Duration::from_millis(100);
 const MAX_WAIT: Duration = Duration::from_millis(500);
@@ -113,6 +114,7 @@ fn router(output: &Path, reload_tx: broadcast::Sender<()>) -> Router {
         .fallback_service(
             ServeDir::new(output).not_found_service(ServeFile::new(output.join("404.html"))),
         )
+        .layer(middleware::from_fn(add_reload_script))
         .layer(middleware::from_fn(disable_caching))
         .with_state(reload_tx)
 }
@@ -133,6 +135,30 @@ async fn disable_caching(mut request: Request, next: Next) -> Response {
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
+}
+
+/// The reload script belongs to the preview, not to the site: built pages stay the same as in
+/// `genbit build`, and the server adds it to every HTML response.
+async fn add_reload_script(mut request: Request, next: Next) -> Response {
+    // A range of a page could not take the script, and browsers do not ask for one.
+    request.headers_mut().remove(header::RANGE);
+    let response = next.run(request).await;
+    let is_html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"));
+    if !is_html {
+        return response;
+    }
+    let (mut parts, body) = response.into_parts();
+    let Ok(page) = to_bytes(body, usize::MAX).await else {
+        return Response::from_parts(parts, Body::empty());
+    };
+    let mut page = page.to_vec();
+    page.extend_from_slice(RELOAD_SCRIPT.as_bytes());
+    parts.headers.remove(header::CONTENT_LENGTH);
+    Response::from_parts(parts, Body::from(page))
 }
 
 async fn events(
