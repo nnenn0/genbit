@@ -554,18 +554,36 @@ fn builds_pages_and_assets_from_generated_site() -> Result<()> {
 }
 
 #[test]
-fn gitkeep_files_are_not_copied_or_treated_as_page_assets() -> Result<()> {
+fn tool_files_are_not_copied_or_treated_as_page_assets() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    fs::write(site.join("static/.gitkeep"), "")?;
-    fs::write(site.join("static/assets/img/.gitkeep"), "")?;
-    fs::write(site.join("content/entries/.gitkeep"), "")?;
-    fs::write(site.join("content/entries/hello-world/.gitkeep"), "")?;
+    for name in [".gitkeep", ".DS_Store"] {
+        for directory in [
+            "static",
+            "static/assets/img",
+            "content",
+            "content/entries",
+            "content/entries/hello-world",
+            "drafts/entries",
+        ] {
+            fs::write(site.join(directory).join(name), "written by a tool")?;
+        }
+    }
     build_ok(&site)?;
-    assert!(!site.join("dist/.gitkeep").exists());
-    assert!(!site.join("dist/assets/img/.gitkeep").exists());
-    assert!(!site.join("dist/entries/hello-world/.gitkeep").exists());
+    for name in [".gitkeep", ".DS_Store"] {
+        for directory in [
+            "dist",
+            "dist/assets/img",
+            "dist/entries",
+            "dist/entries/hello-world",
+        ] {
+            let path = site.join(directory).join(name);
+            assert!(!path.exists(), "{}", path.display());
+        }
+    }
     assert!(site.join("dist/assets/site/favicon.svg").is_file());
+    let (_server, address) = DevProcess::start_listening(&site)?;
+    assert!(http_get(&address, "/.DS_Store")?.starts_with("HTTP/1.1 404"));
     Ok(())
 }
 
