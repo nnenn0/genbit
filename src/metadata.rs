@@ -4,6 +4,7 @@ use crate::{
     output::Artifact,
     route::{self, FEED_URL, SITEMAP_URL, TAGS_INDEX_URL},
     tags::TagIndex,
+    text::escape_markup,
 };
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
@@ -117,7 +118,7 @@ fn sitemap_xml(urls: impl Iterator<Item = SitemapUrl>) -> Result<String> {
             "sitemap.xml supports at most 50,000 URLs including generated pages"
         );
         xml.push_str("  <url><loc>");
-        xml.push_str(&xml_escape(&loc));
+        xml.push_str(&escape_markup(&loc));
         xml.push_str("</loc>");
         if let Some(lastmod) = lastmod {
             xml.push_str("<lastmod>");
@@ -152,7 +153,7 @@ fn feed_xml(config: &Config, articles: &[Article]) -> String {
     push_element(&mut xml, "    ", "link", config.site_url.as_str());
     push_element(&mut xml, "    ", "description", config.description.as_str());
     xml.push_str("    <atom:link href=\"");
-    xml.push_str(&xml_escape(&config.site_url.join_root_path(FEED_URL)));
+    xml.push_str(&escape_markup(&config.site_url.join_root_path(FEED_URL)));
     xml.push_str("\" rel=\"self\" type=\"application/rss+xml\"/>\n");
     for article in articles.iter().take(FEED_ITEM_LIMIT) {
         let url = config.site_url.join_root_path(article.route.url());
@@ -171,7 +172,7 @@ fn feed_xml(config: &Config, articles: &[Article]) -> String {
         );
         // RSS item descriptions are HTML inside XML. These XML entities are also
         // valid HTML: escape the text once for HTML, then again when writing XML.
-        let description = xml_escape(article.description.as_str());
+        let description = escape_markup(article.description.as_str());
         push_element(&mut xml, "      ", "description", &description);
         xml.push_str("    </item>\n");
     }
@@ -184,25 +185,10 @@ fn push_element(xml: &mut String, indent: &str, name: &str, text: &str) {
     xml.push('<');
     xml.push_str(name);
     xml.push('>');
-    xml.push_str(&xml_escape(text));
+    xml.push_str(&escape_markup(text));
     xml.push_str("</");
     xml.push_str(name);
     xml.push_str(">\n");
-}
-
-fn xml_escape(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for character in text.chars() {
-        match character {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&apos;"),
-            _ => escaped.push(character),
-        }
-    }
-    escaped
 }
 
 pub(crate) fn robots(base: &SiteUrl) -> Artifact {

@@ -1,4 +1,7 @@
-use crate::images::{Image, Size};
+use crate::{
+    images::{Image, Size},
+    text::escape_markup,
+};
 use pulldown_cmark::{
     CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd, html,
 };
@@ -187,11 +190,11 @@ fn to_html_events<'a>(
 fn external_anchor(url: &str, title: &str) -> String {
     let mut anchor = format!(
         "<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\"",
-        escape_attribute(url)
+        escape_markup(url)
     );
     if !title.is_empty() {
         anchor.push_str(" title=\"");
-        anchor.push_str(&escape_attribute(title));
+        anchor.push_str(&escape_markup(title));
         anchor.push('"');
     }
     anchor.push('>');
@@ -209,7 +212,7 @@ fn code_block_label(kind: &CodeBlockKind<'_>) -> Option<String> {
     let language = info.split_whitespace().next()?;
     Some(format!(
         "<div class=\"code-block\"><span class=\"code-language\">{}</span>",
-        escape_attribute(language)
+        escape_markup(language)
     ))
 }
 
@@ -307,8 +310,8 @@ fn image_html<'a>(
     }
     let mut image = format!(
         "<img src=\"{}\" alt=\"{}\" loading=\"lazy\" decoding=\"async\"",
-        escape_attribute(src),
-        escape_attribute(&alt)
+        escape_markup(src),
+        escape_markup(&alt)
     );
     if let Some(Size { width, height }) = size {
         use std::fmt::Write as _;
@@ -317,26 +320,11 @@ fn image_html<'a>(
     }
     if !title.is_empty() {
         image.push_str(" title=\"");
-        image.push_str(&escape_attribute(title));
+        image.push_str(&escape_markup(title));
         image.push('"');
     }
     image.push('>');
     image
-}
-
-fn escape_attribute(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for character in text.chars() {
-        match character {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            other => escaped.push(other),
-        }
-    }
-    escaped
 }
 
 #[cfg(test)]

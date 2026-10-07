@@ -32,7 +32,7 @@
 | `src/content_hash.rs` | 画像URLに付けるSHA-256のハッシュと、実際に書き込んだバイト列からハッシュを計算する書き込み。 |
 | `src/route.rs` | 記事のURLと出力先の対応、サイト内の相対パスを `/` 区切りにする変換（名前の `\` は拒否）、配信URLの集合と予約領域検査。URL形式の変更時は生成結果と配信を確認する。 |
 | `src/config.rs` | `config.toml` の読み込み後の検証とサイトURL・OGP画像URLの正規化。公開URLの組み立てを担う。 |
-| `src/text.rs` | 設定と記事の `title`・`description` を、空でなく XML で表せない制御文字を含まない `PublishableText` にする。出力に書く文字列の検査はここを通す。 |
+| `src/text.rs` | 設定と記事の `title`・`description` を、空でなく XML で表せない制御文字を含まない `PublishableText` にする。出力に書く文字列の検査はここを通す。HTML・XML のエスケープ（`escape_markup`）もここに置く。 |
 | `src/render.rs` | テンプレート・CSSの読み込み、公開ビュー、Tera描画、HTML圧縮。記事の内部型を直接テンプレートへ渡さない。 |
 | `src/tags.rs` | タグの書式・重複・予約名の検証、記事のタグ分けと `untagged` の規則。タグ一覧・タグページ・sitemap・テンプレートの `tags` はここを通す。 |
 | `src/metadata.rs` | JSON-LD、sitemap、RSSフィード（`feed.xml`）、robotsの生成。 |
