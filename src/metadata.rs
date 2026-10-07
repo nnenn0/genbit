@@ -262,7 +262,7 @@ mod tests {
                         "+++\ntitle = 'Post {day} & <b>'\ncreated_at = 2026-01-{:02} 08:00\nupdated_at = 2026-02-01 00:00\ndescription = \"It's > 1\"\n+++\n",
                         day + 1
                     ),
-                    "content",
+                    content::ContentDir::Content,
                     Path::new(&format!("entries/post-{day}/index.md")),
                     &config.timezone,
                     |_, _| Ok(None),

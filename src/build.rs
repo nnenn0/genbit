@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    content::{self, Article},
+    content::{self, Article, ContentDir},
     content_hash::ContentHash,
     images::Images,
     input::{SiteInput, Tree},
@@ -32,16 +32,16 @@ pub(crate) enum Mode<'a> {
 
 /// Returns the number of HTML pages.
 pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
+    use ContentDir::{Content, Drafts};
     let input = SiteInput::new(root);
     let config_path = root.join("config.toml");
     let config = Config::parse(&input.read_text(Path::new("config.toml"))?)
         .with_context(|| format!("invalid configuration {}", config_path.display()))?;
-    let content =
-        content::classify_files(content_tree(input.tree(Path::new("content"))?), "content")?;
+    let content = content::classify_files(content_tree(input.tree(Content.path())?), Content)?;
     let drafts = match mode {
         Mode::Dev { .. } => input
-            .optional_tree(Path::new("drafts"))?
-            .map(|tree| content::classify_files(content_tree(tree), "drafts"))
+            .optional_tree(Drafts.path())?
+            .map(|tree| content::classify_files(content_tree(tree), Drafts))
             .transpose()?,
         Mode::Publish | Mode::DryRun => None,
     }
@@ -49,19 +49,24 @@ pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
     content::check_drafts(&content, &drafts)?;
     let copied = files(&input, "static")?
         .into_iter()
-        .map(|path| (path, "static"))
-        .chain(content.assets.into_iter().map(|path| (path, "content")))
-        .chain(drafts.assets.into_iter().map(|path| (path, "drafts")))
+        .map(|path| (path, Path::new("static")))
+        .chain(
+            content
+                .assets
+                .into_iter()
+                .map(|path| (path, Content.path())),
+        )
+        .chain(drafts.assets.into_iter().map(|path| (path, Drafts.path())))
         .map(|(path, directory)| CopiedFile {
-            source: Path::new(directory).join(&path),
+            source: directory.join(&path),
             output: path,
         })
         .collect::<Vec<_>>();
     let pages = content
         .pages
         .into_iter()
-        .map(|path| (path, "content"))
-        .chain(drafts.pages.into_iter().map(|path| (path, "drafts")))
+        .map(|path| (path, Content))
+        .chain(drafts.pages.into_iter().map(|path| (path, Drafts)))
         .collect();
     let images = Images::new(root, &copied)?;
     let (mut articles, image_hashes) = load_articles(&input, pages, &config.timezone, images)?;
@@ -152,17 +157,17 @@ fn without_gitkeep(files: Vec<PathBuf>) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Takes each page's `index.md` with the directory it is in, `content` or `drafts`.
+/// Takes each page's `index.md` with the directory it is in.
 fn load_articles(
     input: &SiteInput<'_>,
-    pages: Vec<(PathBuf, &str)>,
+    pages: Vec<(PathBuf, ContentDir)>,
     timezone: &TimeZone,
     mut images: Images<'_>,
 ) -> Result<(Vec<Article>, BTreeMap<PathBuf, ContentHash>)> {
     let articles = pages
         .into_iter()
         .map(|(path, directory)| {
-            let site_relative = Path::new(directory).join(&path);
+            let site_relative = directory.path().join(&path);
             content::parse(
                 &input.read_text(&site_relative)?,
                 directory,

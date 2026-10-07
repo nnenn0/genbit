@@ -10,6 +10,7 @@ use jiff::{Zoned, civil::DateTime, tz::TimeZone};
 use serde::{Deserialize, Deserializer, de::Error as _};
 use std::{
     collections::BTreeSet,
+    fmt,
     path::{Component, Path, PathBuf},
 };
 use toml::value::{Datetime, Value};
@@ -178,6 +179,28 @@ pub(crate) struct Article {
     pub(crate) draft: bool,
 }
 
+/// The directory that holds pages. Only `genbit dev` reads `drafts/`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContentDir {
+    Content,
+    Drafts,
+}
+
+impl ContentDir {
+    pub(crate) fn path(self) -> &'static Path {
+        Path::new(match self {
+            Self::Content => "content",
+            Self::Drafts => "drafts",
+        })
+    }
+}
+
+impl fmt::Display for ContentDir {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.path().display().fmt(formatter)
+    }
+}
+
 /// The files of `content/` or `drafts/`, as paths relative to that directory.
 #[derive(Default)]
 pub(crate) struct ContentFiles {
@@ -187,9 +210,9 @@ pub(crate) struct ContentFiles {
     pub(crate) assets: Vec<PathBuf>,
 }
 
-/// Classifies the files of `directory` (`content` or `drafts`) into pages and their assets. A page is
-/// a directory that holds `index.md`; it holds files only, so pages never nest.
-pub(crate) fn classify_files(tree: Tree, directory: &str) -> Result<ContentFiles> {
+/// Classifies the files of `directory` into pages and their assets. A page is a directory that
+/// holds `index.md`; it holds files only, so pages never nest.
+pub(crate) fn classify_files(tree: Tree, directory: ContentDir) -> Result<ContentFiles> {
     let Tree { files, directories } = tree;
     ensure!(
         !files.iter().any(|file| file == Path::new("index.md")),
@@ -283,10 +306,10 @@ fn is_page_source(file: &Path) -> bool {
     file.file_name().is_some_and(|name| name == "index.md")
 }
 
-/// Parses the `index.md` at `relative` under `directory`, `content` or `drafts`.
+/// Parses the `index.md` at `relative` under `directory`.
 pub(crate) fn parse(
     source: &str,
-    directory: &str,
+    directory: ContentDir,
     relative: &Path,
     timezone: &TimeZone,
     mut image: impl FnMut(&str, &str) -> Result<Option<Image>>,
@@ -311,8 +334,8 @@ pub(crate) fn parse(
         tags: meta.tags,
         html: rendered.html,
         links: rendered.links,
-        source: Path::new(directory).join(relative),
-        draft: directory == "drafts",
+        source: directory.path().join(relative),
+        draft: directory == ContentDir::Drafts,
     })
 }
 
@@ -360,7 +383,9 @@ mod tests {
     use super::*;
 
     fn parse(source: &str, relative: &Path, timezone: &TimeZone) -> Result<Article> {
-        super::parse(source, "content", relative, timezone, |_, _| Ok(None))
+        super::parse(source, ContentDir::Content, relative, timezone, |_, _| {
+            Ok(None)
+        })
     }
 
     /// Lists `files` with every directory that holds them, as `SiteInput::tree` does.
@@ -386,7 +411,7 @@ mod tests {
                 "entries/a/figure.png",
                 "entries/b/index.md",
             ]),
-            "content",
+            ContentDir::Content,
         )?;
         assert_eq!(
             sorted.pages,
@@ -421,7 +446,7 @@ mod tests {
                 "content/entries/x.png is not in a page directory",
             ),
         ] {
-            let error = classify_files(tree(&files), "content")
+            let error = classify_files(tree(&files), ContentDir::Content)
                 .err()
                 .with_context(|| format!("accepted files for {expected}"))?;
             assert!(error.to_string().contains(expected), "{error:#}");
@@ -433,7 +458,7 @@ mod tests {
     fn rejects_empty_subdirectories_of_a_page() -> Result<()> {
         let mut listed = tree(&["entries/a/index.md"]);
         listed.directories.push(PathBuf::from("entries/a/images"));
-        let error = classify_files(listed, "content")
+        let error = classify_files(listed, ContentDir::Content)
             .err()
             .context("accepted an empty subdirectory of a page")?;
         assert!(
@@ -444,16 +469,22 @@ mod tests {
         );
         let mut listed = tree(&["entries/a/index.md"]);
         listed.directories.push(PathBuf::from("entries/b"));
-        classify_files(listed, "content")?;
+        classify_files(listed, ContentDir::Content)?;
         Ok(())
     }
 
     #[test]
     fn drafts_cannot_share_or_nest_with_published_pages() -> Result<()> {
         let sorted = |files: &[&str], directory| classify_files(tree(files), directory);
-        let content = sorted(&["entries/a/index.md"], "content")?;
-        check_drafts(&content, &sorted(&["entries/b/index.md"], "drafts")?)?;
-        check_drafts(&content, &sorted(&["entries/ab/index.md"], "drafts")?)?;
+        let content = sorted(&["entries/a/index.md"], ContentDir::Content)?;
+        check_drafts(
+            &content,
+            &sorted(&["entries/b/index.md"], ContentDir::Drafts)?,
+        )?;
+        check_drafts(
+            &content,
+            &sorted(&["entries/ab/index.md"], ContentDir::Drafts)?,
+        )?;
         for (draft, expected) in [
             (
                 "entries/a/index.md",
@@ -468,12 +499,12 @@ mod tests {
                 "the draft drafts/entries/ and the page content/entries/a/ would nest",
             ),
         ] {
-            let error = check_drafts(&content, &sorted(&[draft], "drafts")?)
+            let error = check_drafts(&content, &sorted(&[draft], ContentDir::Drafts)?)
                 .err()
                 .with_context(|| format!("accepted {draft}"))?;
             assert!(error.to_string().contains(expected), "{error:#}");
         }
-        let error = sorted(&["entries/x.png"], "drafts")
+        let error = sorted(&["entries/x.png"], ContentDir::Drafts)
             .err()
             .context("accepted a draft file outside a page")?;
         assert!(
