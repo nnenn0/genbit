@@ -10,10 +10,10 @@ pub(crate) struct Rendered {
     pub(crate) links: Vec<String>,
 }
 
-/// Raw HTML written in the Markdown source, which articles may not contain.
+/// Raw HTML written in the Markdown text, which articles may not contain.
 #[derive(Debug)]
 pub(crate) struct RawHtml {
-    /// Byte offset of the first raw HTML in the source passed to `parse`.
+    /// Byte offset of the first raw HTML in the text passed to `parse`.
     pub(crate) offset: usize,
 }
 
@@ -21,9 +21,9 @@ pub(crate) struct Parsed<'a> {
     events: Vec<Event<'a>>,
 }
 
-pub(crate) fn parse(source: &str) -> Result<Parsed<'_>, RawHtml> {
+pub(crate) fn parse(text: &str) -> Result<Parsed<'_>, RawHtml> {
     // Checked before any rewriting, because the later steps emit HTML events of their own.
-    let parsed = Parser::new_ext(source, Options::ENABLE_TABLES)
+    let parsed = Parser::new_ext(text, Options::ENABLE_TABLES)
         .into_offset_iter()
         .map(|(event, range)| match event {
             Event::Html(_) | Event::InlineHtml(_) => Err(RawHtml {
@@ -140,14 +140,14 @@ fn to_html_events<'a>(
                 dest_url, title, ..
             }) => {
                 let image = local_image(&dest_url)?;
-                let source = match image {
+                let src = match image {
                     Some(image) => versioned_url(&dest_url, &image.hash.url_version())?,
                     None => dest_url.to_string(),
                 };
                 converted.push(Event::Html(
                     image_html(
                         &mut events,
-                        &source,
+                        &src,
                         &title,
                         image.and_then(|image| image.size),
                     )
@@ -285,7 +285,7 @@ fn versioned_url(url: &str, version: &str) -> anyhow::Result<String> {
 
 fn image_html<'a>(
     events: &mut impl Iterator<Item = Event<'a>>,
-    source: &str,
+    src: &str,
     title: &str,
     size: Option<Size>,
 ) -> String {
@@ -307,7 +307,7 @@ fn image_html<'a>(
     }
     let mut image = format!(
         "<img src=\"{}\" alt=\"{}\" loading=\"lazy\" decoding=\"async\"",
-        escape_attribute(source),
+        escape_attribute(src),
         escape_attribute(&alt)
     );
     if let Some(Size { width, height }) = size {
@@ -324,9 +324,9 @@ fn image_html<'a>(
     image
 }
 
-fn escape_attribute(source: &str) -> String {
-    let mut escaped = String::with_capacity(source.len());
-    for character in source.chars() {
+fn escape_attribute(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
         match character {
             '&' => escaped.push_str("&amp;"),
             '<' => escaped.push_str("&lt;"),

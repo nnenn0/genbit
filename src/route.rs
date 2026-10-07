@@ -92,12 +92,12 @@ pub(crate) fn validate_served_urls<'a>(
 ) -> Result<BTreeSet<String>> {
     let mut claimed = BTreeMap::new();
     let mut urls = BTreeSet::new();
-    for (path, source) in files {
+    for (path, origin) in files {
         for url in served_urls(path) {
             let key = url.to_ascii_lowercase();
-            ensure!(!is_reserved_url(&url), "reserved URL {url} from {source}");
-            if let Some(previous) = claimed.insert(key, source) {
-                bail!("URL collision at {url}: {previous} and {source}");
+            ensure!(!is_reserved_url(&url), "reserved URL {url} from {origin}");
+            if let Some(previous) = claimed.insert(key, origin) {
+                bail!("URL collision at {url}: {previous} and {origin}");
             }
             urls.insert(url);
         }

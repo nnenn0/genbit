@@ -247,7 +247,7 @@ impl Renderer {
         template: &str,
         view: impl Serialize,
         output: PathBuf,
-        source: &str,
+        origin: &str,
     ) -> Result<Artifact> {
         let css = self
             .styles
@@ -264,7 +264,7 @@ impl Renderer {
         let mut html = self
             .tera
             .render(template, &context)
-            .with_context(|| format!("cannot render {source} with template {template}"))?;
+            .with_context(|| format!("cannot render {origin} with template {template}"))?;
         if self.preview {
             html.push_str(crate::dev::RELOAD_SCRIPT);
         }
@@ -276,7 +276,7 @@ impl Renderer {
                 ..minify_html::Cfg::default()
             },
         );
-        Ok(Artifact::generated(output, minified, source))
+        Ok(Artifact::generated(output, minified, origin))
     }
 }
 
