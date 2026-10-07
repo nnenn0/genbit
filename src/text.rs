@@ -1,10 +1,8 @@
 use anyhow::{Result, bail, ensure};
-use serde::Serialize;
 
 /// Text written into HTML, XML, and JSON-LD: not blank, and free of characters that XML cannot
 /// represent even when escaped and that HTML treats as parse errors.
-#[derive(Debug, Serialize)]
-#[serde(transparent)]
+#[derive(Debug)]
 pub(crate) struct PublishableText(String);
 
 impl PublishableText {

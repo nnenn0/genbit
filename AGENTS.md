@@ -8,7 +8,7 @@
 
 ## Project Overview
 
-- genbit は Rust 製の静的サイトジェネレーター CLI。Markdown 記事と Tera テンプレートから HTML を生成する。単一のバイナリで、DB・API サーバー・フロントエンドのビルドシステムはない。
+- genbit は Rust 製の静的サイトジェネレーター CLI。Markdown 記事と bitview テンプレートから HTML を生成する。bitview は同じ作者の別リポジトリ（`https://github.com/nnenn0/bitview`）で、Git 依存として `rev` で固定する。単一のバイナリで、DB・API サーバー・フロントエンドのビルドシステムはない。
 - `new` がサイトの初期ファイルを作り、`build` が `dist/` を生成し、`dev` が再ビルド付きのローカル配信を行う。生成サイトはこのリポジトリとは別ディレクトリで運用する。
 - ツールチェーンは `rust-toolchain.toml` で固定する。`Dockerfile` のイメージと `Cargo.toml` の `rust-version` は同じ版にそろえ、CI が一致を検査する。依存は `Cargo.toml` と `Cargo.lock` を見る。
 
@@ -22,7 +22,8 @@
 | `src/images.rs`、`src/content_hash.rs` | 本文の画像の寸法・表示方向と、画像URLに付ける内容のハッシュ。 |
 | `src/route.rs` | 記事URLと出力先の対応、相対パスの解決、配信URLの集合と予約領域の検査。 |
 | `src/config.rs`、`src/text.rs` | `config.toml` の検証と公開URLの組み立て。出力に書く `title`・`description` の検査とエスケープ（`escape_markup`）は `text.rs` を通す。 |
-| `src/render.rs` | テンプレート・CSSの読み込み、公開ビュー、Tera描画、HTML圧縮。 |
+| `src/views.rs` | `views/` の読み込みと構成の検査（ページのファイル、CSS の置き場所）、ページごとの CSS の組み立て。 |
+| `src/render.rs` | ビューへ渡す値の組み立て、bitview での描画、HTML圧縮。 |
 | `src/tags.rs` | タグの検証と記事のタグ分け。タグに関わる出力はすべてここを通す。 |
 | `src/metadata.rs` | JSON-LD、sitemap、RSSフィード、robots。 |
 | `src/input.rs` | サイト入力のパス・ファイル種別の検査、読み込み、静的ファイルのコピー。 |
@@ -39,7 +40,8 @@
 
 - 記事本文の生 HTML は、パーサー直後の位置情報付きイベントで検査する。本文のリンクと画像のすべてに検証と属性付与を同じ規則で適用するための禁止なので、例外を設けない。
 - 本文は pulldown-cmark のイベントから `bitview::Html` の要素を組み立てる。HTML を文字列で組み立てず、エスケープ・URL のスキーム・属性の検査は bitview に任せる。
-- テンプレートへは `render.rs` の公開ビューだけを渡し、記事の内部型を直接渡さない。テンプレート変数は利用者向けの仕様（`docs/templates.md`）。
+- テンプレートへは `render.rs` が組み立てた `bitview::Value` だけを渡し、表示用に整形した値にする。テンプレート変数は利用者向けの仕様（`docs/views.md`）。
+- HTML は描画の最後に一度だけ文字列にする。例外は `dev` のリロードスクリプトだけで、固定の文字列をその後に足す。
 - リンクの検証は、`markdown.rs` が出力した参照先を、`OutputPlan` が確定した配信URLの集合と照合する。`build --dry-run` も同じ経路を通り、公開だけを行わない。
 - 画像URLのハッシュは描画時に計算し、コピー時に書き込んだバイト列のハッシュと照合する。食い違えば公開前に失敗する。
 - `dist/` は `.genbit-output` マーカーを持つ既存ディレクトリだけを入れ替える。ステージングで全出力を作ってから入れ替え、失敗時は旧出力を残す。
@@ -62,7 +64,6 @@ Docker から利用者サイトを動かす例は `docs/development.md` を参�
 
 - モジュールは `main.rs` から内部で宣言し、内部共有は必要な範囲で `pub(crate)` にする。
 - 失敗し得る処理は `anyhow::Result` と `Context` / `with_context`、`ensure!` / `bail!` を使い、入力・出力パスをエラーに含める。外部入力は型へのデシリアライズと明示検証を行う。
-- 本文の HTML はテンプレートで `safe` として挿入する。genbit が生成した HTML だけが入る前提なので、`safe` の扱いを変える際は信頼する入力の範囲を確認する。
 - ユニットテストは各 `src/*.rs` の `#[cfg(test)]`、CLI の結合テストは `tests/cli.rs`。テスト名は挙動を説明する snake_case。`tests/cli.rs` ではビルドの成否を `build_ok` / `build_err`、記事を `article_source` で組み立てる。
 
 ## CI とリリース

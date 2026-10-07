@@ -151,7 +151,7 @@ fn relevant_change(root: &Path, event: &notify::Event) -> bool {
             };
             relative == Path::new("config.toml")
                 || relative.components().next().is_some_and(|first| {
-                    ["content", "drafts", "templates", "styles", "static"]
+                    ["content", "drafts", "views", "static"]
                         .iter()
                         .any(|directory| first.as_os_str() == *directory)
                 })
@@ -222,8 +222,8 @@ mod tests {
             "content/post.md",
             "content",
             "drafts/a/index.md",
-            "templates/base.html",
-            "styles/main.css",
+            "views/components/layout.bitview",
+            "views/components/document.css",
             "static/a.png",
             "config.toml",
         ] {

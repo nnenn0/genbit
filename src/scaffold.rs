@@ -7,46 +7,77 @@ use std::{
 
 const FILES: &[(&str, &str)] = &[
     (
-        "templates/base.html",
-        include_str!("../scaffold/templates/base.html"),
+        "views/pages/root.bitview",
+        include_str!("../scaffold/views/pages/root.bitview"),
     ),
     (
-        "templates/page.html",
-        include_str!("../scaffold/templates/page.html"),
+        "views/pages/root.css",
+        include_str!("../scaffold/views/pages/root.css"),
     ),
     (
-        "templates/root.html",
-        include_str!("../scaffold/templates/root.html"),
+        "views/pages/page.bitview",
+        include_str!("../scaffold/views/pages/page.bitview"),
     ),
     (
-        "templates/tags.html",
-        include_str!("../scaffold/templates/tags.html"),
+        "views/pages/page.css",
+        include_str!("../scaffold/views/pages/page.css"),
     ),
     (
-        "templates/tag.html",
-        include_str!("../scaffold/templates/tag.html"),
+        "views/pages/tags.bitview",
+        include_str!("../scaffold/views/pages/tags.bitview"),
     ),
     (
-        "templates/404.html",
-        include_str!("../scaffold/templates/404.html"),
+        "views/pages/tags.css",
+        include_str!("../scaffold/views/pages/tags.css"),
     ),
     (
-        "templates/entry-list.html",
-        include_str!("../scaffold/templates/entry-list.html"),
+        "views/pages/tag.bitview",
+        include_str!("../scaffold/views/pages/tag.bitview"),
     ),
     (
-        "styles/common.css",
-        include_str!("../scaffold/styles/common.css"),
+        "views/pages/tag.css",
+        include_str!("../scaffold/views/pages/tag.css"),
     ),
     (
-        "styles/page.css",
-        include_str!("../scaffold/styles/page.css"),
+        "views/pages/not-found.bitview",
+        include_str!("../scaffold/views/pages/not-found.bitview"),
     ),
     (
-        "styles/root.css",
-        include_str!("../scaffold/styles/root.css"),
+        "views/components/document.bitview",
+        include_str!("../scaffold/views/components/document.bitview"),
     ),
-    ("styles/tag.css", include_str!("../scaffold/styles/tag.css")),
+    (
+        "views/components/document.css",
+        include_str!("../scaffold/views/components/document.css"),
+    ),
+    (
+        "views/components/layout.bitview",
+        include_str!("../scaffold/views/components/layout.bitview"),
+    ),
+    (
+        "views/components/home-link.bitview",
+        include_str!("../scaffold/views/components/home-link.bitview"),
+    ),
+    (
+        "views/components/entry-list.bitview",
+        include_str!("../scaffold/views/components/entry-list.bitview"),
+    ),
+    (
+        "views/components/entry-list.css",
+        include_str!("../scaffold/views/components/entry-list.css"),
+    ),
+    (
+        "views/components/draft-badge.bitview",
+        include_str!("../scaffold/views/components/draft-badge.bitview"),
+    ),
+    (
+        "views/components/draft-badge.css",
+        include_str!("../scaffold/views/components/draft-badge.css"),
+    ),
+    (
+        "views/components/timestamp.bitview",
+        include_str!("../scaffold/views/components/timestamp.bitview"),
+    ),
     (
         "content/entries/hello-world/index.md",
         include_str!("../scaffold/content/entries/hello-world/index.md"),
@@ -91,8 +122,9 @@ fn validate_name(name: &str) -> Result<()> {
 
 fn write_site(root: &Path, name: &str) -> Result<()> {
     for directory in [
-        "templates",
-        "styles",
+        "views",
+        "views/pages",
+        "views/components",
         "content",
         "content/entries",
         "content/entries/hello-world",

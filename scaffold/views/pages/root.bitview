@@ -1,0 +1,11 @@
+fn root(ctx) =>
+  layout(ctx, ctx.site.title, "website",
+    h1(ctx.site.title),
+    [
+      entry-list(ctx.entries),
+      p({class: "home-links"},
+        a({href: "/tags/"}, "tags"),
+        a({href: "/feed.xml"}, "RSS")
+      ),
+    ]
+  )

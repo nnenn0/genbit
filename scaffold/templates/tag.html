@@ -1,9 +1,0 @@
-{% extends "base.html" %}
-{% block title %}{{ tag }} | {{ site.title }}{% endblock title %}
-{% block og_title %}{{ tag }} | {{ site.title }}{% endblock og_title %}
-{% block og_type %}website{% endblock og_type %}
-{% block main %}
-<h1>{{ tag }}</h1>
-{% include "entry-list.html" %}
-<p class="tags-link"><a href="/tags/">tags</a></p>
-{% endblock main %}

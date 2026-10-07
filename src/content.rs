@@ -121,7 +121,7 @@ fn zoned(value: Option<DateTime>, field: &str, timezone: &TimeZone) -> Result<Zo
         .map_err(Into::into)
 }
 
-/// Formats a date-time for JSON-LD, sitemaps, and templates, e.g. `2026-09-23T09:30:00+09:00`.
+/// Formats a date-time for JSON-LD, sitemaps, and views, e.g. `2026-09-23T09:30:00+09:00`.
 pub(crate) fn rfc3339(value: &Zoned) -> String {
     value.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string()
 }
@@ -178,7 +178,7 @@ pub(crate) fn classify_files(tree: Tree, directory: ContentDir) -> Result<Conten
     let Tree { files, directories } = tree;
     ensure!(
         !files.iter().any(|file| file == Path::new("index.md")),
-        "{directory}/index.md is not supported; the home page is generated from config.toml and templates/root.html"
+        "{directory}/index.md is not supported; the home page is generated from config.toml and views/pages/root.bitview"
     );
     let page_directories = files
         .iter()

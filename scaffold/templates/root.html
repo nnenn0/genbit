@@ -1,9 +1,0 @@
-{% extends "base.html" %}
-{% block title %}{{ site.title }}{% endblock title %}
-{% block og_title %}{{ site.title }}{% endblock og_title %}
-{% block og_type %}website{% endblock og_type %}
-{% block header %}<h1>{{ site.title }}</h1>{% endblock header %}
-{% block main %}
-{% include "entry-list.html" %}
-<p class="home-links"><a href="/tags/">tags</a><a href="/feed.xml">RSS</a></p>
-{% endblock main %}

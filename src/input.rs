@@ -37,14 +37,6 @@ impl<'a> SiteInput<'a> {
         fs::File::open(&path).with_context(|| format!("cannot read {}", path.display()))
     }
 
-    pub(crate) fn read_optional_text(&self, relative: &Path) -> Result<Option<String>> {
-        self.checked_file(relative)?
-            .map(|path| {
-                fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))
-            })
-            .transpose()
-    }
-
     pub(crate) fn copy_file(&self, relative: &Path, target: &Path) -> Result<()> {
         let (path, mut source, mut output) = self.open_copy(relative, target)?;
         io::copy(&mut source, &mut output).with_context(|| copy_error(&path, target))?;
@@ -68,11 +60,6 @@ impl<'a> SiteInput<'a> {
         let output = fs::File::create(target)
             .with_context(|| format!("cannot write {}", target.display()))?;
         Ok((path, source, output))
-    }
-
-    /// Lists the regular files under `relative`, as paths relative to it.
-    pub(crate) fn files(&self, relative: &Path) -> Result<Vec<PathBuf>> {
-        Ok(self.tree(relative)?.files)
     }
 
     /// Lists the regular files and the directories under `relative`.

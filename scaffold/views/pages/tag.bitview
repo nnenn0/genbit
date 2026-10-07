@@ -1,0 +1,9 @@
+fn tag(ctx) =>
+  layout(ctx, concat(ctx.tag, " | ", ctx.site.title), "website",
+    home-link(ctx),
+    [
+      h1(ctx.tag),
+      entry-list(ctx.entries),
+      p({class: "tags-link"}, a({href: "/tags/"}, "tags")),
+    ]
+  )

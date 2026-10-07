@@ -366,17 +366,24 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     for file in [
         "config.toml",
         "content/entries/hello-world/index.md",
-        "templates/base.html",
-        "templates/page.html",
-        "templates/root.html",
-        "templates/tags.html",
-        "templates/tag.html",
-        "templates/404.html",
-        "templates/entry-list.html",
-        "styles/common.css",
-        "styles/page.css",
-        "styles/root.css",
-        "styles/tag.css",
+        "views/pages/root.bitview",
+        "views/pages/root.css",
+        "views/pages/page.bitview",
+        "views/pages/page.css",
+        "views/pages/tags.bitview",
+        "views/pages/tags.css",
+        "views/pages/tag.bitview",
+        "views/pages/tag.css",
+        "views/pages/not-found.bitview",
+        "views/components/document.bitview",
+        "views/components/document.css",
+        "views/components/layout.bitview",
+        "views/components/home-link.bitview",
+        "views/components/entry-list.bitview",
+        "views/components/entry-list.css",
+        "views/components/draft-badge.bitview",
+        "views/components/draft-badge.css",
+        "views/components/timestamp.bitview",
         "static/assets/site/favicon.svg",
         "static/assets/site/favicon.png",
         "static/assets/site/ogp.png",
@@ -684,9 +691,14 @@ fn missing_404_template_fails_without_replacing_output() -> Result<()> {
     let site = workspace.new_site("blog")?;
     build_ok(&site)?;
     let previous = fs::read(site.join("dist/404.html"))?;
-    fs::remove_file(site.join("templates/404.html"))?;
+    fs::remove_file(site.join("views/pages/not-found.bitview"))?;
     let stderr = build_err(&site)?;
-    assert!(stderr.contains("404.html"), "{stderr}");
+    assert!(
+        stderr.contains(
+            "views/pages/not-found.bitview must define fn not-found(ctx), which renders 404.html"
+        ),
+        "{stderr}"
+    );
     assert_eq!(fs::read(site.join("dist/404.html"))?, previous);
     Ok(())
 }
@@ -1274,8 +1286,12 @@ fn homepage_orders_same_day_articles_by_creation_time_but_shows_date() -> Result
 fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    fs::write(site.join("styles/common.css"), "h1 { color: red; }\n")?;
-    fs::remove_file(site.join("styles/page.css"))?;
+    fs::write(
+        site.join("views/components/document.css"),
+        "h1 { color: red; }\n",
+    )?;
+    fs::remove_file(site.join("views/pages/page.css"))?;
+    fs::remove_file(site.join("views/components/draft-badge.css"))?;
     write_file(
         site.join("content/entries/hello-world/index.md"),
         article_source(
@@ -1457,31 +1473,125 @@ fn broken_images_fail_the_build_without_touching_dist() -> Result<()> {
 }
 
 #[test]
-fn inlines_common_and_template_specific_css() -> Result<()> {
+fn inlines_the_css_of_the_functions_each_page_uses() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    fs::write(
-        site.join("styles/common.css"),
-        "body { --common-marker: yes; }",
-    )?;
-    fs::write(
-        site.join("styles/root.css"),
-        ":root { --root-marker: yes; }",
-    )?;
-    fs::write(
-        site.join("styles/page.css"),
-        ":root { --page-marker: yes; }",
-    )?;
+    for (css, marker) in [
+        ("components/document.css", "--document-marker"),
+        ("components/entry-list.css", "--list-marker"),
+        ("pages/root.css", "--root-marker"),
+        ("pages/page.css", "--page-marker"),
+    ] {
+        fs::write(
+            site.join("views").join(css),
+            format!(":root {{ {marker}: yes; }}"),
+        )?;
+    }
     build_ok(&site)?;
 
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     let article = fs::read_to_string(site.join("dist/entries/hello-world/index.html"))?;
-    assert!(home.contains("--common-marker"), "{home}");
-    assert!(home.contains("--root-marker"), "{home}");
+    let tag = fs::read_to_string(site.join("dist/tags/untagged/index.html"))?;
+    let position = |html: &str, marker: &str| html.find(marker).unwrap_or(usize::MAX);
+    assert!(
+        position(&home, "--document-marker") < position(&home, "--list-marker")
+            && position(&home, "--list-marker") < position(&home, "--root-marker")
+            && home.contains("--root-marker"),
+        "{home}"
+    );
     assert!(!home.contains("--page-marker"), "{home}");
-    assert!(article.contains("--common-marker"), "{article}");
-    assert!(article.contains("--page-marker"), "{article}");
+    assert!(
+        position(&article, "--document-marker") < position(&article, "--page-marker")
+            && article.contains("--page-marker"),
+        "{article}"
+    );
+    assert!(!article.contains("--list-marker"), "{article}");
     assert!(!article.contains("--root-marker"), "{article}");
+    assert!(tag.contains("--list-marker"), "{tag}");
+    assert!(!tag.contains("--root-marker"), "{tag}");
+    Ok(())
+}
+
+#[test]
+fn views_hold_pages_components_and_their_css() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    for (path, expected) in [
+        (
+            "views/notes.txt",
+            "views/notes.txt is outside views/pages/ and views/components/",
+        ),
+        (
+            "views/parts/list.bitview",
+            "views/parts is not a views directory; views/ holds pages/ and components/",
+        ),
+        (
+            "views/components/parts/list.bitview",
+            "views/components/parts is not a views directory",
+        ),
+        (
+            "views/components/notes.txt",
+            "views/components/notes.txt is neither a .bitview nor a .css file",
+        ),
+        (
+            "views/pages/about.bitview",
+            "views/pages/about.bitview is not a page; views/pages/ holds views/pages/root.bitview",
+        ),
+        (
+            "views/components/entry_list.css",
+            "views/components/entry_list.css does not belong to a function defined in views/components/",
+        ),
+        (
+            "views/pages/document.css",
+            "views/pages/document.css does not belong to a function defined in views/pages/",
+        ),
+    ] {
+        write_file(site.join(path), "")?;
+        let stderr = build_err(&site)?;
+        assert!(stderr.contains(expected), "{path}: {stderr}");
+        assert_eq!(snapshot(&site.join("dist"))?, before);
+        fs::remove_file(site.join(path))?;
+        if let Some(parent) = Path::new(path).parent()
+            && parent.ends_with("parts")
+        {
+            fs::remove_dir(site.join(parent))?;
+        }
+    }
+
+    let page = site.join("views/pages/root.bitview");
+    let moved = site.join("views/components/root.bitview");
+    fs::rename(&page, &moved)?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains(
+            "views/pages/root.bitview must define fn root(ctx), which renders the home page"
+        ),
+        "{stderr}"
+    );
+    fs::rename(&moved, &page)?;
+
+    for hidden in [
+        "views/.DS_Store",
+        "views/pages/.DS_Store",
+        "views/components/.cache/notes.txt",
+    ] {
+        write_file(site.join(hidden), "written by a tool")?;
+    }
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    fs::write(
+        site.join("views/pages/page.css"),
+        "a { color: red; } </style>",
+    )?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("invalid CSS in views/pages/page.css"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("must not contain </style"), "{stderr}");
+    assert_eq!(snapshot(&site.join("dist"))?, before);
     Ok(())
 }
 
@@ -1490,11 +1600,18 @@ fn article_template_receives_documented_fields() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     fs::write(
-        site.join("templates/page.html"),
-        "<html><head><style>{{ css | safe }}</style><script type=\"application/ld+json\">{{ json_ld | safe }}</script></head><body><p>{{ site.title }}</p><p>{{ canonical_url }}</p><p>{{ article.title }}|{{ article.description }}|{{ article.url }}|{{ article.created_at.datetime }}|{{ article.created_at.date }}|{{ article.created_at.time }}|{{ article.updated_at.datetime }}</p>{{ content | safe }}</body></html>",
+        site.join("views/pages/page.bitview"),
+        concat!(
+            "fn page(ctx) => html(head(ctx.style, ctx.json-ld), body(\n",
+            "  p(ctx.site.title), p(ctx.canonical-url),\n",
+            "  p(concat(ctx.article.title, \"|\", ctx.article.description, \"|\", ctx.article.url, \"|\",\n",
+            "    ctx.article.created-at.datetime, \"|\", ctx.article.created-at.date, \"|\",\n",
+            "    ctx.article.updated-at.datetime)),\n",
+            "  ctx.content))\n",
+        ),
     )?;
     fs::write(
-        site.join("styles/page.css"),
+        site.join("views/pages/page.css"),
         "body { --custom-marker: yes; }",
     )?;
     write_file(
@@ -1514,7 +1631,7 @@ fn article_template_receives_documented_fields() -> Result<()> {
     assert!(html.contains("--custom-marker"), "{html}");
     assert!(html.contains("http://127.0.0.1:3000/custom/"), "{html}");
     assert!(
-        html.contains("Custom Post|Custom summary|/custom/|2026-09-17T10:30:00+09:00|2026-09-17|10:30|2026-09-22T00:00:00+09:00"),
+        html.contains("Custom Post|Custom summary|/custom/|2026-09-17T10:30:00+09:00|2026-09-17|2026-09-22T00:00:00+09:00"),
         "{html}"
     );
     assert!(html.contains("<strong>Custom body</strong>"), "{html}");
@@ -1692,8 +1809,7 @@ fn build_and_dry_run_ignore_drafts_even_when_they_are_broken() -> Result<()> {
     assert!(!site.join("dist/entries/wip").exists());
     let home = fs::read_to_string(site.join("dist/index.html"))?;
     assert!(!home.contains("/entries/wip/"), "{home}");
-    // The badge style is only for previews, so published pages carry none of it.
-    assert!(!home.contains("draft-badge"), "{home}");
+    assert!(!home.contains("class=draft-badge"), "{home}");
 
     write_file(
         site.join("content/entries/hello-world/index.md"),
@@ -1759,11 +1875,19 @@ fn dev_shows_drafts_with_marks_and_leaves_dist_unchanged() -> Result<()> {
 fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    write_file(site.join("templates/page.html"), "{{ missing }}")?;
+    write_file(
+        site.join("views/pages/page.bitview"),
+        "fn page(ctx) => html(body(p(ctx.missing)))\n",
+    )?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr
-            .contains("cannot render content/entries/hello-world/index.md with template page.html"),
+        stderr.contains(
+            "cannot render content/entries/hello-world/index.md with views/pages/page.bitview"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("views/pages/page.bitview:1:33: unknown field \"missing\""),
         "{stderr}"
     );
 
@@ -1777,7 +1901,7 @@ fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
         .context("dev accepted a draft that cannot render")?;
     assert!(
         format!("{error:#}")
-            .contains("cannot render drafts/entries/wip/index.md with template page.html"),
+            .contains("cannot render drafts/entries/wip/index.md with views/pages/page.bitview"),
         "{error:#}"
     );
     Ok(())
@@ -2155,9 +2279,9 @@ fn rejects_symlinks_in_site_inputs_without_touching_dist() -> Result<()> {
     let site = workspace.new_site("blog")?;
     build_ok(&site)?;
     let before = fs::read_to_string(site.join("dist/index.html"))?;
-    let original_css = fs::read_to_string(site.join("styles/common.css"))?;
+    let original_css = fs::read_to_string(site.join("views/components/document.css"))?;
 
-    for relative in ["config.toml", "content", "templates", "styles", "static"] {
+    for relative in ["config.toml", "content", "views", "static"] {
         let input = site.join(relative);
         let outside = workspace.0.path().join(format!("outside-{relative}"));
         fs::rename(&input, &outside)?;
@@ -2175,7 +2299,7 @@ fn rejects_symlinks_in_site_inputs_without_touching_dist() -> Result<()> {
         fs::rename(&outside, &input)?;
     }
     assert_eq!(
-        fs::read_to_string(site.join("styles/common.css"))?,
+        fs::read_to_string(site.join("views/components/document.css"))?,
         original_css
     );
     Ok(())
@@ -2183,16 +2307,15 @@ fn rejects_symlinks_in_site_inputs_without_touching_dist() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
-fn template_css_rejects_file_and_directory_symlinks() -> Result<()> {
+fn views_reject_file_and_directory_symlinks() -> Result<()> {
     use std::os::unix::fs::symlink;
 
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
-    fs::write(site.join("styles/page.css"), "body { --page-css: yes; }")?;
     build_ok(&site)?;
     let before = snapshot(&site.join("dist"))?;
 
-    let css = site.join("styles/page.css");
+    let css = site.join("views/pages/page.css");
     let outside_css = workspace.0.path().join("outside-page.css");
     fs::rename(&css, &outside_css)?;
     symlink(&outside_css, &css)?;
@@ -2203,18 +2326,14 @@ fn template_css_rejects_file_and_directory_symlinks() -> Result<()> {
     fs::remove_file(&css)?;
     fs::rename(&outside_css, &css)?;
 
-    let styles = site.join("styles");
-    let outside_dir = workspace.0.path().join("outside-styles");
-    fs::rename(&styles, &outside_dir)?;
-    symlink(&outside_dir, &styles)?;
+    let components = site.join("views/components");
+    let outside_dir = workspace.0.path().join("outside-components");
+    fs::rename(&components, &outside_dir)?;
+    symlink(&outside_dir, &components)?;
     let stderr = build_err(&site)?;
     assert!(stderr.contains("symlinks are not supported"), "{stderr}");
-    assert!(stderr.contains("styles"), "{stderr}");
+    assert!(stderr.contains("components"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
-    assert_eq!(
-        fs::read_to_string(outside_dir.join("page.css"))?,
-        "body { --page-css: yes; }"
-    );
     Ok(())
 }
 
@@ -2350,16 +2469,16 @@ fn static_backslash_names_fail_without_replacing_dist() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
-fn template_backslash_names_fail_without_replacing_dist() -> Result<()> {
+fn view_backslash_names_fail_without_replacing_dist() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     build_ok(&site)?;
     let before = snapshot(&site.join("dist"))?;
-    let name = r"entries\page.html";
-    fs::write(site.join("templates").join(name), "{{ content | safe }}")?;
+    let name = r"pages\page.bitview";
+    fs::write(site.join("views").join(name), "")?;
     let error = build_err(&site)?;
     assert!(
-        error.contains("backslash") && error.contains(&format!("templates/{name}")),
+        error.contains("backslash") && error.contains(&format!("views/{name}")),
         "{error}"
     );
     assert_eq!(snapshot(&site.join("dist"))?, before);
