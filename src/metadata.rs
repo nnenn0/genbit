@@ -2,7 +2,7 @@ use crate::{
     config::{Config, SiteUrl},
     content::{self, Article},
     output::Artifact,
-    route::{FEED_URL, TAGS_INDEX_URL},
+    route::{self, FEED_URL, SITEMAP_URL, TAGS_INDEX_URL},
     tags::TagIndex,
 };
 use anyhow::{Context, Result, ensure};
@@ -101,7 +101,7 @@ pub(crate) fn sitemap(
                 .map(|group| listing(base.join_root_path(&group.url()))),
         );
     Ok(Artifact::generated(
-        PathBuf::from("sitemap.xml"),
+        route::output_path(SITEMAP_URL),
         sitemap_xml(urls)?.into_bytes(),
         "<generated sitemap>",
     ))
@@ -138,7 +138,7 @@ fn sitemap_xml(urls: impl Iterator<Item = SitemapUrl>) -> Result<String> {
 /// sorted newest first.
 pub(crate) fn feed(config: &Config, articles: &[Article]) -> Artifact {
     Artifact::generated(
-        PathBuf::from(FEED_URL.trim_start_matches('/')),
+        route::output_path(FEED_URL),
         feed_xml(config, articles).into_bytes(),
         "<generated feed>",
     )
@@ -210,7 +210,7 @@ pub(crate) fn robots(base: &SiteUrl) -> Artifact {
         PathBuf::from("robots.txt"),
         format!(
             "User-agent: *\nAllow: /\n\nSitemap: {}\n",
-            base.join_root_path("/sitemap.xml")
+            base.join_root_path(SITEMAP_URL)
         )
         .into_bytes(),
         "<generated robots.txt>",
