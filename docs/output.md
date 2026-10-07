@@ -14,7 +14,7 @@
 | `sitemap.xml` | トップページ・記事・タグページ。記事は `updated_at` を時差付きの日時で `<lastmod>` に使います。 |
 | `robots.txt` | sitemapの場所を案内します |
 | `feed.xml` | RSS 2.0フィード |
-| `static/` 以下のすべて | そのままコピー |
+| `static/` 以下のすべて（`.gitkeep` と `.DS_Store` を除く） | そのままコピー |
 | `.genbit-output` | `dist/` がgenbitの出力であることを示すマーカー |
 
 `build` の出力には、開発サーバー用の再読み込みスクリプトを含めません。
