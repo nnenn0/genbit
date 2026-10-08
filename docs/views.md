@@ -38,7 +38,7 @@ genbitは、ページごとに次の関数を呼びます。ページ `X` の関
 
 ```
 fn page(ctx) =>
-  layout(ctx, concat(ctx.article.title, " | ", ctx.site.title), "article",
+  layout(ctx, concat(ctx.article.title, " | ", ctx.site.title), ctx.article.description, "article",
     home-link(ctx),
     article(h1(ctx.article.title), ctx.content)
   )
@@ -47,10 +47,11 @@ fn page(ctx) =>
 fn tag-link(tag) => a({href: tag.url}, tag.name)
 ```
 
-- HTMLの要素は関数として書きます。最初の引数がレコード（`{href: "/"}`）なら属性で、残りの引数は子です。子には文字列、HTML、リストを渡せます。
+- HTMLの要素は関数として書きます。最初の引数がレコード（`{href: "/"}`）なら属性で、残りの引数は子です。
+- HTMLの値は、HTMLの断片（ノードの並び）です。文字列は1つのテキストの断片として、断片のリストはそれらを順に並べた断片として、HTMLの代わりに子に渡せます。
 - 値は文字列、真偽値、リスト、レコード、HTMLの5種類です。数値はありません。
 - `ctx.article.title` のようにレコードの項目を読みます。
-- `if 条件 then 値 else 値` の条件は真偽値に限ります。何も出さない場合は `else []` と書きます。
+- `if 条件 then 値 else 値` の条件は真偽値に限り、両側は型を合わせられる値にします。空のリスト `[]` は空の断片でもあるので、何も出さない側は `else []` と書きます（`if ctx.article.draft then span("draft") else []`）。
 - `concat(...)` は文字列を連結し、`map(リスト, 関数名)` はリストの各要素に関数を適用します。
 - 名前は小文字と数字を `-` でつないだものです（`entry-list`）。`--` から行末まではコメントです。
 - 再帰、ファイルの読み込み、テンプレートの継承やインクルードの構文はありません。共通の部分は関数にして呼びます。
@@ -62,8 +63,10 @@ fn tag-link(tag) => a({href: tag.url}, tag.name)
 - 文字列は必ずエスケープして出力します。記事のタイトルなどに `<` や `"` が含まれていても、タグや属性にはなりません。
 - ビューから、文字列をそのままHTMLとして入れる手段はありません。記事の本文（`ctx.content`）、CSS（`ctx.style`）、JSON-LD（`ctx.json-ld`）は、genbitがHTMLとして渡します。
 - `script`・`style` 要素と、`onclick` などの `on*` 属性、`style` 属性は書けません。JavaScriptは使えず、CSSは `.css` ファイルに書きます。
-- `href`・`src`・`cite` に書けるURLは、相対URLと `http:`・`https:`・`mailto:` だけです。
-- 使える要素は、初期のビューと記事の本文で使うものに限ります（`footer`・`nav`・`section` などはまだありません）。
+- `href`・`src`・`cite` と、URLを並べる `srcset`・`ping` に書けるURLは、相対URLと `http:`・`https:`・`mailto:` だけです。
+- 使える要素は、ページの骨組み（`header`・`footer`・`main`・`nav`・`section`・`article`・`aside` など）と、記事の本文で使うものです。
+- 書ける属性は、全要素に共通の属性（`id`・`class`・`title`・`lang` など）、要素ごとに決まった属性（`a` の `href`・`target`・`rel`、`img` の `src`・`alt` など）、`data-*`、`aria-*` だけです。`herf` のような綴りの誤りはビルドエラーになります。
+- 要素は、HTMLで置ける場所にだけ置けます。`p` の中の `div`、`ul` の直下の `p`、`head` の中の `p`、`a` の中の `a` のように、ブラウザーが組み替えてしまう入れ子はビルドエラーになります。`a` は中身と同じ扱いで、ブロックを包んだ `a` はブロックを置ける場所に置けます。
 
 ## 変数
 
@@ -107,6 +110,12 @@ fn tag-link(tag) => a({href: tag.url}, tag.name)
 `<time>` 要素の `datetime` 属性には `datetime`、画面の表示には `date` を使います（例: `time({datetime: ctx.article.created-at.datetime}, ctx.article.created-at.date)`）。
 
 genbitはビューを読み込んだ直後、どのページを描画するよりも前に、各ページの関数をこれらの変数の型で検査します。`if` の両側と `map` の中も検査するので、下書きのときにしか通らない部分の誤りも、ビルドの最初に見つかります。ない項目を読む、真偽値を子にする、といった誤りは、ビューの位置と、そのレコードにある項目の一覧を付けてエラーになります。URLのスキームのように値そのものに依存する誤りは、そのページの描画で見つかります。
+
+関数は、ページの関数からの呼び出しを通して検査します。どのページの関数からも呼ばれない関数は検査できないので、ビルドエラーになります。使わなくなった関数は削除してください。
+
+```text
+views/components/home-link.bv:3:1: function site-name is not called from root, page, tags, tag, not-found, so it cannot be checked; call it or remove it
+```
 
 ## CSS
 

@@ -1889,7 +1889,7 @@ fn views_are_checked_against_their_variables_before_any_page_renders() -> Result
     )?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr.contains("views/pages/root.bv does not fit the variables genbit passes"),
+        stderr.contains("the views do not fit the variables genbit passes"),
         "{stderr}"
     );
     assert!(
@@ -1897,6 +1897,7 @@ fn views_are_checked_against_their_variables_before_any_page_renders() -> Result
         "{stderr}"
     );
     assert!(stderr.contains("in draft-badge"), "{stderr}");
+    assert!(stderr.contains("in root"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
 
     fs::write(
@@ -1909,6 +1910,17 @@ fn views_are_checked_against_their_variables_before_any_page_renders() -> Result
     )?;
     let stderr = build_err(&site)?;
     assert!(stderr.contains("cannot be a child of <a>"), "{stderr}");
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+
+    fs::write(
+        site.join("views/components/home-link.bv"),
+        "fn home-link(ctx) => a({href: \"/\"}, ctx.site.title)\n\nfn site-name(ctx) => ctx.site.titel\n",
+    )?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("views/components/home-link.bv:3:1: function site-name is not called from root, page, tags, tag, not-found"),
+        "{stderr}"
+    );
     assert_eq!(snapshot(&site.join("dist"))?, before);
     Ok(())
 }

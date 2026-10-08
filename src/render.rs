@@ -8,7 +8,7 @@ use crate::{
     views::{Page, Views},
 };
 use anyhow::{Context as _, Result};
-use bitview::{Html, Type, Value};
+use bitview::{Html, HtmlType, Type, Value};
 use jiff::Zoned;
 use std::path::PathBuf;
 
@@ -19,14 +19,11 @@ pub(crate) struct Renderer {
 impl Renderer {
     pub(crate) fn load(input: &SiteInput<'_>) -> Result<Self> {
         let views = Views::load(input)?;
-        for page in Page::ALL {
-            views
-                .program
-                .check(page.name(), &context_type(page))
-                .with_context(|| {
-                    format!("{} does not fit the variables genbit passes", page.file())
-                })?;
-        }
+        let pages = Page::ALL.map(|page| (page.name(), context_type(page)));
+        views
+            .program
+            .check(&pages)
+            .context("the views do not fit the variables genbit passes")?;
         Ok(Self { views })
     }
 
@@ -159,13 +156,22 @@ impl Renderer {
 /// The views are checked against these types when they load, and the values are checked against
 /// them when a page renders, so the check at load time holds for every page.
 fn context_type(page: Page) -> Type {
-    let mut fields = vec![("site", site_type()), ("style", Type::Html)];
+    let mut fields = vec![
+        ("site", site_type()),
+        ("style", Type::Html(HtmlType::Metadata)),
+    ];
     if page != Page::NotFound {
-        fields.extend([("canonical-url", Type::String), ("json-ld", Type::Html)]);
+        fields.extend([
+            ("canonical-url", Type::String),
+            ("json-ld", Type::Html(HtmlType::Metadata)),
+        ]);
     }
     fields.extend(match page {
         Page::Root => vec![("entries", Type::list(entry_type()))],
-        Page::Article => vec![("article", entry_type()), ("content", Type::Html)],
+        Page::Article => vec![
+            ("article", entry_type()),
+            ("content", Type::Html(HtmlType::Flow)),
+        ],
         Page::Tags => vec![("tags", Type::list(tag_count_type()))],
         Page::Tag => vec![("tag", Type::String), ("entries", Type::list(entry_type()))],
         Page::NotFound => Vec::new(),
