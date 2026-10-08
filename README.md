@@ -142,7 +142,7 @@ tags = ["rust", "web"]
 ## 既知の制限
 
 - 公開先はドメインのルートに限ります。サブパス（例: `https://example.com/blog/`）への配置には対応していません。
-- 初期テンプレートとサンプル記事は日本語で、`<html lang="ja">` を出力します。他の言語で使う場合は `views/components/document.bitview` を編集してください。
+- 初期テンプレートとサンプル記事は日本語で、`<html lang="ja">` を出力します。他の言語で使う場合は `views/components/document.bv` を編集してください。
 - AVIFとSVGの画像には寸法属性を付けません。本文の画像はPNG・JPEG・GIF・WebPで用意してください（[docs/content.md](docs/content.md#画像)）。
 - 画像の縮小・形式変換・圧縮は行いません。画像は外部ツールで事前に処理してください。
 - シンタックスハイライトは行いません。

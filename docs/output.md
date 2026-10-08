@@ -6,11 +6,11 @@
 
 | パス | 内容 |
 | --- | --- |
-| `index.html` | `views/pages/root.bitview` で描画するトップページ |
+| `index.html` | `views/pages/root.bv` で描画するトップページ |
 | `entries/*/index.html` など | `content/` の構造どおりに、記事ごとに1ファイル |
 | 記事の素材 | ページのディレクトリにある `index.md` 以外のファイルを、同じ場所へそのままコピー |
 | `tags/index.html`、`tags/{tag}/index.html` | タグ一覧とタグ別ページ |
-| `404.html` | `views/pages/not-found.bitview` で描画する404ページ |
+| `404.html` | `views/pages/not-found.bv` で描画する404ページ |
 | `sitemap.xml` | トップページ・記事・タグページ。記事は `updated_at` を時差付きの日時で `<lastmod>` に使います。 |
 | `robots.txt` | sitemapの場所を案内します |
 | `feed.xml` | RSS 2.0フィード |
@@ -96,7 +96,7 @@ Cloudflare・Netlifyなど `_headers` ファイルで設定する公開先では
   Cache-Control: public, max-age=31536000, immutable
 ```
 
-以前のgenbitで作ったサイトでは、faviconとOGP画像が `static/assets/img/` にあります。記事の画像を長期間キャッシュする前に、これらを `static/assets/site/` へ移し、`views/components/document.bitview` のfaviconのパスと `config.toml` の `og_image` を書き換えてください。
+以前のgenbitで作ったサイトでは、faviconとOGP画像が `static/assets/img/` にあります。記事の画像を長期間キャッシュする前に、これらを `static/assets/site/` へ移し、`views/components/document.bv` のfaviconのパスと `config.toml` の `og_image` を書き換えてください。
 
 ## 開発サーバー
 

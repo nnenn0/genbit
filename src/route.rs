@@ -37,7 +37,7 @@ impl Route {
         let directory = relative.parent().unwrap_or(Path::new(""));
         ensure!(
             !directory.as_os_str().is_empty(),
-            "content/index.md is not supported; the home page is generated from config.toml and views/pages/root.bitview"
+            "content/index.md is not supported; the home page is generated from config.toml and views/pages/root.bv"
         );
         let segments = directory
             .components()

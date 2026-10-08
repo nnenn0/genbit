@@ -52,7 +52,7 @@ impl Page {
     }
 
     pub(crate) fn file(self) -> String {
-        format!("views/pages/{}.bitview", self.name())
+        format!("views/pages/{}.bv", self.name())
     }
 }
 
@@ -91,9 +91,9 @@ impl Views {
                 "{name} is outside views/pages/ and views/components/"
             );
             match file.extension().and_then(|extension| extension.to_str()) {
-                Some("bitview") => sources.push((name, input.read_text(&path)?)),
+                Some("bv") => sources.push((name, input.read_text(&path)?)),
                 Some("css") => styles.push((name, input.read_text(&path)?)),
-                _ => bail!("{name} is neither a .bitview nor a .css file"),
+                _ => bail!("{name} is neither a .bv nor a .css file"),
             }
         }
         let program = Program::parse(
@@ -137,7 +137,7 @@ fn check_pages(program: &Program, sources: &[(String, String)]) -> Result<()> {
         ensure!(
             Page::ALL
                 .into_iter()
-                .any(|page| file.strip_suffix(".bitview") == Some(page.name())),
+                .any(|page| file.strip_suffix(".bv") == Some(page.name())),
             "{name} is not a page; views/pages/ holds {}",
             Page::ALL.map(Page::file).join(", ")
         );

@@ -178,7 +178,7 @@ pub(crate) fn classify_files(tree: Tree, directory: ContentDir) -> Result<Conten
     let Tree { files, directories } = tree;
     ensure!(
         !files.iter().any(|file| file == Path::new("index.md")),
-        "{directory}/index.md is not supported; the home page is generated from config.toml and views/pages/root.bitview"
+        "{directory}/index.md is not supported; the home page is generated from config.toml and views/pages/root.bv"
     );
     let page_directories = files
         .iter()

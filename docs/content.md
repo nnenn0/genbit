@@ -44,7 +44,7 @@ TOMLとして読めない場合、未知のフィールドがある場合、日�
 - 同じ記事の中で同じタグは重複できません。
 - `untagged` は予約語です。タグのない記事の一覧に使うため、タグ名にはできません。
 
-`views/pages/tags.bitview` で `/tags/` を、`views/pages/tag.bitview` でタグごとの `/tags/{tag}/` を描画し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示し、テンプレートに渡す記事の `tags` は `untagged` の1つになります。タグページの記事の並びはトップページと同じです。
+`views/pages/tags.bv` で `/tags/` を、`views/pages/tag.bv` でタグごとの `/tags/{tag}/` を描画し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示し、テンプレートに渡す記事の `tags` は `untagged` の1つになります。タグページの記事の並びはトップページと同じです。
 
 ## パスとURL
 
@@ -60,7 +60,7 @@ TOMLとして読めない場合、未知のフィールドがある場合、日�
 - `index.md` 以外の `.md` ファイル、どのページのディレクトリにもないファイルはビルドエラーになります。どのページにも属さないファイルは `static/` に置きます。
 - `.gitkeep` と、macOSのFinderが作る `.DS_Store` は読み飛ばします。`.gitkeep` は空のディレクトリをGitに残すために置けます。
 - ディレクトリ名に使えるのは、ASCII英数字・`-`・`_` だけです。
-- `content/index.md` は使えません。トップページは `config.toml` と `views/pages/root.bitview` から生成します。
+- `content/index.md` は使えません。トップページは `config.toml` と `views/pages/root.bv` から生成します。
 - 記事は作成日時の新しい順に並べます。同じ日時の記事はURL順です。
 
 記事のURLは `/` で終わります。ディレクトリの `index.html` を返すのは静的ホストの標準的な動作なので、公開先で特別な設定は要りません。
