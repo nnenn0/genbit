@@ -8,7 +8,7 @@
 
 ## Project Overview
 
-- genbit は Rust 製の静的サイトジェネレーター CLI。Markdown 記事と bitview テンプレートから HTML を生成する。bitview は同じ作者の別リポジトリ（`https://github.com/nnenn0/bitview`）で、Git 依存として `rev` で固定する。単一のバイナリで、DB・API サーバー・フロントエンドのビルドシステムはない。
+- genbit は Rust 製の静的サイトジェネレーター CLI。Markdown 記事と bitview テンプレートから HTML を生成する。bitview は同じ作者の別リポジトリ（`https://github.com/nnenn0/bitview`）で、Git 依存としてタグで固定する。単一のバイナリで、DB・API サーバー・フロントエンドのビルドシステムはない。
 - `new` がサイトの初期ファイルを作り、`build` が `dist/` を生成し、`dev` が再ビルド付きのローカル配信を行う。生成サイトはこのリポジトリとは別ディレクトリで運用する。
 - ツールチェーンは `rust-toolchain.toml` で固定する。`Dockerfile` のイメージと `Cargo.toml` の `rust-version` は同じ版にそろえ、CI が一致を検査する。依存は `Cargo.toml` と `Cargo.lock` を見る。
 
