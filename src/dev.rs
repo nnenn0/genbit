@@ -248,7 +248,7 @@ mod tests {
             "content/post.md",
             "content",
             "drafts/a/index.md",
-            "views/components/layout.bitview",
+            "views/components/layout.bv",
             "views/components/document.css",
             "static/a.png",
             "config.toml",

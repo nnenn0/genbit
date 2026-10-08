@@ -7,76 +7,76 @@ use std::{
 
 const FILES: &[(&str, &str)] = &[
     (
-        "views/pages/root.bitview",
-        include_str!("../scaffold/views/pages/root.bitview"),
+        "views/pages/root.bv",
+        include_str!("../scaffold/views/pages/root.bv"),
     ),
     (
         "views/pages/root.css",
         include_str!("../scaffold/views/pages/root.css"),
     ),
     (
-        "views/pages/page.bitview",
-        include_str!("../scaffold/views/pages/page.bitview"),
+        "views/pages/page.bv",
+        include_str!("../scaffold/views/pages/page.bv"),
     ),
     (
         "views/pages/page.css",
         include_str!("../scaffold/views/pages/page.css"),
     ),
     (
-        "views/pages/tags.bitview",
-        include_str!("../scaffold/views/pages/tags.bitview"),
+        "views/pages/tags.bv",
+        include_str!("../scaffold/views/pages/tags.bv"),
     ),
     (
         "views/pages/tags.css",
         include_str!("../scaffold/views/pages/tags.css"),
     ),
     (
-        "views/pages/tag.bitview",
-        include_str!("../scaffold/views/pages/tag.bitview"),
+        "views/pages/tag.bv",
+        include_str!("../scaffold/views/pages/tag.bv"),
     ),
     (
         "views/pages/tag.css",
         include_str!("../scaffold/views/pages/tag.css"),
     ),
     (
-        "views/pages/not-found.bitview",
-        include_str!("../scaffold/views/pages/not-found.bitview"),
+        "views/pages/not-found.bv",
+        include_str!("../scaffold/views/pages/not-found.bv"),
     ),
     (
-        "views/components/document.bitview",
-        include_str!("../scaffold/views/components/document.bitview"),
+        "views/components/document.bv",
+        include_str!("../scaffold/views/components/document.bv"),
     ),
     (
         "views/components/document.css",
         include_str!("../scaffold/views/components/document.css"),
     ),
     (
-        "views/components/layout.bitview",
-        include_str!("../scaffold/views/components/layout.bitview"),
+        "views/components/layout.bv",
+        include_str!("../scaffold/views/components/layout.bv"),
     ),
     (
-        "views/components/home-link.bitview",
-        include_str!("../scaffold/views/components/home-link.bitview"),
+        "views/components/home-link.bv",
+        include_str!("../scaffold/views/components/home-link.bv"),
     ),
     (
-        "views/components/entry-list.bitview",
-        include_str!("../scaffold/views/components/entry-list.bitview"),
+        "views/components/entry-list.bv",
+        include_str!("../scaffold/views/components/entry-list.bv"),
     ),
     (
         "views/components/entry-list.css",
         include_str!("../scaffold/views/components/entry-list.css"),
     ),
     (
-        "views/components/draft-badge.bitview",
-        include_str!("../scaffold/views/components/draft-badge.bitview"),
+        "views/components/draft-badge.bv",
+        include_str!("../scaffold/views/components/draft-badge.bv"),
     ),
     (
         "views/components/draft-badge.css",
         include_str!("../scaffold/views/components/draft-badge.css"),
     ),
     (
-        "views/components/timestamp.bitview",
-        include_str!("../scaffold/views/components/timestamp.bitview"),
+        "views/components/timestamp.bv",
+        include_str!("../scaffold/views/components/timestamp.bv"),
     ),
     (
         "content/entries/hello-world/index.md",

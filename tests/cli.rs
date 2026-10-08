@@ -366,24 +366,24 @@ fn creates_site_and_refuses_overwrite() -> Result<()> {
     for file in [
         "config.toml",
         "content/entries/hello-world/index.md",
-        "views/pages/root.bitview",
+        "views/pages/root.bv",
         "views/pages/root.css",
-        "views/pages/page.bitview",
+        "views/pages/page.bv",
         "views/pages/page.css",
-        "views/pages/tags.bitview",
+        "views/pages/tags.bv",
         "views/pages/tags.css",
-        "views/pages/tag.bitview",
+        "views/pages/tag.bv",
         "views/pages/tag.css",
-        "views/pages/not-found.bitview",
-        "views/components/document.bitview",
+        "views/pages/not-found.bv",
+        "views/components/document.bv",
         "views/components/document.css",
-        "views/components/layout.bitview",
-        "views/components/home-link.bitview",
-        "views/components/entry-list.bitview",
+        "views/components/layout.bv",
+        "views/components/home-link.bv",
+        "views/components/entry-list.bv",
         "views/components/entry-list.css",
-        "views/components/draft-badge.bitview",
+        "views/components/draft-badge.bv",
         "views/components/draft-badge.css",
-        "views/components/timestamp.bitview",
+        "views/components/timestamp.bv",
         "static/assets/site/favicon.svg",
         "static/assets/site/favicon.png",
         "static/assets/site/ogp.png",
@@ -691,11 +691,11 @@ fn missing_404_template_fails_without_replacing_output() -> Result<()> {
     let site = workspace.new_site("blog")?;
     build_ok(&site)?;
     let previous = fs::read(site.join("dist/404.html"))?;
-    fs::remove_file(site.join("views/pages/not-found.bitview"))?;
+    fs::remove_file(site.join("views/pages/not-found.bv"))?;
     let stderr = build_err(&site)?;
     assert!(
         stderr.contains(
-            "views/pages/not-found.bitview must define fn not-found(ctx), which renders 404.html"
+            "views/pages/not-found.bv must define fn not-found(ctx), which renders 404.html"
         ),
         "{stderr}"
     );
@@ -1524,20 +1524,20 @@ fn views_hold_pages_components_and_their_css() -> Result<()> {
             "views/notes.txt is outside views/pages/ and views/components/",
         ),
         (
-            "views/parts/list.bitview",
+            "views/parts/list.bv",
             "views/parts is not a views directory; views/ holds pages/ and components/",
         ),
         (
-            "views/components/parts/list.bitview",
+            "views/components/parts/list.bv",
             "views/components/parts is not a views directory",
         ),
         (
             "views/components/notes.txt",
-            "views/components/notes.txt is neither a .bitview nor a .css file",
+            "views/components/notes.txt is neither a .bv nor a .css file",
         ),
         (
-            "views/pages/about.bitview",
-            "views/pages/about.bitview is not a page; views/pages/ holds views/pages/root.bitview",
+            "views/pages/about.bv",
+            "views/pages/about.bv is not a page; views/pages/ holds views/pages/root.bv",
         ),
         (
             "views/components/entry_list.css",
@@ -1560,14 +1560,13 @@ fn views_hold_pages_components_and_their_css() -> Result<()> {
         }
     }
 
-    let page = site.join("views/pages/root.bitview");
-    let moved = site.join("views/components/root.bitview");
+    let page = site.join("views/pages/root.bv");
+    let moved = site.join("views/components/root.bv");
     fs::rename(&page, &moved)?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr.contains(
-            "views/pages/root.bitview must define fn root(ctx), which renders the home page"
-        ),
+        stderr
+            .contains("views/pages/root.bv must define fn root(ctx), which renders the home page"),
         "{stderr}"
     );
     fs::rename(&moved, &page)?;
@@ -1600,7 +1599,7 @@ fn article_template_receives_documented_fields() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     fs::write(
-        site.join("views/pages/page.bitview"),
+        site.join("views/pages/page.bv"),
         concat!(
             "fn page(ctx) => html(head(ctx.style, ctx.json-ld), body(\n",
             "  p(ctx.site.title), p(ctx.canonical-url),\n",
@@ -1885,27 +1884,27 @@ fn views_are_checked_against_their_variables_before_any_page_renders() -> Result
     let before = snapshot(&site.join("dist"))?;
     // Only drafts take this branch, and the site has none, so rendering alone would never meet it.
     write_file(
-        site.join("views/components/draft-badge.bitview"),
+        site.join("views/components/draft-badge.bv"),
         "fn draft-badge(entry) =>\n  if entry.draft then span({class: \"draft-badge\"}, entry.titel) else []\n",
     )?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr.contains("views/pages/root.bitview does not fit the variables genbit passes"),
+        stderr.contains("views/pages/root.bv does not fit the variables genbit passes"),
         "{stderr}"
     );
     assert!(
-        stderr.contains("views/components/draft-badge.bitview:2:58: unknown field \"titel\""),
+        stderr.contains("views/components/draft-badge.bv:2:58: unknown field \"titel\""),
         "{stderr}"
     );
     assert!(stderr.contains("in draft-badge"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
 
     fs::write(
-        site.join("views/components/draft-badge.bitview"),
+        site.join("views/components/draft-badge.bv"),
         "fn draft-badge(entry) =>\n  if entry.draft then span({class: \"draft-badge\"}, \"draft\") else []\n",
     )?;
     fs::write(
-        site.join("views/components/home-link.bitview"),
+        site.join("views/components/home-link.bv"),
         "fn home-link(ctx) => a({href: \"/\"}, ctx.site)\n",
     )?;
     let stderr = build_err(&site)?;
@@ -1919,18 +1918,18 @@ fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     write_file(
-        site.join("views/pages/page.bitview"),
+        site.join("views/pages/page.bv"),
         "fn page(ctx) => html(body(a({href: concat(\"javascript:\", ctx.article.title)}, \"x\")))\n",
     )?;
     let stderr = build_err(&site)?;
     assert!(
         stderr.contains(
-            "cannot render content/entries/hello-world/index.md with views/pages/page.bitview"
+            "cannot render content/entries/hello-world/index.md with views/pages/page.bv"
         ),
         "{stderr}"
     );
     assert!(
-        stderr.contains("views/pages/page.bitview:1:27: href has the URL scheme javascript:"),
+        stderr.contains("views/pages/page.bv:1:27: href has the URL scheme javascript:"),
         "{stderr}"
     );
 
@@ -1944,7 +1943,7 @@ fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
         .context("dev accepted a draft that cannot render")?;
     assert!(
         format!("{error:#}")
-            .contains("cannot render drafts/entries/wip/index.md with views/pages/page.bitview"),
+            .contains("cannot render drafts/entries/wip/index.md with views/pages/page.bv"),
         "{error:#}"
     );
     Ok(())
@@ -2517,7 +2516,7 @@ fn view_backslash_names_fail_without_replacing_dist() -> Result<()> {
     let site = workspace.new_site("blog")?;
     build_ok(&site)?;
     let before = snapshot(&site.join("dist"))?;
-    let name = r"pages\page.bitview";
+    let name = r"pages\page.bv";
     fs::write(site.join("views").join(name), "")?;
     let error = build_err(&site)?;
     assert!(

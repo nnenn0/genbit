@@ -7,32 +7,32 @@
 ```
 views/
   pages/        ページを描画する関数。ページごとに1ファイル
-    root.bitview  root.css
-    page.bitview  page.css
+    root.bv  root.css
+    page.bv  page.css
     ...
   components/   ページが使う部品
-    document.bitview  document.css
-    entry-list.bitview  entry-list.css
+    document.bv  document.css
+    entry-list.bv  entry-list.css
     ...
 ```
 
-- `views/` には `pages/` と `components/` だけを置けます。それぞれに置けるのは `.bitview` と `.css` だけで、サブディレクトリやほかのファイルがあるとビルドエラーになります。名前が `.` で始まるファイルとディレクトリ（macOSのFinderが作る `.DS_Store` など）は読み飛ばします。
-- `.bitview` ファイルはすべて1つのプログラムとして読み込みます。どのファイルで定義した関数も、ほかのファイルから呼べます。同じ名前の関数を2つ定義するとビルドエラーになります。
-- `X.css` は、関数 `X` を定義した `.bitview` と同じディレクトリに置きます（[CSS](#css)）。
+- `views/` には `pages/` と `components/` だけを置けます。それぞれに置けるのは `.bv` と `.css` だけで、サブディレクトリやほかのファイルがあるとビルドエラーになります。名前が `.` で始まるファイルとディレクトリ（macOSのFinderが作る `.DS_Store` など）は読み飛ばします。
+- `.bv` ファイルはすべて1つのプログラムとして読み込みます。どのファイルで定義した関数も、ほかのファイルから呼べます。同じ名前の関数を2つ定義するとビルドエラーになります。
+- `X.css` は、関数 `X` を定義した `.bv` と同じディレクトリに置きます（[CSS](#css)）。
 
 ### ページ
 
-genbitは、ページごとに次の関数を呼びます。ページ `X` の関数は `views/pages/X.bitview` に定義します。どれも必須で、引数を1つ（以下 `ctx`）取り、`html(...)` 要素を返します。`<!doctype html>` はgenbitが付けます。
+genbitは、ページごとに次の関数を呼びます。ページ `X` の関数は `views/pages/X.bv` に定義します。どれも必須で、引数を1つ（以下 `ctx`）取り、`html(...)` 要素を返します。`<!doctype html>` はgenbitが付けます。
 
 | ファイル | 関数 | 描画するもの |
 | --- | --- | --- |
-| `views/pages/root.bitview` | `root` | トップページ `/` |
-| `views/pages/page.bitview` | `page` | 記事 |
-| `views/pages/tags.bitview` | `tags` | タグ一覧 `/tags/` |
-| `views/pages/tag.bitview` | `tag` | タグ別ページ `/tags/{tag}/` |
-| `views/pages/not-found.bitview` | `not-found` | `dist/404.html` |
+| `views/pages/root.bv` | `root` | トップページ `/` |
+| `views/pages/page.bv` | `page` | 記事 |
+| `views/pages/tags.bv` | `tags` | タグ一覧 `/tags/` |
+| `views/pages/tag.bv` | `tag` | タグ別ページ `/tags/{tag}/` |
+| `views/pages/not-found.bv` | `not-found` | `dist/404.html` |
 
-`views/pages/` にほかの `.bitview` ファイルを置いたり、ページの関数を別のファイルで定義したりすると、ビルドエラーになります。ページの中だけで使う関数（`page.bitview` の `tag-link` など）は、そのページのファイルに定義して構いません。
+`views/pages/` にほかの `.bv` ファイルを置いたり、ページの関数を別のファイルで定義したりすると、ビルドエラーになります。ページの中だけで使う関数（`page.bv` の `tag-link` など）は、そのページのファイルに定義して構いません。
 
 ## 書き方
 
@@ -110,7 +110,7 @@ genbitはビューを読み込んだ直後、どのページを描画するよ�
 
 ## CSS
 
-`X.css` は関数 `X` のCSSで、`X` を定義した `.bitview` と同じディレクトリに置きます。部品のHTMLとCSSが並ぶので、まとめて読み、直し、消せます。対応する関数が同じディレクトリにないCSSはビルドエラーになるので、関数の名前を変えたり別のファイルへ移したりしたときに、CSSが取り残されることはありません。どのCSSファイルも任意です。
+`X.css` は関数 `X` のCSSで、`X` を定義した `.bv` と同じディレクトリに置きます。部品のHTMLとCSSが並ぶので、まとめて読み、直し、消せます。対応する関数が同じディレクトリにないCSSはビルドエラーになるので、関数の名前を変えたり別のファイルへ移したりしたときに、CSSが取り残されることはありません。どのCSSファイルも任意です。
 
 ページの `style` には、そのページの関数から呼ばれうる関数のCSSが入ります。`if` は両方の側を数えるので、ページに入るCSSは記事の内容によらず、関数ごとに決まります。初期のビューでは、記事ページの `style` に次の順でCSSが入ります。
 
@@ -135,15 +135,15 @@ CSSは各HTMLへインライン展開し、HTMLとともに圧縮します。
 
 部品は、主な関数と同じ名前のファイルに置いています。`views/components/` の分け方は自由に変えて構いません。
 
-- `components/document.bitview` は全ページの骨組みで、タイトル、favicon、RSSの自動検出用リンク、`style` を出力します。`<html lang="ja">` もここで指定します。
-- `components/layout.bitview` は、`document` にmeta description、canonicalリンク、Open Graph、JSON-LDを加えた骨組みです。`root`・`page`・`tags`・`tag` が使います。これらの要素を出力する `seo` も同じファイルに置きます。説明文は各ページが渡します（トップページは `config.toml` の `description`、記事は記事の `description`、タグ一覧とタグ別ページは固定の文）。
-- `components/home-link.bitview` は、ヘッダーに置くトップページへのリンクです。
-- `components/entry-list.bitview` は記事の一覧で、トップページとタグ別ページが使います。
-- `components/timestamp.bitview` は日時を `<time>` 要素で表示します。
-- `components/draft-badge.bitview` は下書きに「draft」の印を付けます。記事一覧では日付の後に、記事ページではタイトルの後に付けます。
-- `pages/not-found.bitview` は `layout` ではなく `document` を使い、`noindex` を指定します。canonical・Open Graph・JSON-LDは出しません。
-- `pages/page.bitview` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。
-- `pages/root.bitview` は記事一覧の後に、タグ一覧とRSSフィードへのリンクを表示します。
+- `components/document.bv` は全ページの骨組みで、タイトル、favicon、RSSの自動検出用リンク、`style` を出力します。`<html lang="ja">` もここで指定します。
+- `components/layout.bv` は、`document` にmeta description、canonicalリンク、Open Graph、JSON-LDを加えた骨組みです。`root`・`page`・`tags`・`tag` が使います。これらの要素を出力する `seo` も同じファイルに置きます。説明文は各ページが渡します（トップページは `config.toml` の `description`、記事は記事の `description`、タグ一覧とタグ別ページは固定の文）。
+- `components/home-link.bv` は、ヘッダーに置くトップページへのリンクです。
+- `components/entry-list.bv` は記事の一覧で、トップページとタグ別ページが使います。
+- `components/timestamp.bv` は日時を `<time>` 要素で表示します。
+- `components/draft-badge.bv` は下書きに「draft」の印を付けます。記事一覧では日付の後に、記事ページではタイトルの後に付けます。
+- `pages/not-found.bv` は `layout` ではなく `document` を使い、`noindex` を指定します。canonical・Open Graph・JSON-LDは出しません。
+- `pages/page.bv` は記事タイトルを `h1` で表示し、`created_at`・`updated_at`・`tags` を `キー: 値` の形で表示します。日時は日付だけを表示し、`<time>` 要素の `datetime` 属性に時刻と時差を含めます。
+- `pages/root.bv` は記事一覧の後に、タグ一覧とRSSフィードへのリンクを表示します。
 - faviconはPNGを先に指定し、SVG対応ブラウザー向けのSVGも併記します。
 
 ## 作成済みのサイト
