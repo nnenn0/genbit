@@ -1878,12 +1878,49 @@ fn dev_shows_drafts_with_marks_and_leaves_dist_unchanged() -> Result<()> {
 }
 
 #[test]
+fn views_are_checked_against_their_variables_before_any_page_renders() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    build_ok(&site)?;
+    let before = snapshot(&site.join("dist"))?;
+    // Only drafts take this branch, and the site has none, so rendering alone would never meet it.
+    write_file(
+        site.join("views/components/draft-badge.bitview"),
+        "fn draft-badge(entry) =>\n  if entry.draft then span({class: \"draft-badge\"}, entry.titel) else []\n",
+    )?;
+    let stderr = build_err(&site)?;
+    assert!(
+        stderr.contains("views/pages/root.bitview does not fit the variables genbit passes"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("views/components/draft-badge.bitview:2:58: unknown field \"titel\""),
+        "{stderr}"
+    );
+    assert!(stderr.contains("in draft-badge"), "{stderr}");
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+
+    fs::write(
+        site.join("views/components/draft-badge.bitview"),
+        "fn draft-badge(entry) =>\n  if entry.draft then span({class: \"draft-badge\"}, \"draft\") else []\n",
+    )?;
+    fs::write(
+        site.join("views/components/home-link.bitview"),
+        "fn home-link(ctx) => a({href: \"/\"}, ctx.site)\n",
+    )?;
+    let stderr = build_err(&site)?;
+    assert!(stderr.contains("cannot be a child of <a>"), "{stderr}");
+    assert_eq!(snapshot(&site.join("dist"))?, before);
+    Ok(())
+}
+
+#[test]
 fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     write_file(
         site.join("views/pages/page.bitview"),
-        "fn page(ctx) => html(body(p(ctx.missing)))\n",
+        "fn page(ctx) => html(body(a({href: concat(\"javascript:\", ctx.article.title)}, \"x\")))\n",
     )?;
     let stderr = build_err(&site)?;
     assert!(
@@ -1893,7 +1930,7 @@ fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
         "{stderr}"
     );
     assert!(
-        stderr.contains("views/pages/page.bitview:1:33: unknown field \"missing\""),
+        stderr.contains("views/pages/page.bitview:1:27: href has the URL scheme javascript:"),
         "{stderr}"
     );
 

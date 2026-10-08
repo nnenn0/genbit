@@ -23,7 +23,7 @@ pub(crate) enum Page {
 }
 
 impl Page {
-    const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 5] = [
         Self::Root,
         Self::Article,
         Self::Tags,
