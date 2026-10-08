@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 anyhow = "1"
-bitview = { git = "https://github.com/nnenn0/bitview", rev = "1c7ecdea49ab0e3f2021fb000c56ad97eaac0d59", version = "0.1" }
+bitview = { git = "https://github.com/nnenn0/bitview", tag = "v0.1.0", version = "0.1" }
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
 http = "1"
