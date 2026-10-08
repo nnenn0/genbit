@@ -8,7 +8,7 @@ use crate::{
     views::{Page, Views},
 };
 use anyhow::{Context as _, Result};
-use bitview::{Html, Value};
+use bitview::{Html, Type, Value};
 use jiff::Zoned;
 use std::path::PathBuf;
 
@@ -18,9 +18,16 @@ pub(crate) struct Renderer {
 
 impl Renderer {
     pub(crate) fn load(input: &SiteInput<'_>) -> Result<Self> {
-        Ok(Self {
-            views: Views::load(input)?,
-        })
+        let views = Views::load(input)?;
+        for page in Page::ALL {
+            views
+                .program
+                .check(page.name(), &context_type(page))
+                .with_context(|| {
+                    format!("{} does not fit the variables genbit passes", page.file())
+                })?;
+        }
+        Ok(Self { views })
     }
 
     pub(crate) fn tags_index(
@@ -29,17 +36,7 @@ impl Renderer {
         tags: &TagIndex<'_>,
         json_ld: &str,
     ) -> Result<Artifact> {
-        let tags = tags
-            .groups()
-            .iter()
-            .map(|group| {
-                Value::record([
-                    ("name", Value::from(group.name)),
-                    ("url", Value::from(group.url())),
-                    ("count", Value::from(group.articles.len().to_string())),
-                ])
-            })
-            .collect::<Vec<_>>();
+        let tags = tags.groups().iter().map(tag_count).collect::<Vec<_>>();
         let mut variables = indexed(&config.site_url.join_root_path(TAGS_INDEX_URL), json_ld)?;
         variables.push(("tags", Value::from(tags)));
         self.render(
@@ -134,10 +131,17 @@ impl Renderer {
             ("style", Value::from(style.clone())),
         ];
         all.extend(variables);
+        let ctx = Value::record(all);
+        context_type(page).validate(&ctx).with_context(|| {
+            format!(
+                "internal error: the variables of {} do not match their type",
+                page.file()
+            )
+        })?;
         let html = self
             .views
             .program
-            .render(page.name(), Value::record(all))
+            .render(page.name(), ctx)
             .and_then(|html| html.to_document())
             .with_context(|| format!("cannot render {origin} with {}", page.file()))?;
         let minified = minify_html::minify(
@@ -150,6 +154,32 @@ impl Renderer {
         );
         Ok(Artifact::generated(output, minified, origin))
     }
+}
+
+/// The views are checked against these types when they load, and the values are checked against
+/// them when a page renders, so the check at load time holds for every page.
+fn context_type(page: Page) -> Type {
+    let mut fields = vec![("site", site_type()), ("style", Type::Html)];
+    if page != Page::NotFound {
+        fields.extend([("canonical-url", Type::String), ("json-ld", Type::Html)]);
+    }
+    fields.extend(match page {
+        Page::Root => vec![("entries", Type::list(entry_type()))],
+        Page::Article => vec![("article", entry_type()), ("content", Type::Html)],
+        Page::Tags => vec![("tags", Type::list(tag_count_type()))],
+        Page::Tag => vec![("tag", Type::String), ("entries", Type::list(entry_type()))],
+        Page::NotFound => Vec::new(),
+    });
+    Type::record(fields)
+}
+
+fn site_type() -> Type {
+    Type::record([
+        ("title", Type::String),
+        ("description", Type::String),
+        ("url", Type::String),
+        ("og-image", Type::String),
+    ])
 }
 
 fn site(config: &Config) -> Value {
@@ -175,15 +205,20 @@ fn entries<'a>(articles: impl IntoIterator<Item = &'a Article>) -> Value {
     Value::from(articles.into_iter().map(entry).collect::<Vec<_>>())
 }
 
+fn entry_type() -> Type {
+    Type::record([
+        ("title", Type::String),
+        ("description", Type::String),
+        ("url", Type::String),
+        ("created-at", timestamp_type()),
+        ("updated-at", timestamp_type()),
+        ("tags", Type::list(tag_link_type())),
+        ("draft", Type::Bool),
+    ])
+}
+
 fn entry(article: &Article) -> Value {
-    let tags = article_tags(article)
-        .map(|tag| {
-            Value::record([
-                ("name", Value::from(tag)),
-                ("url", Value::from(route::tag_url(tag))),
-            ])
-        })
-        .collect::<Vec<_>>();
+    let tags = article_tags(article).map(tag_link).collect::<Vec<_>>();
     Value::record([
         ("title", Value::from(article.title.as_str())),
         ("description", Value::from(article.description.as_str())),
@@ -193,6 +228,37 @@ fn entry(article: &Article) -> Value {
         ("tags", Value::from(tags)),
         ("draft", Value::from(article.draft)),
     ])
+}
+
+fn tag_link_type() -> Type {
+    Type::record([("name", Type::String), ("url", Type::String)])
+}
+
+fn tag_link(tag: &str) -> Value {
+    Value::record([
+        ("name", Value::from(tag)),
+        ("url", Value::from(route::tag_url(tag))),
+    ])
+}
+
+fn tag_count_type() -> Type {
+    Type::record([
+        ("name", Type::String),
+        ("url", Type::String),
+        ("count", Type::String),
+    ])
+}
+
+fn tag_count(group: &TagGroup<'_>) -> Value {
+    Value::record([
+        ("name", Value::from(group.name)),
+        ("url", Value::from(group.url())),
+        ("count", Value::from(group.articles.len().to_string())),
+    ])
+}
+
+fn timestamp_type() -> Type {
+    Type::record([("datetime", Type::String), ("date", Type::String)])
 }
 
 fn timestamp(value: &Zoned) -> Value {
