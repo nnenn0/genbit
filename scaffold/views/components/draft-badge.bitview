@@ -1,0 +1,2 @@
+fn draft-badge(entry) =>
+  if entry.draft then span({class: "draft-badge"}, "draft") else []

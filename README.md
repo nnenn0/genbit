@@ -23,10 +23,10 @@
 ## 特徴
 
 - **バイナリ1つ** — サイトの作成・ビルド・プレビューを1つのCLIで行います。
-- **Markdown + Tera** — 記事はTOMLフロントマター付きのMarkdownで書き、ページは[Tera](https://keats.github.io/tera/)テンプレートで組み立てます。
+- **Markdown + bitview** — 記事はTOMLフロントマター付きのMarkdownで書き、ページは[bitview](https://github.com/nnenn0/bitview)テンプレートで組み立てます。bitviewはHTMLを関数で組み立てる小さい言語で、文字列は必ずエスケープし、スクリプトは書けません。
 - **ライブリロード** — `genbit dev` は保存のたびに再ビルドし、SSEでブラウザーを再読み込みします。再ビルドに失敗しても、最後に成功したサイトを配信し続けます。
 - **下書き** — `drafts/` の記事は `genbit dev` だけで印付きでプレビューし、`genbit build` の出力には含めません。
-- **CSSのインライン化とHTML圧縮** — CSSはテンプレートごとにインライン展開し、全ページを圧縮します。初期テーマはJavaScriptなしでOSのライト/ダーク設定に追従します。
+- **CSSのインライン化とHTML圧縮** — 部品ごとにHTMLとCSSを並べて書け、そのページが使う部品のCSSだけをインライン展開し、全ページを圧縮します。初期テーマはJavaScriptなしでOSのライト/ダーク設定に追従します。
 - **メタデータとRSSの生成** — canonicalリンク、`sitemap.xml`、`robots.txt`、Open Graph、JSON-LD、RSS 2.0フィードを生成します。
 - **本文の画像の寸法とキャッシュ対策** — ローカルのPNG・JPEG・GIF・WebPに `width`・`height` 属性を自動で付け、読み込みによるレイアウトシフトを防ぎます。画像のURLには内容のハッシュを付けるため、長期間キャッシュしても差し替えが反映されます。
 - **記事ごとのディレクトリ** — 記事は `index.md` と画像などの素材を1つのディレクトリにまとめ、`/entries/hello-world/` のようなURLで配信します。本文から素材を相対パスで参照できます。
@@ -97,7 +97,7 @@ genbit build    # dist/ にサイトを生成
 
 | コマンド | 内容 |
 | --- | --- |
-| `genbit new <name>` | 設定・テンプレート・CSS・サンプル記事を含む新しいサイトのディレクトリを作ります。名前にはASCII英数字・`-`・`_` を使え、先頭は英数字にします。既存のパスは上書きしません。 |
+| `genbit new <name>` | 設定・ビュー・サンプル記事を含む新しいサイトのディレクトリを作ります。名前にはASCII英数字・`-`・`_` を使え、先頭は英数字にします。既存のパスは上書きしません。 |
 | `genbit build` | カレントディレクトリのサイトを `dist/` へビルドします。記事内のサイト内リンクの参照先がなければ失敗します。 |
 | `genbit build --dry-run` | ビルドと同じ検査をすべて行い、`dist/` は変更しません。 |
 | `genbit dev [--host <ip>] [--port <port>]` | 下書きを含めてビルドして配信し（既定は `127.0.0.1:3000`）、変更があれば再ビルドして再読み込みします。`dist/` は変更しません。 |
@@ -111,8 +111,9 @@ my-blog/
 ├── content/             # 記事のディレクトリ → /entries/hello-world/
 │   └── entries/hello-world/index.md   # 画像などの素材も同じディレクトリに置く
 ├── drafts/              # 下書き。content/ と同じ構成で、genbit dev だけが読む
-├── templates/           # Teraテンプレート: base, page, root, tags, tag, entry-list, 404
-├── styles/              # common.css と、テンプレート別の任意CSS
+├── views/
+│   ├── pages/           # ページごとのbitviewとCSS: root, page, tags, tag, not-found
+│   └── components/      # ページが使う部品のbitviewとCSS: document, layout, entry-list など
 └── static/              # そのままコピー（assets/img/ に複数の記事で使う画像、assets/site/ にfavicon・OGP画像）
 ```
 
@@ -134,14 +135,14 @@ tags = ["rust", "web"]
 | --- | --- |
 | [設定](docs/configuration.md) | `config.toml` の項目とURLの規則 |
 | [コンテンツ](docs/content.md) | フロントマター、タグ、記事URL、Markdownの処理 |
-| [テンプレートとCSS](docs/templates.md) | テンプレート変数、CSSの合成、初期テーマ |
+| [ビュー](docs/views.md) | ページと部品の構成、テンプレート変数、CSSの合成、初期テーマ |
 | [出力と公開](docs/output.md) | 生成ファイル、`dist/` の保護、公開先の条件、開発サーバー |
 | [開発](docs/development.md) | Dockerを使ったgenbit自体の開発 |
 
 ## 既知の制限
 
 - 公開先はドメインのルートに限ります。サブパス（例: `https://example.com/blog/`）への配置には対応していません。
-- 初期テンプレートとサンプル記事は日本語で、`<html lang="ja">` を出力します。他の言語で使う場合は `templates/base.html` を編集してください。
+- 初期テンプレートとサンプル記事は日本語で、`<html lang="ja">` を出力します。他の言語で使う場合は `views/components/document.bitview` を編集してください。
 - AVIFとSVGの画像には寸法属性を付けません。本文の画像はPNG・JPEG・GIF・WebPで用意してください（[docs/content.md](docs/content.md#画像)）。
 - 画像の縮小・形式変換・圧縮は行いません。画像は外部ツールで事前に処理してください。
 - シンタックスハイライトは行いません。

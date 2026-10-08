@@ -1,0 +1,10 @@
+fn tags(ctx) =>
+  layout(ctx, concat("tags | ", ctx.site.title), "記事のタグ一覧", "website",
+    home-link(ctx),
+    [
+      h1("tags"),
+      ul({class: "tag-list"}, map(ctx.tags, tag-count)),
+    ]
+  )
+
+fn tag-count(tag) => li(a({href: tag.url}, tag.name), concat(" (", tag.count, ")"))

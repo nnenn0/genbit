@@ -1,0 +1,7 @@
+fn entry-list(entries) => ul({class: "entry-list"}, map(entries, entry-item))
+
+fn entry-item(entry) =>
+  li(
+    a({href: entry.url}, entry.title),
+    span({class: "entry-meta"}, timestamp(entry.created-at), draft-badge(entry))
+  )

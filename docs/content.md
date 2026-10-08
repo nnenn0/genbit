@@ -5,7 +5,6 @@
 ```markdown
 +++
 title = "最初の記事"
-template = "page.html"
 created_at = 2026-09-17 09:00
 updated_at = 2026-09-22 00:00
 description = "記事で扱う内容を簡潔に説明します。"
@@ -23,12 +22,11 @@ tags = ["react", "web-security"]
 | `updated_at` | 必須 | 最終更新日時。更新していない記事では `created_at` と同じ値にします。`created_at` より前にはできません。 |
 | `description` | 必須 | meta description、Open Graph、JSON-LD、RSSフィードに使う概要。空にはできません。 |
 | `title` | 任意 | 記事のタイトル。省略時はディレクトリ名。 |
-| `template` | 任意 | `templates/` 以下のテンプレート。省略時は `page.html`。 |
 | `tags` | 任意 | タグの配列。[タグ](#タグ)を参照。 |
 
 未知のフィールドはエラーになります。`title` と `description` には制御文字（タブ・改行を除く）を使えません。RSSフィードやHTMLを壊さないためです。
 
-TOMLとして読めない場合、未知のフィールドがある場合、日時・タグ・`template` の書式が正しくない場合は、エラーに記事ファイルの先頭から数えた行と列を表示します。
+TOMLとして読めない場合、未知のフィールドがある場合、日時・タグの書式が正しくない場合は、エラーに記事ファイルの先頭から数えた行と列を表示します。
 
 ### 日時
 
@@ -46,7 +44,7 @@ TOMLとして読めない場合、未知のフィールドがある場合、日�
 - 同じ記事の中で同じタグは重複できません。
 - `untagged` は予約語です。タグのない記事の一覧に使うため、タグ名にはできません。
 
-`templates/tags.html` から `/tags/` を、`templates/tag.html` からタグごとの `/tags/{tag}/` を生成し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示し、テンプレートに渡す `tags` は `["untagged"]` になります。タグページの記事の並びはトップページと同じです。
+`views/pages/tags.bitview` で `/tags/` を、`views/pages/tag.bitview` でタグごとの `/tags/{tag}/` を描画し、sitemapにも追加します。タグのない記事は `/tags/untagged/` に表示し、テンプレートに渡す記事の `tags` は `untagged` の1つになります。タグページの記事の並びはトップページと同じです。
 
 ## パスとURL
 
@@ -62,7 +60,7 @@ TOMLとして読めない場合、未知のフィールドがある場合、日�
 - `index.md` 以外の `.md` ファイル、どのページのディレクトリにもないファイルはビルドエラーになります。どのページにも属さないファイルは `static/` に置きます。
 - `.gitkeep` と、macOSのFinderが作る `.DS_Store` は読み飛ばします。`.gitkeep` は空のディレクトリをGitに残すために置けます。
 - ディレクトリ名に使えるのは、ASCII英数字・`-`・`_` だけです。
-- `content/index.md` は使えません。トップページは `config.toml` と `templates/root.html` から生成します。
+- `content/index.md` は使えません。トップページは `config.toml` と `views/pages/root.bitview` から生成します。
 - 記事は作成日時の新しい順に並べます。同じ日時の記事はURL順です。
 
 記事のURLは `/` で終わります。ディレクトリの `index.html` を返すのは静的ホストの標準的な動作なので、公開先で特別な設定は要りません。
@@ -97,9 +95,13 @@ broken internal link in content/entries/a/index.md: ../missing/#x resolves to /e
 - `?` 以降のクエリと `#` 以降のアンカーは除いて確かめます。見出しの `id` が存在するかは確かめません。
 - `%E7%94%BB` のようなパーセントエンコードは一度だけデコードしてから比べます。不正なエンコードはエラーになります。パスの区切り文字は `/` で書いてください。パス内の `%2F`・`%5C`（大文字・小文字を問わない）と `\` は、検証と配信で解釈が食い違うためエラーにします。クエリとアンカー内の `%2F`・`%5C` は対象外です。
 - 大文字と小文字は区別します。`/Entries/A/` は `/entries/a/` と一致しません。
-- `https:`・`mailto:`・`tel:` などスキームのあるURL、`//` で始まるURL、`#section` のような同じページ内へのリンクは確かめません。ネットワークにはアクセスしません。
+- `https:`・`mailto:` などスキームのあるURL、`//` で始まるURL、`#section` のような同じページ内へのリンクは確かめません。ネットワークにはアクセスしません。
 - スキームはURLの先頭で判定します。`/files/a:b.png` や `./a:b.png` はサイト内の参照として検証し、画像の場合は寸法の取得とハッシュの付与も通常どおり行います。
 - テンプレートに書いたリンクと、見出しの中に書いて取り除かれたリンクは確かめません。記事の本文にはHTMLを直接書けないため（[HTMLの禁止](#htmlの禁止)）、本文のリンクと画像はすべて検証の対象です。
+
+### URLのスキーム
+
+リンクと画像のURLに書けるスキームは、`http:`・`https:`・`mailto:` だけです。`javascript:`・`data:`・`tel:` などほかのスキームを書くと、ビルドエラーになります。スキームのない相対URLと、`#section` のようなページ内リンクは使えます。スキームの大文字・小文字は区別せず、前後の空白やURLの途中のタブ・改行はブラウザーと同じく無視して判定します。
 
 ### 外部リンク
 
@@ -115,7 +117,7 @@ broken internal link in content/entries/a/index.md: ../missing/#x resolves to /e
 
 ### 表
 
-GitHub Flavored Markdownの表の記法を使えます。区切り行の `:---`・`:---:`・`---:` による揃えの指定は、各セルの `style="text-align: ..."` として出力します。初期CSSは表に罫線を引き、本文の幅に収まらない表は横にスクロールできるようにしています。
+GitHub Flavored Markdownの表の記法を使えます。区切り行の `:---`・`:---:`・`---:` による揃えの指定は、その列のセルに `align-left`・`align-center`・`align-right` のクラスとして出力し、初期CSSの `views/pages/page.css` がそのとおりに揃えます。genbitはHTMLに `style` 属性を出力しないので、揃え方はCSSで決まります。初期CSSは表に罫線を引き、本文の幅に収まらない表は横にスクロールできるようにしています。
 
 ```markdown
 | ページ | 転送サイズ |
@@ -129,7 +131,7 @@ Markdownの画像には `loading="lazy"` と `decoding="async"` を付けます�
 
 ページの素材や `static/` のPNG・JPEG・GIF・WebPを参照すると、ファイルから寸法を読み取り、HTMLの `width`・`height` 属性を付けます。ブラウザーが画像の読み込み前に縦横比と表示領域を確保でき、画像の読み込みによるレイアウトシフトを防げます。形式はファイルの内容で判断します。JPEGにEXIFの回転情報がある場合は、表示方向に合わせた寸法を使います。
 
-初期CSSの `styles/common.css` は、`img { display: block; max-width: 100%; height: auto; margin-inline: auto; }` で画像の表示を決めます。
+初期CSSの `views/components/document.css` は、`img { display: block; max-width: 100%; height: auto; margin-inline: auto; }` で画像の表示を決めます。
 
 - 同じ段落に並べた画像も、1カラムで1枚ずつ縦に配置します。
 - 本文の幅を超える画像だけを縮小し、本文より小さい画像は拡大しません。
@@ -226,4 +228,4 @@ HTMLのタグを文字として見せたい場合は、次のように書きま�
 
 `<https://example.com>` のようなURLのオートリンクと `<someone@example.com>` のようなメールアドレスのオートリンクは、HTMLではなくリンクとして扱うため使えます。
 
-テンプレートにはHTMLを書けます。本文の禁止はテンプレートには関係しません（[テンプレートとCSS](templates.md)）。
+テンプレートでは、bitviewの要素関数でHTMLを組み立てます。本文の禁止はテンプレートには関係しません（[ビュー](views.md)）。

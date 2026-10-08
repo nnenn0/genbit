@@ -1,14 +1,13 @@
-use crate::{
-    images::{Image, Size},
-    text::escape_markup,
-};
+use crate::images::{Image, Size};
+use anyhow::{Context as _, bail, ensure};
+use bitview::Html;
 use pulldown_cmark::{
-    CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd, html,
+    Alignment, CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, slice};
 
 pub(crate) struct Rendered {
-    pub(crate) html: String,
+    pub(crate) content: Html,
     /// The targets that `site_links` selects, for checking against the site.
     pub(crate) links: Vec<String>,
 }
@@ -25,7 +24,6 @@ pub(crate) struct Parsed<'a> {
 }
 
 pub(crate) fn parse(text: &str) -> Result<Parsed<'_>, RawHtml> {
-    // Checked before any rewriting, because the later steps emit HTML events of their own.
     let parsed = Parser::new_ext(text, Options::ENABLE_TABLES)
         .into_offset_iter()
         .map(|(event, range)| match event {
@@ -43,58 +41,11 @@ impl Parsed<'_> {
         self,
         mut local_image: impl FnMut(&str) -> anyhow::Result<Option<Image>>,
     ) -> anyhow::Result<Rendered> {
-        let events = anchor_headings(self.events.into_iter());
-        let links = site_links(&events);
-        let events = to_html_events(events, &mut local_image)?;
-        let mut output = String::new();
-        html::push_html(&mut output, events.into_iter());
         Ok(Rendered {
-            html: output,
-            links,
+            links: site_links(&self.events),
+            content: to_html(&self.events, &mut local_image)?,
         })
     }
-}
-
-/// Makes each second- and third-level heading a link to itself, keeping the typed events of its content.
-fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
-    let mut anchored = Vec::new();
-    let mut used_ids = HashSet::new();
-    while let Some(event) = events.next() {
-        match event {
-            Event::Start(Tag::Heading {
-                level,
-                classes,
-                attrs,
-                ..
-            }) if is_linked_heading(level) => {
-                let heading = events
-                    .by_ref()
-                    .take_while(|inner| !matches!(inner, Event::End(TagEnd::Heading(_))))
-                    .collect::<Vec<_>>();
-                let id = unique_heading_id(&heading_text(&heading), &mut used_ids);
-                anchored.push(Event::Start(Tag::Heading {
-                    level,
-                    id: Some(id.clone().into()),
-                    classes,
-                    attrs,
-                }));
-                anchored.push(Event::Html(
-                    format!("<a class=\"heading-anchor\" href=\"#{id}\">").into(),
-                ));
-                // Anchors cannot nest, so links inside the heading keep only their text.
-                anchored.extend(heading.into_iter().filter(|inner| {
-                    !matches!(
-                        inner,
-                        Event::Start(Tag::Link { .. }) | Event::End(TagEnd::Link)
-                    )
-                }));
-                anchored.push(Event::Html("</a>".into()));
-                anchored.push(Event::End(TagEnd::Heading(level)));
-            }
-            other => anchored.push(other),
-        }
-    }
-    anchored
 }
 
 /// Returns the link and image targets that the HTML will contain, in document order, leaving out
@@ -102,8 +53,13 @@ fn anchor_headings<'a>(mut events: impl Iterator<Item = Event<'a>>) -> Vec<Event
 fn site_links(events: &[Event<'_>]) -> Vec<String> {
     let mut links = Vec::new();
     let mut image_depth = 0_usize;
+    let mut linked_heading = false;
     for event in events {
         match event {
+            Event::Start(Tag::Heading { level, .. }) if is_linked_heading(*level) => {
+                linked_heading = true;
+            }
+            Event::End(TagEnd::Heading(_)) => linked_heading = false,
             Event::Start(Tag::Image { dest_url, .. }) => {
                 if image_depth == 0 {
                     links.push(dest_url.to_string());
@@ -117,6 +73,7 @@ fn site_links(events: &[Event<'_>]) -> Vec<String> {
                 dest_url,
                 ..
             }) if image_depth == 0
+                && !linked_heading
                 && *link_type != LinkType::Email
                 && !crate::route::is_external_web_link(dest_url) =>
             {
@@ -128,96 +85,316 @@ fn site_links(events: &[Event<'_>]) -> Vec<String> {
     links
 }
 
-/// Replaces events that need attributes pulldown-cmark cannot write.
-fn to_html_events<'a>(
-    events: Vec<Event<'a>>,
+fn to_html(
+    events: &[Event<'_>],
     local_image: &mut impl FnMut(&str) -> anyhow::Result<Option<Image>>,
-) -> anyhow::Result<Vec<Event<'a>>> {
-    let mut converted = Vec::with_capacity(events.len());
-    let mut events = events.into_iter();
-    let mut external_link = false;
-    let mut has_label = false;
+) -> anyhow::Result<Html> {
+    let mut tree = Tree::default();
+    let mut state = State::default();
+    let mut events = events.iter();
     while let Some(event) = events.next() {
         match event {
             Event::Start(Tag::Image {
                 dest_url, title, ..
             }) => {
-                let image = local_image(&dest_url)?;
-                let src = match image {
-                    Some(image) => versioned_url(&dest_url, &image.hash.url_version())?,
-                    None => dest_url.to_string(),
-                };
-                converted.push(Event::Html(
-                    image_html(
-                        &mut events,
-                        &src,
-                        &title,
-                        image.and_then(|image| image.size),
-                    )
-                    .into(),
-                ));
+                let image = image(&mut events, dest_url, title, local_image)?;
+                tree.push(image);
             }
-            Event::Start(Tag::Link {
-                dest_url, title, ..
-            }) if crate::route::is_external_web_link(&dest_url) => {
-                external_link = true;
-                converted.push(Event::Html(external_anchor(&dest_url, &title).into()));
+            Event::Start(tag) => {
+                let opened = state.start(&mut tree, tag, &events)?;
+                tree.started.push(opened);
             }
-            Event::End(TagEnd::Link) if external_link => {
-                external_link = false;
-                converted.push(Event::Html("</a>".into()));
-            }
-            Event::Start(Tag::CodeBlock(kind)) => {
-                if let Some(label) = code_block_label(&kind) {
-                    converted.push(Event::Html(label.into()));
-                    has_label = true;
+            Event::End(tag) => {
+                match tag {
+                    TagEnd::Heading(_) => state.linked_heading = false,
+                    TagEnd::TableHead => state.table_head = false,
+                    TagEnd::Table => state.table_body = false,
+                    _ => {}
                 }
-                converted.push(Event::Start(Tag::CodeBlock(kind)));
+                tree.end()?;
             }
-            Event::End(TagEnd::CodeBlock) => {
-                converted.push(Event::End(TagEnd::CodeBlock));
-                if has_label {
-                    converted.push(Event::Html("</div>".into()));
-                    has_label = false;
-                }
-            }
-            other => converted.push(other),
+            Event::Text(text) => tree.push(Html::text(text.as_ref())),
+            Event::Code(code) => tree.push(element("code", Vec::new(), Html::text(code.as_ref()))?),
+            Event::SoftBreak => tree.push(Html::text("\n")),
+            Event::HardBreak => tree.push(element("br", Vec::new(), Html::default())?),
+            Event::Rule => tree.push(element("hr", Vec::new(), Html::default())?),
+            // `parse` rejects raw HTML, and the other events need options that are not enabled.
+            other => bail!("unsupported Markdown event {other:?}"),
         }
     }
-    Ok(converted)
+    tree.finish()
 }
 
-fn external_anchor(url: &str, title: &str) -> String {
-    let mut anchor = format!(
-        "<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\"",
-        escape_markup(url)
-    );
-    if !title.is_empty() {
-        anchor.push_str(" title=\"");
-        anchor.push_str(&escape_markup(title));
-        anchor.push('"');
+#[derive(Default)]
+struct Tree {
+    root: Html,
+    open: Vec<Open>,
+    /// A Markdown tag can open several elements (a linked heading opens `h2` and `a`), so its end
+    /// must close as many as it opened.
+    started: Vec<usize>,
+}
+
+struct Open {
+    name: &'static str,
+    attrs: Vec<(&'static str, String)>,
+    children: Html,
+}
+
+impl Tree {
+    fn push(&mut self, html: Html) {
+        match self.open.last_mut() {
+            Some(parent) => parent.children.push(html),
+            None => self.root.push(html),
+        }
     }
-    anchor.push('>');
-    anchor
+
+    fn open(&mut self, name: &'static str, attrs: Vec<(&'static str, String)>) {
+        self.open.push(Open {
+            name,
+            attrs,
+            children: Html::default(),
+        });
+    }
+
+    fn close(&mut self) -> anyhow::Result<()> {
+        let open = self.open.pop().context("unbalanced Markdown events")?;
+        let name = open.name;
+        let link = open
+            .attrs
+            .iter()
+            .find(|(attr, _)| *attr == "href")
+            .map(|(_, href)| href.clone());
+        let closed = element(name, open.attrs, open.children).with_context(|| match &link {
+            Some(href) => format!("invalid link {href}"),
+            None => format!("cannot build <{name}>"),
+        })?;
+        self.push(closed);
+        Ok(())
+    }
+
+    fn end(&mut self) -> anyhow::Result<()> {
+        let opened = self.started.pop().context("unbalanced Markdown events")?;
+        for _ in 0..opened {
+            self.close()?;
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> anyhow::Result<Html> {
+        ensure!(
+            self.open.is_empty() && self.started.is_empty(),
+            "unbalanced Markdown events"
+        );
+        Ok(self.root)
+    }
+}
+
+#[derive(Default)]
+struct State {
+    used_ids: HashSet<String>,
+    linked_heading: bool,
+    table_head: bool,
+    table_body: bool,
+    alignments: Vec<Alignment>,
+    column: usize,
+}
+
+impl State {
+    fn start(
+        &mut self,
+        tree: &mut Tree,
+        tag: &Tag<'_>,
+        rest: &slice::Iter<'_, Event<'_>>,
+    ) -> anyhow::Result<usize> {
+        match tag {
+            Tag::Paragraph => tree.open("p", Vec::new()),
+            Tag::Heading { level, .. } if is_linked_heading(*level) => {
+                let text = heading_text(
+                    rest.clone()
+                        .take_while(|event| !matches!(event, Event::End(TagEnd::Heading(_)))),
+                );
+                let id = unique_heading_id(&text, &mut self.used_ids);
+                tree.open(heading_name(*level), vec![("id", id.clone())]);
+                tree.open(
+                    "a",
+                    vec![
+                        ("class", "heading-anchor".to_owned()),
+                        ("href", format!("#{id}")),
+                    ],
+                );
+                self.linked_heading = true;
+                return Ok(2);
+            }
+            Tag::Heading { level, .. } => tree.open(heading_name(*level), Vec::new()),
+            Tag::BlockQuote(_) => tree.open("blockquote", Vec::new()),
+            Tag::CodeBlock(kind) => return code_block(tree, kind),
+            Tag::List(Some(start)) => {
+                let attrs = if *start == 1 {
+                    Vec::new()
+                } else {
+                    vec![("start", start.to_string())]
+                };
+                tree.open("ol", attrs);
+            }
+            Tag::List(None) => tree.open("ul", Vec::new()),
+            Tag::Item => tree.open("li", Vec::new()),
+            Tag::Table(alignments) => {
+                self.alignments.clone_from(alignments);
+                tree.open("table", Vec::new());
+            }
+            Tag::TableHead => {
+                self.table_head = true;
+                self.column = 0;
+                tree.open("thead", Vec::new());
+                tree.open("tr", Vec::new());
+                return Ok(2);
+            }
+            Tag::TableRow => {
+                // `tbody` has no Markdown tag of its own: it opens with the first row and closes
+                // with the table, so the table's end closes it.
+                if !self.table_body {
+                    self.table_body = true;
+                    tree.open("tbody", Vec::new());
+                    if let Some(table) = tree.started.last_mut() {
+                        *table += 1;
+                    }
+                }
+                self.column = 0;
+                tree.open("tr", Vec::new());
+            }
+            Tag::TableCell => {
+                // A class rather than a `style` attribute, so that the CSS decides how cells align.
+                let attrs = match self.alignments.get(self.column) {
+                    Some(Alignment::Left) => vec![("class", "align-left".to_owned())],
+                    Some(Alignment::Center) => vec![("class", "align-center".to_owned())],
+                    Some(Alignment::Right) => vec![("class", "align-right".to_owned())],
+                    Some(Alignment::None) | None => Vec::new(),
+                };
+                self.column += 1;
+                tree.open(if self.table_head { "th" } else { "td" }, attrs);
+            }
+            Tag::Emphasis => tree.open("em", Vec::new()),
+            Tag::Strong => tree.open("strong", Vec::new()),
+            // Anchors cannot nest, so links inside a linked heading keep only their text.
+            Tag::Link { .. } if self.linked_heading => return Ok(0),
+            Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                ..
+            } => tree.open("a", link_attributes(*link_type, dest_url, title)),
+            other => bail!("unsupported Markdown element {other:?}"),
+        }
+        Ok(1)
+    }
+}
+
+fn link_attributes(link_type: LinkType, url: &str, title: &str) -> Vec<(&'static str, String)> {
+    let href = if link_type == LinkType::Email {
+        format!("mailto:{url}")
+    } else {
+        url.to_owned()
+    };
+    let mut attrs = vec![("href", href)];
+    if crate::route::is_external_web_link(url) {
+        attrs.push(("target", "_blank".to_owned()));
+        attrs.push(("rel", "noopener noreferrer".to_owned()));
+    }
+    if !title.is_empty() {
+        attrs.push(("title", title.to_owned()));
+    }
+    attrs
+}
+
+fn code_block(tree: &mut Tree, kind: &CodeBlockKind<'_>) -> anyhow::Result<usize> {
+    let language = match kind {
+        CodeBlockKind::Fenced(info) => info.split_whitespace().next(),
+        CodeBlockKind::Indented => None,
+    };
+    let Some(language) = language else {
+        tree.open("pre", Vec::new());
+        tree.open("code", Vec::new());
+        return Ok(2);
+    };
+    tree.open("div", vec![("class", "code-block".to_owned())]);
+    tree.push(element(
+        "span",
+        vec![("class", "code-language".to_owned())],
+        Html::text(language),
+    )?);
+    tree.open("pre", Vec::new());
+    tree.open("code", vec![("class", format!("language-{language}"))]);
+    Ok(3)
+}
+
+fn image(
+    events: &mut slice::Iter<'_, Event<'_>>,
+    url: &str,
+    title: &str,
+    local_image: &mut impl FnMut(&str) -> anyhow::Result<Option<Image>>,
+) -> anyhow::Result<Html> {
+    let mut alt = String::new();
+    let mut depth = 1_usize;
+    for event in events.by_ref() {
+        match event {
+            Event::Start(Tag::Image { .. }) => depth += 1,
+            Event::End(TagEnd::Image) => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            Event::Text(text) | Event::Code(text) => alt.push_str(text),
+            Event::SoftBreak | Event::HardBreak => alt.push(' '),
+            _ => {}
+        }
+    }
+    let image = local_image(url)?;
+    let src = match &image {
+        Some(image) => versioned_url(url, &image.hash.url_version())?,
+        None => url.to_owned(),
+    };
+    let mut attrs = vec![
+        ("src", src),
+        ("alt", alt),
+        ("loading", "lazy".to_owned()),
+        ("decoding", "async".to_owned()),
+    ];
+    if let Some(Size { width, height }) = image.and_then(|image| image.size) {
+        attrs.push(("width", width.to_string()));
+        attrs.push(("height", height.to_string()));
+    }
+    if !title.is_empty() {
+        attrs.push(("title", title.to_owned()));
+    }
+    element("img", attrs, Html::default()).with_context(|| format!("invalid image {url}"))
+}
+
+fn element(name: &str, attrs: Vec<(&'static str, String)>, children: Html) -> anyhow::Result<Html> {
+    let attrs = attrs
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect();
+    Ok(Html::element(name, attrs, children)?)
 }
 
 fn is_linked_heading(level: HeadingLevel) -> bool {
     matches!(level, HeadingLevel::H2 | HeadingLevel::H3)
 }
 
-fn code_block_label(kind: &CodeBlockKind<'_>) -> Option<String> {
-    let CodeBlockKind::Fenced(info) = kind else {
-        return None;
-    };
-    let language = info.split_whitespace().next()?;
-    Some(format!(
-        "<div class=\"code-block\"><span class=\"code-language\">{}</span>",
-        escape_markup(language)
-    ))
+fn heading_name(level: HeadingLevel) -> &'static str {
+    match level {
+        HeadingLevel::H1 => "h1",
+        HeadingLevel::H2 => "h2",
+        HeadingLevel::H3 => "h3",
+        HeadingLevel::H4 => "h4",
+        HeadingLevel::H5 => "h5",
+        HeadingLevel::H6 => "h6",
+    }
 }
 
 /// Reads the visible heading text for its ID, leaving out image alt text.
-fn heading_text(events: &[Event<'_>]) -> String {
+fn heading_text<'a>(events: impl Iterator<Item = &'a Event<'a>>) -> String {
     let mut text = String::new();
     let mut image_depth = 0_usize;
     for event in events {
@@ -286,47 +463,6 @@ fn versioned_url(url: &str, version: &str) -> anyhow::Result<String> {
     Ok(versioned)
 }
 
-fn image_html<'a>(
-    events: &mut impl Iterator<Item = Event<'a>>,
-    src: &str,
-    title: &str,
-    size: Option<Size>,
-) -> String {
-    let mut alt = String::new();
-    let mut image_depth = 1;
-    for event in events {
-        match event {
-            Event::Start(Tag::Image { .. }) => image_depth += 1,
-            Event::End(TagEnd::Image) => {
-                image_depth -= 1;
-                if image_depth == 0 {
-                    break;
-                }
-            }
-            Event::Text(text) | Event::Code(text) => alt.push_str(&text),
-            Event::SoftBreak | Event::HardBreak => alt.push(' '),
-            _ => {}
-        }
-    }
-    let mut image = format!(
-        "<img src=\"{}\" alt=\"{}\" loading=\"lazy\" decoding=\"async\"",
-        escape_markup(src),
-        escape_markup(&alt)
-    );
-    if let Some(Size { width, height }) = size {
-        use std::fmt::Write as _;
-        // Writing to a String is infallible.
-        let _ = write!(image, " width=\"{width}\" height=\"{height}\"");
-    }
-    if !title.is_empty() {
-        image.push_str(" title=\"");
-        image.push_str(&escape_markup(title));
-        image.push('"');
-    }
-    image.push('>');
-    image
-}
-
 #[cfg(test)]
 mod tests {
     use super::Rendered;
@@ -343,7 +479,7 @@ mod tests {
     }
 
     fn render_html(source: &str) -> Result<String> {
-        Ok(render(source)?.html)
+        Ok(render(source)?.content.to_fragment())
     }
 
     #[test]
@@ -363,7 +499,12 @@ mod tests {
             }))
         })?;
         assert_eq!(requested, ["/outer.png"]);
-        assert!(rendered.html.contains("width=\"300\" height=\"200\""));
+        assert!(
+            rendered
+                .content
+                .to_fragment()
+                .contains("width=\"300\" height=\"200\"")
+        );
         assert_eq!(rendered.links, ["/outer.png"]);
         let parsed = super::parse(source).map_err(|_| anyhow::anyhow!("invalid test Markdown"))?;
         assert!(
@@ -394,12 +535,16 @@ mod tests {
             "src=\"https://example.com/e.png\"".to_owned(),
         ] {
             assert!(
-                rendered.html.contains(&expected),
+                rendered.content.to_fragment().contains(&expected),
                 "{expected}: {}",
-                rendered.html
+                rendered.content.to_fragment()
             );
         }
-        assert!(!rendered.html.contains("width="), "{}", rendered.html);
+        assert!(
+            !rendered.content.to_fragment().contains("width="),
+            "{}",
+            rendered.content.to_fragment()
+        );
         assert_eq!(
             rendered.links,
             [
@@ -460,15 +605,83 @@ mod tests {
     }
 
     #[test]
-    fn renders_tables_with_alignment() -> Result<()> {
-        let html = render_html("| Page | Size |\n| --- | ---: |\n| Top | 1,098 |\n")?;
-        assert!(html.contains("<table>"), "{html}");
-        assert!(html.contains("<th>Page</th>"), "{html}");
-        assert!(
-            html.contains("<td style=\"text-align: right\">1,098</td>"),
-            "{html}"
+    fn renders_tables_with_alignment_classes() -> Result<()> {
+        let html = render_html("| Page | Size |\n| --- | ---: |\n| Top | 1,098 |\n| End | 0 |\n")?;
+        assert_eq!(
+            html,
+            concat!(
+                "<table><thead><tr><th>Page</th><th class=\"align-right\">Size</th></tr></thead>",
+                "<tbody><tr><td>Top</td><td class=\"align-right\">1,098</td></tr>",
+                "<tr><td>End</td><td class=\"align-right\">0</td></tr></tbody></table>",
+            )
+        );
+        assert_eq!(
+            render_html("| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |\n")?,
+            concat!(
+                "<table><thead><tr><th class=\"align-left\">a</th><th class=\"align-center\">b</th>",
+                "<th class=\"align-right\">c</th></tr></thead><tbody><tr><td class=\"align-left\">1</td>",
+                "<td class=\"align-center\">2</td><td class=\"align-right\">3</td></tr></tbody></table>",
+            )
+        );
+        assert_eq!(
+            render_html("| Page |\n| --- |\n")?,
+            "<table><thead><tr><th>Page</th></tr></thead></table>"
         );
         Ok(())
+    }
+
+    #[test]
+    fn numbers_lists_from_their_first_number() -> Result<()> {
+        assert_eq!(
+            render_html("1. a\n2. b\n\n- c\n")?,
+            "<ol><li>a</li><li>b</li></ol><ul><li>c</li></ul>"
+        );
+        assert_eq!(render_html("3. a\n")?, "<ol start=\"3\"><li>a</li></ol>");
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_links_and_images_with_unsafe_schemes() {
+        for (source, expected) in [
+            (
+                "[x](javascript:alert(1))",
+                "invalid link javascript:alert(1)",
+            ),
+            (
+                "[x](JavaScript:alert(1))",
+                "invalid link JavaScript:alert(1)",
+            ),
+            ("[x](data:text/html,x)", "invalid link data:text/html,x"),
+            (
+                "[x](tel:+81-3-0000-0000)",
+                "invalid link tel:+81-3-0000-0000",
+            ),
+            (
+                "![x](data:image/png;base64,AAAA)",
+                "invalid image data:image/png;base64,AAAA",
+            ),
+        ] {
+            let error = render(source).err().map(|error| format!("{error:#}"));
+            assert!(
+                error
+                    .as_deref()
+                    .is_some_and(|error| error.starts_with(expected)),
+                "{source}: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deeply_nested_quotes_fail_instead_of_exhausting_the_stack() {
+        let error = render(&format!("{} deep\n", ">".repeat(100_000)))
+            .err()
+            .map(|error| format!("{error:#}"));
+        assert!(
+            error
+                .as_deref()
+                .is_some_and(|error| error.contains("nested more than")),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -558,7 +771,7 @@ mod tests {
             .map_err(|_| anyhow!("invalid test Markdown"))?;
         let rendered = parsed.render(|_| Ok(None))?;
         assert!(rendered.links.is_empty(), "{:?}", rendered.links);
-        let html = rendered.html;
+        let html = rendered.content.to_fragment();
         assert!(
             html.contains(
                 "<a class=\"heading-anchor\" href=\"#内部-と-外部\">内部 と 外部</a></h2>"
@@ -699,7 +912,7 @@ mod tests {
         for expected in [
             "<code>&lt;div&gt;</code>",
             "<code>&lt;!-- --&gt;</code>",
-            "&lt;picture&gt;&lt;img src=\"a.png\"&gt;&lt;/picture&gt;\n&lt;!-- note --&gt;",
+            "&lt;picture&gt;&lt;img src=&quot;a.png&quot;&gt;&lt;/picture&gt;\n&lt;!-- note --&gt;",
             "&lt;details&gt;indented&lt;/details&gt;",
             "&lt;kbd&gt;Ctrl&lt;/kbd&gt; &lt;br&gt; &lt;span&gt;",
         ] {
@@ -732,19 +945,10 @@ mod tests {
         let rendered = render(
             "<person@example.md> [mail](mailto:person@example.md) [next](../next/?x=1#section)",
         )?;
-        assert_eq!(
-            rendered
-                .html
-                .matches("href=\"mailto:person@example.md\"")
-                .count(),
-            2
-        );
-        assert!(
-            rendered
-                .html
-                .contains("<a href=\"mailto:person@example.md\">person@example.md</a>")
-        );
-        assert!(rendered.html.contains("href=\"../next/?x=1#section\""));
+        let html = rendered.content.to_fragment();
+        assert_eq!(html.matches("href=\"mailto:person@example.md\"").count(), 2);
+        assert!(html.contains("<a href=\"mailto:person@example.md\">person@example.md</a>"));
+        assert!(html.contains("href=\"../next/?x=1#section\""));
         assert_eq!(
             rendered.links,
             ["mailto:person@example.md", "../next/?x=1#section"]

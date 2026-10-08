@@ -13,6 +13,7 @@ mod route;
 mod scaffold;
 mod tags;
 mod text;
+mod views;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};

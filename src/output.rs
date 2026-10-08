@@ -341,7 +341,7 @@ mod tests {
 
         fs::create_dir(root.join("static"))?;
         fs::write(root.join("static/asset.bin"), [0, 1, 2, 255])?;
-        let listed = input.files(Path::new("static"))?;
+        let listed = input.tree(Path::new("static"))?.files;
         assert_eq!(listed.len(), 1);
         let plan = OutputPlan::new(vec![
             Artifact::generated(PathBuf::from("index.html"), b"new output".to_vec(), "home"),
@@ -433,7 +433,7 @@ mod tests {
 
         fs::create_dir(root.join("static"))?;
         fs::write(root.join("static/asset.bin"), [0, 1, 2, 255])?;
-        assert_eq!(input.files(Path::new("static"))?.len(), 1);
+        assert_eq!(input.tree(Path::new("static"))?.files.len(), 1);
         let plan = OutputPlan::new(vec![Artifact::copy_from(
             PathBuf::from("asset.bin"),
             PathBuf::from("static/asset.bin"),

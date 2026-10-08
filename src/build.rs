@@ -79,7 +79,7 @@ pub(crate) fn run(root: &Path, mode: Mode<'_>) -> Result<usize> {
             .then_with(|| left.route.url().cmp(right.route.url()))
     });
     let tags = TagIndex::new(&articles);
-    let renderer = Renderer::load(&input, &articles, matches!(mode, Mode::Dev { .. }))?;
+    let renderer = Renderer::load(&input)?;
     let pages = render_pages(&renderer, &config, &articles, &tags)?;
     let page_count = pages.len();
     let artifacts = pages

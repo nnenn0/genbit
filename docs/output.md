@@ -6,18 +6,18 @@
 
 | パス | 内容 |
 | --- | --- |
-| `index.html` | `templates/root.html` から生成するトップページ |
+| `index.html` | `views/pages/root.bitview` で描画するトップページ |
 | `entries/*/index.html` など | `content/` の構造どおりに、記事ごとに1ファイル |
 | 記事の素材 | ページのディレクトリにある `index.md` 以外のファイルを、同じ場所へそのままコピー |
 | `tags/index.html`、`tags/{tag}/index.html` | タグ一覧とタグ別ページ |
-| `404.html` | `templates/404.html` から生成する404ページ |
+| `404.html` | `views/pages/not-found.bitview` で描画する404ページ |
 | `sitemap.xml` | トップページ・記事・タグページ。記事は `updated_at` を時差付きの日時で `<lastmod>` に使います。 |
 | `robots.txt` | sitemapの場所を案内します |
 | `feed.xml` | RSS 2.0フィード |
 | `static/` 以下のすべて（`.gitkeep` と `.DS_Store` を除く） | そのままコピー |
 | `.genbit-output` | `dist/` がgenbitの出力であることを示すマーカー |
 
-`build` の出力には、開発サーバー用の再読み込みスクリプトを含めません。
+開発サーバー用の再読み込みスクリプトは、`genbit dev` がHTMLを配信するときに応答へ足すもので、生成するファイルには含めません。
 
 `static/` 以下のファイル名・ディレクトリ名にバックスラッシュ（`\`）は使えません。URLの区切りと実際のファイル名が食い違うため、通常のビルドと `--dry-run` のどちらもエラーにします。階層を作る場合は、名前に `\` を含めず、実際のディレクトリを作ってください。
 
@@ -49,7 +49,7 @@
 - ビルドはサイト直下の一時ディレクトリで行い、全ファイルを書き終えてから `dist/` を入れ替えます。
 - ビルドに失敗した場合、以前の `dist/` はそのまま残ります。
 - 既存の `dist/` は `.genbit-output` マーカーがある場合だけ入れ替えます。genbitが作っていないディレクトリを消すことはありません。
-- `config.toml` と、`content/`・`templates/`・`styles/`・`static/` 以下のシンボリックリンクは拒否します。CSSファイルの親ディレクトリも対象です。
+- `config.toml` と、`content/`・`views/`・`static/` 以下のシンボリックリンクは拒否します。
 
 ## 出力の衝突
 
@@ -96,7 +96,7 @@ Cloudflare・Netlifyなど `_headers` ファイルで設定する公開先では
   Cache-Control: public, max-age=31536000, immutable
 ```
 
-以前のgenbitで作ったサイトでは、faviconとOGP画像が `static/assets/img/` にあります。記事の画像を長期間キャッシュする前に、これらを `static/assets/site/` へ移し、`templates/base.html` のfaviconのパスと `config.toml` の `og_image` を書き換えてください。
+以前のgenbitで作ったサイトでは、faviconとOGP画像が `static/assets/img/` にあります。記事の画像を長期間キャッシュする前に、これらを `static/assets/site/` へ移し、`views/components/document.bitview` のfaviconのパスと `config.toml` の `og_image` を書き換えてください。
 
 ## 開発サーバー
 
@@ -105,7 +105,7 @@ Cloudflare・Netlifyなど `_headers` ファイルで設定する公開先では
 - 出力はOSの一時ディレクトリの中に起動ごとに作るディレクトリに書き、停止すると消します。`dist/` は作らず、変更もしません。下書きを含む出力が `dist/` に残って公開されることはありません。公開する `dist/` は `genbit build` で作ります。
 - ディレクトリのURL（`/entries/hello-world/`）にはその `index.html` を返し、末尾の `/` がないURL（`/entries/hello-world`）は `/` 付きのURLへ307でリダイレクトします。存在しないURLには `404.html` をHTTP 404で返します。
 - 常に最新の出力を返します。すべての応答に `Cache-Control: no-store` を付け、条件付きリクエストのヘッダー（`If-Modified-Since`・`If-None-Match`・`If-Match`・`If-Unmodified-Since`）は無視します。同じ秒内に再ビルドしても、古い内容や304を返しません。
-- `config.toml`、`content/`、`drafts/`、`templates/`、`styles/`、`static/` の変更を検知すると、100 msの静穏期間の後、または最大500 msで再ビルドします。再ビルド中の変更は次の再ビルドで反映します。
+- `config.toml`、`content/`、`drafts/`、`views/`、`static/` の変更を検知すると、100 msの静穏期間の後、または最大500 msで再ビルドします。再ビルド中の変更は次の再ビルドで反映します。
 - 再ビルドに成功するとSSEでブラウザーを再読み込みします。失敗した場合はエラーを表示し、最後に成功したサイトを配信し続けます。
 - 変更の検知にはファイルシステムのイベントを使い、ポーリングはしません。
 - Ctrl+C（SIGINT）またはSIGTERMで停止します。初回ビルドや再ビルドの途中なら、そのビルドが出力を切り替え終えてから終了します。

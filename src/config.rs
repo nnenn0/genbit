@@ -2,7 +2,7 @@ use crate::text::PublishableText;
 use anyhow::{Context, Result, ensure};
 use http::Uri;
 use jiff::tz::TimeZone;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Deserialize)]
@@ -15,18 +15,14 @@ struct RawConfig {
     timezone: String,
 }
 
-#[derive(Serialize)]
 pub(crate) struct Config {
     pub(crate) title: PublishableText,
     pub(crate) description: PublishableText,
     pub(crate) site_url: SiteUrl,
     pub(crate) og_image: String,
-    #[serde(skip)]
     pub(crate) timezone: TimeZone,
 }
 
-#[derive(Serialize)]
-#[serde(transparent)]
 pub(crate) struct SiteUrl(String);
 
 impl Config {
@@ -189,19 +185,7 @@ mod tests {
             config.og_image,
             "https://example.com/images/card.png?size=large"
         );
-        let published = serde_json::to_value(&config)?;
-        assert_eq!(
-            published
-                .get("site_url")
-                .and_then(serde_json::Value::as_str),
-            Some("https://example.com/")
-        );
-        assert_eq!(
-            published
-                .get("og_image")
-                .and_then(serde_json::Value::as_str),
-            Some(config.og_image.as_str())
-        );
+        assert_eq!(config.site_url.as_str(), "https://example.com/");
         Ok(())
     }
 
@@ -360,13 +344,11 @@ mod tests {
     }
 
     #[test]
-    fn accepts_iana_time_zone_names_without_publishing_them() -> Result<()> {
+    fn accepts_iana_time_zone_names() -> Result<()> {
         let config = Config::parse(
             "title = 'Blog'\ndescription = 'Posts'\nsite_url = 'https://example.com/'\nog_image = '/images/card.png'\ntimezone = 'America/New_York'\n",
         )?;
         assert_eq!(config.timezone.iana_name(), Some("America/New_York"));
-        let published = serde_json::to_value(config)?;
-        assert!(published.get("timezone").is_none());
         Ok(())
     }
 }

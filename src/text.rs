@@ -1,10 +1,8 @@
 use anyhow::{Result, bail, ensure};
-use serde::Serialize;
 
 /// Text written into HTML, XML, and JSON-LD: not blank, and free of characters that XML cannot
 /// represent even when escaped and that HTML treats as parse errors.
-#[derive(Debug, Serialize)]
-#[serde(transparent)]
+#[derive(Debug)]
 pub(crate) struct PublishableText(String);
 
 impl PublishableText {
@@ -26,22 +24,6 @@ impl PublishableText {
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
-}
-
-/// Escapes text for HTML and XML, both in element content and in quoted attribute values.
-pub(crate) fn escape_markup(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for character in text.chars() {
-        match character {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&apos;"),
-            other => escaped.push(other),
-        }
-    }
-    escaped
 }
 
 #[cfg(test)]

@@ -1,0 +1,1 @@
+fn timestamp(stamp) => time({datetime: stamp.datetime}, stamp.date)
