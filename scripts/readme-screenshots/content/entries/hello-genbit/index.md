@@ -1,12 +1,12 @@
 +++
 title = "Hello, genbit"
-description = "genbit turns Markdown and Tera templates into a small static site."
+description = "genbit turns Markdown and bitview templates into a small static site."
 created_at = 2026-09-26 09:00
 updated_at = 2026-09-26 09:00
 tags = ["genbit", "rust"]
 +++
 
-genbit turns Markdown and Tera templates into a small static site. Everything is configured in a single `config.toml`.
+genbit turns Markdown and bitview templates into a small static site. Everything is configured in a single `config.toml`.
 
 ## Build the site
 

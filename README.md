@@ -26,17 +26,17 @@ genbitは、汎用の静的サイトジェネレーターを目指していま�
 
 ### 覚えることが少ない
 
-サイトを作るコマンドは `new`・`build`・`dev` の3つで、ほかにビューに渡す値の型を表示する `types` があります。記事はTOMLフロントマター付きのMarkdownで書き、ページの見た目は `views/` のテンプレートとCSSで決めます。設定は `config.toml` の5項目だけで、テーマ、プラグイン、設定を重ねる仕組みはありません。テンプレートは[bitview](https://github.com/nnenn0/bitview)で書きます。bitviewはHTMLを関数で組み立てる小さい言語で、値は文字列、真偽値、リスト、レコード、HTMLの5種類しかありません。
+サイトを作るコマンドは `new`・`build`・`dev` の3つです。記事はTOMLフロントマター付きのMarkdownで書き、ページの見た目は `views/` のテンプレートとCSSで決めます。設定は `config.toml` の5項目だけで、テーマ、プラグイン、設定を重ねる仕組みはありません。テンプレートは[bitview](https://github.com/nnenn0/bitview)で書きます。bitviewはHTMLを関数で組み立てる小さい言語で、値は文字列、真偽値、リスト、レコード、HTMLの5種類しかありません。
 
 ### 生成物が小さい
 
 生成するページはJavaScriptを含みません。テンプレートからはスクリプトを書けず、記事の本文にもHTMLを直接書けないので、後から紛れ込むこともありません。CSSは、そのページが使う部品の分だけをインライン展開し、HTMLとともに圧縮します。本文の画像には `width`・`height` 属性と内容のハッシュ付きのURLを付けるので、読み込みでレイアウトがずれず、長期間キャッシュしても差し替えが反映されます。
 
-### 小さいが厳しい
+### 公開前の検査
 
 genbitは、公開前に見つけられる誤りをビルドの失敗にします。
 
-- テンプレートは、どのページを描画するよりも前に、genbitが渡す変数の型で検査します。存在しない項目、属性の綴りの誤り、`p` の中の `div` のようにHTMLで置けない入れ子、どのページからも使われない関数は、下書きのときにしか通らない分岐の中にあっても、位置付きのエラーになります。
+- テンプレートは、どのページを描画するよりも前に、genbitが渡す変数の型で検査します。存在しない項目、属性の綴りの誤り、`p` の中の `div` のようにHTMLで置けない入れ子は、下書きのときにしか通らない分岐や、どのページからも呼ばれない関数の中にあっても、位置付きのエラーになります。
 - 記事の本文のサイト内リンクと画像は、参照先がなければ失敗します。本文とテンプレートに書けるURLのスキームは `http:`・`https:`・`mailto:` と相対URLだけです。
 - 出力パスの衝突と、シンボリックリンクの入力を拒否します。
 - ビルドは一時領域で行い、成功したときだけ `dist/` を入れ替えます。`genbit build --dry-run` は同じ検査をすべて行い、`dist/` を変更しません。
@@ -97,7 +97,7 @@ macOSのバイナリは署名・公証していません。ブラウザーでダ
 xattr -d com.apple.quarantine genbit
 ```
 
-Rust 1.98.1のCargoが使える環境では、ソースからもインストールできます。
+[`rust-toolchain.toml`](rust-toolchain.toml)の版のRustが使える環境では、ソースからもインストールできます。
 
 ```sh
 cargo install --locked --git https://github.com/nnenn0/genbit --tag "$VERSION"
@@ -129,7 +129,7 @@ genbit build    # dist/ にサイトを生成
 | `genbit build` | カレントディレクトリのサイトを `dist/` へビルドします。記事内のサイト内リンクの参照先がなければ失敗します。 |
 | `genbit build --dry-run` | ビルドと同じ検査をすべて行い、`dist/` は変更しません。 |
 | `genbit dev [--host <ip>] [--port <port>]` | 下書きを含めてビルドして配信し（既定は `127.0.0.1:3000`）、変更があれば再ビルドして再読み込みします。`dist/` は変更しません。 |
-| `genbit types` | ビューに渡す値の型を、ビューで型を書くときと同じ構文で表示します（[ビュー](docs/views.md#変数)）。サイトのディレクトリの外でも使えます。 |
+| `genbit types` | ビューに渡す値の型を、ビューで型を書くときと同じ構文で表示します（[ビュー](docs/views.md#変数)）。サイトのディレクトリの外でも使えます。bitviewの[VS Codeの拡張機能](https://github.com/nnenn0/bitview/tree/main/editors/vscode)は、この出力から型の宣言へ移動します。 |
 
 ## サイトの構成
 
@@ -141,7 +141,7 @@ my-blog/
 │   └── entries/hello-world/index.md   # 画像などの素材も同じディレクトリに置く
 ├── drafts/              # 下書き。content/ と同じ構成で、genbit dev だけが読む
 ├── views/
-│   ├── pages/           # ページごとのbitviewとCSS: root, page, tags, tag, not-found
+│   ├── pages/           # ページごとのbitviewとCSS: home, entry, tags, tag, not-found
 │   └── components/      # ページが使う部品のbitviewとCSS: document, layout, entry-list など
 └── static/              # そのままコピー（assets/img/ に複数の記事で使う画像、assets/site/ にfavicon・OGP画像）
 ```
