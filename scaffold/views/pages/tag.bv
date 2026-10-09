@@ -1,9 +1,6 @@
-fn tag(ctx) =>
-  layout(ctx, concat(ctx.tag, " | ", ctx.site.title), concat(ctx.tag, " の記事一覧"), "website",
-    home-link(ctx),
-    [
-      h1(ctx.tag),
-      entry-list(ctx.entries),
-      p({class: "tags-link"}, a({href: "/tags/"}, "tags")),
-    ]
-  )
+(defn tag [ctx TagPage]
+  (layout ctx (concat ctx.tag " | " ctx.site.title) (concat ctx.tag " の記事一覧") "website"
+    (home-link ctx.site)
+    [(h1 ctx.tag)
+     (entry-list ctx.entries)
+     (p {:class "tags-link"} (a {:href "/tags/"} "tags"))]))

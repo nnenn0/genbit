@@ -48,6 +48,8 @@ enum Command {
         #[arg(long, default_value_t = 3000)]
         port: u16,
     },
+    /// Print the types of the values genbit passes to the views
+    Types,
 }
 
 fn main() -> Result<()> {
@@ -72,6 +74,14 @@ fn main() -> Result<()> {
             } else {
                 println!("Built {count} pages into dist/");
             }
+            Ok(())
+        }
+        Command::Types => {
+            print!(
+                "; The types of the values genbit {} passes to the views, as their parameters name them.\n\n{}",
+                env!("CARGO_PKG_VERSION"),
+                bitview::declare_types(&render::types())
+            );
             Ok(())
         }
         Command::Dev { host, port } => {

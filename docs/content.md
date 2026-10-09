@@ -60,7 +60,7 @@ TOMLとして読めない場合、未知のフィールドがある場合、日�
 - `index.md` 以外の `.md` ファイル、どのページのディレクトリにもないファイルはビルドエラーになります。どのページにも属さないファイルは `static/` に置きます。
 - `.gitkeep` と、macOSのFinderが作る `.DS_Store` は読み飛ばします。`.gitkeep` は空のディレクトリをGitに残すために置けます。
 - ディレクトリ名に使えるのは、ASCII英数字・`-`・`_` だけです。
-- `content/index.md` は使えません。トップページは `config.toml` と `views/pages/root.bv` から生成します。
+- `content/index.md` は使えません。トップページは `config.toml` と `views/pages/home.bv` から生成します。
 - 記事は作成日時の新しい順に並べます。同じ日時の記事はURL順です。
 
 記事のURLは `/` で終わります。ディレクトリの `index.html` を返すのは静的ホストの標準的な動作なので、公開先で特別な設定は要りません。
@@ -117,7 +117,7 @@ broken internal link in content/entries/a/index.md: ../missing/#x resolves to /e
 
 ### 表
 
-GitHub Flavored Markdownの表の記法を使えます。区切り行の `:---`・`:---:`・`---:` による揃えの指定は、その列のセルに `align-left`・`align-center`・`align-right` のクラスとして出力し、初期CSSの `views/pages/page.css` がそのとおりに揃えます。genbitはHTMLに `style` 属性を出力しないので、揃え方はCSSで決まります。初期CSSは表に罫線を引き、本文の幅に収まらない表は横にスクロールできるようにしています。
+GitHub Flavored Markdownの表の記法を使えます。区切り行の `:---`・`:---:`・`---:` による揃えの指定は、その列のセルに `align-left`・`align-center`・`align-right` のクラスとして出力し、初期CSSの `views/pages/entry.css` がそのとおりに揃えます。genbitはHTMLに `style` 属性を出力しないので、揃え方はCSSで決まります。初期CSSは表に罫線を引き、本文の幅に収まらない表は横にスクロールできるようにしています。
 
 ```markdown
 | ページ | 転送サイズ |

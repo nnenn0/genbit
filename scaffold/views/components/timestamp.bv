@@ -1,1 +1,2 @@
-fn timestamp(stamp) => time({datetime: stamp.datetime}, stamp.date)
+(defn timestamp [stamp Timestamp]
+  (time {:datetime stamp.datetime} stamp.date))

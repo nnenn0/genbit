@@ -7,20 +7,20 @@ use std::{
 
 const FILES: &[(&str, &str)] = &[
     (
-        "views/pages/root.bv",
-        include_str!("../scaffold/views/pages/root.bv"),
+        "views/pages/home.bv",
+        include_str!("../scaffold/views/pages/home.bv"),
     ),
     (
-        "views/pages/root.css",
-        include_str!("../scaffold/views/pages/root.css"),
+        "views/pages/home.css",
+        include_str!("../scaffold/views/pages/home.css"),
     ),
     (
-        "views/pages/page.bv",
-        include_str!("../scaffold/views/pages/page.bv"),
+        "views/pages/entry.bv",
+        include_str!("../scaffold/views/pages/entry.bv"),
     ),
     (
-        "views/pages/page.css",
-        include_str!("../scaffold/views/pages/page.css"),
+        "views/pages/entry.css",
+        include_str!("../scaffold/views/pages/entry.css"),
     ),
     (
         "views/pages/tags.bv",

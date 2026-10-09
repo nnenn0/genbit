@@ -1,0 +1,13 @@
+(defn entry [ctx EntryPage]
+  (layout ctx (concat ctx.entry.title " | " ctx.site.title) ctx.entry.description "article"
+    (home-link ctx.site)
+    (article
+      (h1 ctx.entry.title (draft-badge ctx.entry))
+      (dl {:class "article-meta"}
+        (dt "created_at") (dd (timestamp ctx.entry.created-at))
+        (dt "updated_at") (dd (timestamp ctx.entry.updated-at))
+        (dt "tags") (dd (map ctx.entry.tags tag-link)))
+      ctx.content)))
+
+(defn- tag-link [tag TagLink]
+  (a {:href tag.url} tag.name))
