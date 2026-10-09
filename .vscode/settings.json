@@ -1,0 +1,3 @@
+{
+  "bitview.typesCommand": "docker compose run --rm cli run --quiet --locked -- types"
+}
