@@ -360,16 +360,41 @@ impl Workspace {
 }
 
 #[test]
+fn types_prints_the_types_the_views_name() -> Result<()> {
+    let workspace = Workspace::new()?;
+    // The types belong to genbit, not to a site, so they print outside one too.
+    let output = run_genbit(workspace.0.path(), &["types"])?;
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(
+        stdout.starts_with("; The types of the values genbit "),
+        "{stdout}"
+    );
+    for declaration in [
+        "HomePage {:site Site\n          :style Metadata\n          :search Search\n          :entries [Entry]}",
+        "EntryPage {:site Site",
+        "NotFoundPage {:site Site\n              :style Metadata}",
+        "Search {:url String\n        :json-ld Metadata}",
+        "Entry {:title String",
+        "\n       :tags [TagLink]\n",
+        "TagCount {:name String",
+    ] {
+        assert!(stdout.contains(declaration), "{declaration}: {stdout}");
+    }
+    Ok(())
+}
+
+#[test]
 fn creates_site_and_refuses_overwrite() -> Result<()> {
     let workspace = Workspace::new()?;
     let root = workspace.new_site("test-blog")?;
     for file in [
         "config.toml",
         "content/entries/hello-world/index.md",
-        "views/pages/root.bv",
-        "views/pages/root.css",
-        "views/pages/page.bv",
-        "views/pages/page.css",
+        "views/pages/home.bv",
+        "views/pages/home.css",
+        "views/pages/entry.bv",
+        "views/pages/entry.css",
         "views/pages/tags.bv",
         "views/pages/tags.css",
         "views/pages/tag.bv",
@@ -695,7 +720,7 @@ fn missing_404_template_fails_without_replacing_output() -> Result<()> {
     let stderr = build_err(&site)?;
     assert!(
         stderr.contains(
-            "views/pages/not-found.bv must define fn not-found(ctx), which renders 404.html"
+            "views/pages/not-found.bv must define (defn not-found [ctx NotFoundPage] ...), which renders 404.html"
         ),
         "{stderr}"
     );
@@ -1290,7 +1315,7 @@ fn builds_minified_html_with_lazy_images_and_inline_css() -> Result<()> {
         site.join("views/components/document.css"),
         "h1 { color: red; }\n",
     )?;
-    fs::remove_file(site.join("views/pages/page.css"))?;
+    fs::remove_file(site.join("views/pages/entry.css"))?;
     fs::remove_file(site.join("views/components/draft-badge.css"))?;
     write_file(
         site.join("content/entries/hello-world/index.md"),
@@ -1479,8 +1504,8 @@ fn inlines_the_css_of_the_functions_each_page_uses() -> Result<()> {
     for (css, marker) in [
         ("components/document.css", "--document-marker"),
         ("components/entry-list.css", "--list-marker"),
-        ("pages/root.css", "--root-marker"),
-        ("pages/page.css", "--page-marker"),
+        ("pages/home.css", "--home-marker"),
+        ("pages/entry.css", "--entry-marker"),
     ] {
         fs::write(
             site.join("views").join(css),
@@ -1495,20 +1520,20 @@ fn inlines_the_css_of_the_functions_each_page_uses() -> Result<()> {
     let position = |html: &str, marker: &str| html.find(marker).unwrap_or(usize::MAX);
     assert!(
         position(&home, "--document-marker") < position(&home, "--list-marker")
-            && position(&home, "--list-marker") < position(&home, "--root-marker")
-            && home.contains("--root-marker"),
+            && position(&home, "--list-marker") < position(&home, "--home-marker")
+            && home.contains("--home-marker"),
         "{home}"
     );
-    assert!(!home.contains("--page-marker"), "{home}");
+    assert!(!home.contains("--entry-marker"), "{home}");
     assert!(
-        position(&article, "--document-marker") < position(&article, "--page-marker")
-            && article.contains("--page-marker"),
+        position(&article, "--document-marker") < position(&article, "--entry-marker")
+            && article.contains("--entry-marker"),
         "{article}"
     );
     assert!(!article.contains("--list-marker"), "{article}");
-    assert!(!article.contains("--root-marker"), "{article}");
+    assert!(!article.contains("--home-marker"), "{article}");
     assert!(tag.contains("--list-marker"), "{tag}");
-    assert!(!tag.contains("--root-marker"), "{tag}");
+    assert!(!tag.contains("--home-marker"), "{tag}");
     Ok(())
 }
 
@@ -1537,15 +1562,19 @@ fn views_hold_pages_components_and_their_css() -> Result<()> {
         ),
         (
             "views/pages/about.bv",
-            "views/pages/about.bv is not a page; views/pages/ holds views/pages/root.bv",
+            "views/pages/about.bv is not a page; views/pages/ holds views/pages/home.bv",
         ),
         (
             "views/components/entry_list.css",
-            "views/components/entry_list.css does not belong to a function defined in views/components/",
+            "views/components/entry_list.css does not belong to a function defined with defn in views/components/",
         ),
         (
             "views/pages/document.css",
-            "views/pages/document.css does not belong to a function defined in views/pages/",
+            "views/pages/document.css does not belong to a function defined with defn in views/pages/",
+        ),
+        (
+            "views/components/entry-item.css",
+            "put the CSS of a defn- function in the CSS of a defn function in its file",
         ),
     ] {
         write_file(site.join(path), "")?;
@@ -1560,13 +1589,14 @@ fn views_hold_pages_components_and_their_css() -> Result<()> {
         }
     }
 
-    let page = site.join("views/pages/root.bv");
-    let moved = site.join("views/components/root.bv");
+    let page = site.join("views/pages/home.bv");
+    let moved = site.join("views/components/home.bv");
     fs::rename(&page, &moved)?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr
-            .contains("views/pages/root.bv must define fn root(ctx), which renders the home page"),
+        stderr.contains(
+            "views/pages/home.bv must define (defn home [ctx HomePage] ...), which renders the home page"
+        ),
         "{stderr}"
     );
     fs::rename(&moved, &page)?;
@@ -1581,12 +1611,12 @@ fn views_hold_pages_components_and_their_css() -> Result<()> {
     build_ok(&site)?;
     let before = snapshot(&site.join("dist"))?;
     fs::write(
-        site.join("views/pages/page.css"),
+        site.join("views/pages/entry.css"),
         "a { color: red; } </style>",
     )?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr.contains("invalid CSS in views/pages/page.css"),
+        stderr.contains("invalid CSS in views/pages/entry.css"),
         "{stderr}"
     );
     assert!(stderr.contains("must not contain </style"), "{stderr}");
@@ -1599,18 +1629,20 @@ fn article_template_receives_documented_fields() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     fs::write(
-        site.join("views/pages/page.bv"),
+        site.join("views/pages/entry.bv"),
         concat!(
-            "fn page(ctx) => html(head(ctx.style, ctx.json-ld), body(\n",
-            "  p(ctx.site.title), p(ctx.canonical-url),\n",
-            "  p(concat(ctx.article.title, \"|\", ctx.article.description, \"|\", ctx.article.url, \"|\",\n",
-            "    ctx.article.created-at.datetime, \"|\", ctx.article.created-at.date, \"|\",\n",
-            "    ctx.article.updated-at.datetime)),\n",
-            "  ctx.content))\n",
+            "(defn entry [ctx EntryPage]\n",
+            "  (html (head ctx.style ctx.search.json-ld)\n",
+            "    (body\n",
+            "      (p ctx.site.title) (p ctx.search.url)\n",
+            "      (p (concat ctx.entry.title \"|\" ctx.entry.description \"|\" ctx.entry.url \"|\"\n",
+            "        ctx.entry.created-at.datetime \"|\" ctx.entry.created-at.date \"|\"\n",
+            "        ctx.entry.updated-at.datetime))\n",
+            "      ctx.content)))\n",
         ),
     )?;
     fs::write(
-        site.join("views/pages/page.css"),
+        site.join("views/pages/entry.css"),
         "body { --custom-marker: yes; }",
     )?;
     write_file(
@@ -1885,42 +1917,40 @@ fn views_are_checked_against_their_variables_before_any_page_renders() -> Result
     // Only drafts take this branch, and the site has none, so rendering alone would never meet it.
     write_file(
         site.join("views/components/draft-badge.bv"),
-        "fn draft-badge(entry) =>\n  if entry.draft then span({class: \"draft-badge\"}, entry.titel) else []\n",
+        "(defn draft-badge [entry {:draft Bool :title String}]\n  (if entry.draft (span {:class \"draft-badge\"} entry.titel) []))\n",
     )?;
     let stderr = build_err(&site)?;
+    assert!(stderr.contains("cannot load views in"), "{stderr}");
     assert!(
-        stderr.contains("the views do not fit the variables genbit passes"),
-        "{stderr}"
-    );
-    assert!(
-        stderr.contains("views/components/draft-badge.bv:2:58: unknown field \"titel\""),
+        stderr.contains("views/components/draft-badge.bv:2:54: unknown field \"titel\""),
         "{stderr}"
     );
     assert!(stderr.contains("in draft-badge"), "{stderr}");
-    assert!(stderr.contains("in root"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
 
     fs::write(
         site.join("views/components/draft-badge.bv"),
-        "fn draft-badge(entry) =>\n  if entry.draft then span({class: \"draft-badge\"}, \"draft\") else []\n",
+        "(defn draft-badge [entry {:draft Bool}]\n  (if entry.draft (span {:class \"draft-badge\"} \"draft\") []))\n",
     )?;
     fs::write(
         site.join("views/components/home-link.bv"),
-        "fn home-link(ctx) => a({href: \"/\"}, ctx.site)\n",
+        "(defn home-link [site Site] (a {:href \"/\"} site))\n",
     )?;
     let stderr = build_err(&site)?;
     assert!(stderr.contains("cannot be a child of <a>"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
 
+    // A function that no page calls is checked too.
     fs::write(
         site.join("views/components/home-link.bv"),
-        "fn home-link(ctx) => a({href: \"/\"}, ctx.site.title)\n\nfn site-name(ctx) => ctx.site.titel\n",
+        "(defn home-link [site Site] (a {:href \"/\"} site.title))\n\n(defn- site-name [site Site] site.titel)\n",
     )?;
     let stderr = build_err(&site)?;
     assert!(
-        stderr.contains("views/components/home-link.bv:3:1: function site-name is not called from root, page, tags, tag, not-found"),
+        stderr.contains("views/components/home-link.bv:3:35: unknown field \"titel\""),
         "{stderr}"
     );
+    assert!(stderr.contains("in site-name"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
     Ok(())
 }
@@ -1930,18 +1960,18 @@ fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;
     write_file(
-        site.join("views/pages/page.bv"),
-        "fn page(ctx) => html(body(a({href: concat(\"javascript:\", ctx.article.title)}, \"x\")))\n",
+        site.join("views/pages/entry.bv"),
+        "(defn entry [ctx EntryPage] (html (body (a {:href (concat \"javascript:\" ctx.entry.title)} \"x\"))))\n",
     )?;
     let stderr = build_err(&site)?;
     assert!(
         stderr.contains(
-            "cannot render content/entries/hello-world/index.md with views/pages/page.bv"
+            "cannot render content/entries/hello-world/index.md with views/pages/entry.bv"
         ),
         "{stderr}"
     );
     assert!(
-        stderr.contains("views/pages/page.bv:1:27: href has the URL scheme javascript:"),
+        stderr.contains("views/pages/entry.bv:1:42: href has the URL scheme javascript:"),
         "{stderr}"
     );
 
@@ -1955,7 +1985,7 @@ fn render_errors_name_the_article_by_its_site_path() -> Result<()> {
         .context("dev accepted a draft that cannot render")?;
     assert!(
         format!("{error:#}")
-            .contains("cannot render drafts/entries/wip/index.md with views/pages/page.bv"),
+            .contains("cannot render drafts/entries/wip/index.md with views/pages/entry.bv"),
         "{error:#}"
     );
     Ok(())
@@ -2369,13 +2399,13 @@ fn views_reject_file_and_directory_symlinks() -> Result<()> {
     build_ok(&site)?;
     let before = snapshot(&site.join("dist"))?;
 
-    let css = site.join("views/pages/page.css");
-    let outside_css = workspace.0.path().join("outside-page.css");
+    let css = site.join("views/pages/entry.css");
+    let outside_css = workspace.0.path().join("outside-entry.css");
     fs::rename(&css, &outside_css)?;
     symlink(&outside_css, &css)?;
     let stderr = build_err(&site)?;
     assert!(stderr.contains("symlinks are not supported"), "{stderr}");
-    assert!(stderr.contains("page.css"), "{stderr}");
+    assert!(stderr.contains("entry.css"), "{stderr}");
     assert_eq!(snapshot(&site.join("dist"))?, before);
     fs::remove_file(&css)?;
     fs::rename(&outside_css, &css)?;

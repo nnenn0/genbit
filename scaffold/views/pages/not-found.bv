@@ -1,7 +1,6 @@
--- 検索エンジンに載せないので、layout ではなく document を使い、noindex を指定する。
-fn not-found(ctx) =>
-  document(ctx, concat("404 | ", ctx.site.title),
-    meta({name: "robots", content: "noindex"}),
-    home-link(ctx),
-    [h1("404"), p("Not Found")]
-  )
+; 検索エンジンに載せないので、layout ではなく document を使い、noindex を指定する。
+(defn not-found [ctx NotFoundPage]
+  (document ctx (concat "404 | " ctx.site.title)
+    (meta {:name "robots" :content "noindex"})
+    (home-link ctx.site)
+    [(h1 "404") (p "Not Found")]))

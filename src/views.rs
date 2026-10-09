@@ -4,7 +4,7 @@
 
 use crate::{
     input::{SiteInput, Tree},
-    route,
+    render, route,
 };
 use anyhow::{Context as _, Result, bail, ensure};
 use bitview::{Html, Program, Source};
@@ -15,8 +15,8 @@ use std::{
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Page {
-    Root,
-    Article,
+    Home,
+    Entry,
     Tags,
     Tag,
     NotFound,
@@ -24,8 +24,8 @@ pub(crate) enum Page {
 
 impl Page {
     pub(crate) const ALL: [Self; 5] = [
-        Self::Root,
-        Self::Article,
+        Self::Home,
+        Self::Entry,
         Self::Tags,
         Self::Tag,
         Self::NotFound,
@@ -33,8 +33,8 @@ impl Page {
 
     pub(crate) fn name(self) -> &'static str {
         match self {
-            Self::Root => "root",
-            Self::Article => "page",
+            Self::Home => "home",
+            Self::Entry => "entry",
             Self::Tags => "tags",
             Self::Tag => "tag",
             Self::NotFound => "not-found",
@@ -43,11 +43,22 @@ impl Page {
 
     fn renders(self) -> &'static str {
         match self {
-            Self::Root => "the home page",
-            Self::Article => "articles",
+            Self::Home => "the home page",
+            Self::Entry => "articles",
             Self::Tags => "the tag index",
             Self::Tag => "tag pages",
             Self::NotFound => "404.html",
+        }
+    }
+
+    /// The name of the type of the value the page's function takes.
+    pub(crate) fn type_name(self) -> &'static str {
+        match self {
+            Self::Home => "HomePage",
+            Self::Entry => "EntryPage",
+            Self::Tags => "TagsPage",
+            Self::Tag => "TagPage",
+            Self::NotFound => "NotFoundPage",
         }
     }
 
@@ -101,6 +112,7 @@ impl Views {
                 .iter()
                 .map(|(name, text)| Source { name, text })
                 .collect::<Vec<_>>(),
+            &render::types(),
         )
         .with_context(|| format!("cannot load views in {}", input.root().join(root).display()))?;
         check_pages(&program, &sources)?;
@@ -149,8 +161,9 @@ fn check_pages(program: &Program, sources: &[(String, String)]) -> Result<()> {
                 .defined_at(page.name())
                 .is_some_and(|span| span.source() == file)
                 && program.has_entry(page.name()),
-            "{file} must define fn {}(ctx), which renders {}",
+            "{file} must define (defn {} [ctx {}] ...), which renders {}",
             page.name(),
+            page.type_name(),
             page.renders()
         );
     }
@@ -173,7 +186,7 @@ fn css_by_function(
                     .defined_at(function)
                     .and_then(|span| span.source().rsplit_once('/'))
                     .is_some_and(|(defined_in, _)| defined_in == directory),
-                "{name} does not belong to a function defined in {directory}/; name a CSS file after a function defined next to it"
+                "{name} does not belong to a function defined with defn in {directory}/; name a CSS file after a defn function next to it, and put the CSS of a defn- function in the CSS of a defn function in its file"
             );
             Html::style(text.as_str()).with_context(|| format!("invalid CSS in {name}"))?;
             Ok((function.to_owned(), text))

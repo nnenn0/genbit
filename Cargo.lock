@@ -213,7 +213,7 @@ dependencies = [
 [[package]]
 name = "bitview"
 version = "0.2.0"
-source = "git+https://github.com/nnenn0/bitview?tag=v0.2.0#6f1161fa0c2e96475d3b3f769ff289fbca6403df"
+source = "git+https://github.com/nnenn0/bitview?branch=main#3120e0a3d6075400112d69fe71a21096865e49a3"
 
 [[package]]
 name = "block-buffer"

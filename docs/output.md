@@ -6,7 +6,7 @@
 
 | パス | 内容 |
 | --- | --- |
-| `index.html` | `views/pages/root.bv` で描画するトップページ |
+| `index.html` | `views/pages/home.bv` で描画するトップページ |
 | `entries/*/index.html` など | `content/` の構造どおりに、記事ごとに1ファイル |
 | 記事の素材 | ページのディレクトリにある `index.md` 以外のファイルを、同じ場所へそのままコピー |
 | `tags/index.html`、`tags/{tag}/index.html` | タグ一覧とタグ別ページ |

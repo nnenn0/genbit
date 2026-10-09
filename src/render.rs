@@ -19,7 +19,7 @@ pub(crate) struct Renderer {
 impl Renderer {
     pub(crate) fn load(input: &SiteInput<'_>) -> Result<Self> {
         let views = Views::load(input)?;
-        let pages = Page::ALL.map(|page| (page.name(), context_type(page)));
+        let pages = Page::ALL.map(|page| (page.name(), page_type(page)));
         views
             .program
             .check(&pages)
@@ -34,7 +34,7 @@ impl Renderer {
         json_ld: &str,
     ) -> Result<Artifact> {
         let tags = tags.groups().iter().map(tag_count).collect::<Vec<_>>();
-        let mut variables = indexed(&config.site_url.join_root_path(TAGS_INDEX_URL), json_ld)?;
+        let mut variables = searchable(&config.site_url.join_root_path(TAGS_INDEX_URL), json_ld)?;
         variables.push(("tags", Value::from(tags)));
         self.render(
             config,
@@ -53,7 +53,7 @@ impl Renderer {
     ) -> Result<Artifact> {
         let tag = group.name;
         let url = group.url();
-        let mut variables = indexed(&config.site_url.join_root_path(&url), json_ld)?;
+        let mut variables = searchable(&config.site_url.join_root_path(&url), json_ld)?;
         variables.push(("tag", Value::from(tag)));
         variables.push(("entries", entries(group.articles.iter().copied())));
         self.render(
@@ -71,11 +71,11 @@ impl Renderer {
         articles: &[Article],
         json_ld: &str,
     ) -> Result<Artifact> {
-        let mut variables = indexed(config.site_url.as_str(), json_ld)?;
+        let mut variables = searchable(config.site_url.as_str(), json_ld)?;
         variables.push(("entries", entries(articles)));
         self.render(
             config,
-            Page::Root,
+            Page::Home,
             variables,
             PathBuf::from("index.html"),
             "<generated home>",
@@ -89,12 +89,12 @@ impl Renderer {
         canonical_url: &str,
         json_ld: &str,
     ) -> Result<Artifact> {
-        let mut variables = indexed(canonical_url, json_ld)?;
-        variables.push(("article", entry(article)));
+        let mut variables = searchable(canonical_url, json_ld)?;
+        variables.push(("entry", entry(article)));
         variables.push(("content", Value::from(article.content.clone())));
         self.render(
             config,
-            Page::Article,
+            Page::Entry,
             variables,
             article.route.output().to_path_buf(),
             &article.source.display().to_string(),
@@ -129,7 +129,7 @@ impl Renderer {
         ];
         all.extend(variables);
         let ctx = Value::record(all);
-        context_type(page).validate(&ctx).with_context(|| {
+        page_type(page).validate(&ctx).with_context(|| {
             format!(
                 "internal error: the variables of {} do not match their type",
                 page.file()
@@ -153,23 +153,38 @@ impl Renderer {
     }
 }
 
-/// The views are checked against these types when they load, and the values are checked against
-/// them when a page renders, so the check at load time holds for every page.
-fn context_type(page: Page) -> Type {
+/// The types genbit names for the views, which they write as the types of parameters, as in
+/// `(defn home [ctx HomePage] ...)`. `genbit types` prints them.
+pub(crate) fn types() -> Vec<(&'static str, Type)> {
+    let mut types = Page::ALL
+        .map(|page| (page.type_name(), page_type(page)))
+        .to_vec();
+    types.extend([
+        ("Site", site_type()),
+        ("Search", search_type()),
+        ("Entry", entry_type()),
+        ("Timestamp", timestamp_type()),
+        ("TagLink", tag_link_type()),
+        ("TagCount", tag_count_type()),
+    ]);
+    types
+}
+
+/// The value each page's function takes. The views are checked against these types when they
+/// load, and the values are checked against them when a page renders, so the check at load time
+/// holds for every page.
+fn page_type(page: Page) -> Type {
     let mut fields = vec![
         ("site", site_type()),
         ("style", Type::Html(HtmlType::Metadata)),
     ];
     if page != Page::NotFound {
-        fields.extend([
-            ("canonical-url", Type::String),
-            ("json-ld", Type::Html(HtmlType::Metadata)),
-        ]);
+        fields.push(("search", search_type()));
     }
     fields.extend(match page {
-        Page::Root => vec![("entries", Type::list(entry_type()))],
-        Page::Article => vec![
-            ("article", entry_type()),
+        Page::Home => vec![("entries", Type::list(entry_type()))],
+        Page::Entry => vec![
+            ("entry", entry_type()),
             ("content", Type::Html(HtmlType::Flow)),
         ],
         Page::Tags => vec![("tags", Type::list(tag_count_type()))],
@@ -197,14 +212,25 @@ fn site(config: &Config) -> Value {
     ])
 }
 
-fn indexed(canonical_url: &str, json_ld: &str) -> Result<Vec<(&'static str, Value)>> {
-    Ok(vec![
-        ("canonical-url", Value::from(canonical_url)),
-        (
-            "json-ld",
-            Value::from(Html::json("application/ld+json", json_ld)?),
-        ),
+/// What search engines read on a page that they index: its canonical URL and structured data.
+fn search_type() -> Type {
+    Type::record([
+        ("url", Type::String),
+        ("json-ld", Type::Html(HtmlType::Metadata)),
     ])
+}
+
+fn searchable(canonical_url: &str, json_ld: &str) -> Result<Vec<(&'static str, Value)>> {
+    Ok(vec![(
+        "search",
+        Value::record([
+            ("url", Value::from(canonical_url)),
+            (
+                "json-ld",
+                Value::from(Html::json("application/ld+json", json_ld)?),
+            ),
+        ]),
+    )])
 }
 
 fn entries<'a>(articles: impl IntoIterator<Item = &'a Article>) -> Value {
