@@ -212,8 +212,8 @@ dependencies = [
 
 [[package]]
 name = "bitview"
-version = "0.2.0"
-source = "git+https://github.com/nnenn0/bitview?branch=main#3120e0a3d6075400112d69fe71a21096865e49a3"
+version = "0.3.0"
+source = "git+https://github.com/nnenn0/bitview?tag=v0.3.0#245b531604fbd40ba13dc69b5a20fb8f82254c52"
 
 [[package]]
 name = "block-buffer"
