@@ -1771,6 +1771,30 @@ fn dev_reloads_after_an_article_is_edited() -> Result<()> {
 }
 
 #[test]
+fn dev_reloads_after_an_article_in_a_new_directory_is_edited() -> Result<()> {
+    let workspace = Workspace::new()?;
+    let site = workspace.new_site("blog")?;
+    let (server, address) = DevProcess::start_listening(&site)?;
+    let mut events = open_reload_stream(&address, &server)?;
+
+    let article = site.join("drafts/entries/new/index.md");
+    write_file(&article, article_source(&[], "# Created in dev\n"))?;
+    read_sse_until(&mut events, &mut Vec::new(), b"data: reload", &server)?;
+    let created = http_get(&address, "/entries/new/")?;
+    assert!(created.contains("Created in dev"), "{created}");
+
+    // A late notification from the first write may reload once more, so wait for the edit itself.
+    write_file(&article, article_source(&[], "# Edited in dev\n"))?;
+    for _ in 0..50 {
+        if http_get(&address, "/entries/new/")?.contains("Edited in dev") {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    bail!("the edit was not rebuilt:\n{}", server.logs())
+}
+
+#[test]
 fn dev_keeps_serving_after_failed_rebuild_and_reloads_after_fix() -> Result<()> {
     let workspace = Workspace::new()?;
     let site = workspace.new_site("blog")?;

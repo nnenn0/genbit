@@ -34,6 +34,7 @@ pub(crate) async fn run(root: PathBuf, output: PathBuf, address: SocketAddr) -> 
         .with_context(|| format!("cannot bind {address}"))?;
 
     let (change_tx, change_rx) = mpsc::channel(1);
+    let (directory_tx, directory_rx) = mpsc::unbounded_channel();
     let watched_root = root.clone();
     let mut watcher = notify::recommended_watcher(move |result| {
         if let Err(error) = &result {
@@ -42,6 +43,9 @@ pub(crate) async fn run(root: PathBuf, output: PathBuf, address: SocketAddr) -> 
         if let Ok(event) = result
             && relevant_change(&watched_root, &event)
         {
+            for directory in created_directories(&watched_root, &event) {
+                let _ = directory_tx.send(directory);
+            }
             let _ = change_tx.try_send(());
         }
     })
@@ -74,7 +78,29 @@ pub(crate) async fn run(root: PathBuf, output: PathBuf, address: SocketAddr) -> 
     tokio::select! {
         result = axum::serve(listener, app) => result.context("development server failed"),
         () = rebuild => Ok(()),
+        () = watch_created_directories(&mut watcher, directory_rx) => Ok(()),
         result = &mut shutdown => stopped(result),
+    }
+}
+
+/// The recursive inotify watcher adds a watch for a new directory only when its creation event
+/// is marked as a directory. Docker Desktop on macOS sends the event for a directory created on
+/// the host without that mark, so later changes inside it would go unnoticed until a restart.
+async fn watch_created_directories(
+    watcher: &mut impl Watcher,
+    mut directory_rx: mpsc::UnboundedReceiver<PathBuf>,
+) {
+    while let Some(directory) = directory_rx.recv().await {
+        // Watching a directory twice is harmless, and a directory removed since its creation
+        // needs no watch.
+        if let Err(error) = watcher.watch(&directory, RecursiveMode::Recursive)
+            && directory.is_dir()
+        {
+            eprintln!(
+                "file watcher: cannot watch {}: {error}",
+                directory.display()
+            );
+        }
     }
 }
 
@@ -171,17 +197,32 @@ async fn events(
 
 fn relevant_change(root: &Path, event: &notify::Event) -> bool {
     !matches!(event.kind, EventKind::Access(_))
-        && event.paths.iter().any(|path| {
-            let Ok(relative) = path.strip_prefix(root) else {
-                return false;
-            };
-            relative == Path::new("config.toml")
-                || relative.components().next().is_some_and(|first| {
-                    ["content", "drafts", "views", "static"]
-                        .iter()
-                        .any(|directory| first.as_os_str() == *directory)
-                })
+        && event.paths.iter().any(|path| is_source(root, path))
+}
+
+fn is_source(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative == Path::new("config.toml")
+        || relative.components().next().is_some_and(|first| {
+            ["content", "drafts", "views", "static"]
+                .iter()
+                .any(|directory| first.as_os_str() == *directory)
         })
+}
+
+/// Checks the file system instead of the event's file kind, which is not always reported.
+fn created_directories(root: &Path, event: &notify::Event) -> Vec<PathBuf> {
+    if !matches!(event.kind, EventKind::Create(_)) {
+        return Vec::new();
+    }
+    event
+        .paths
+        .iter()
+        .filter(|path| is_source(root, path) && path.is_dir())
+        .cloned()
+        .collect()
 }
 
 async fn rebuild_on_changes<F, Fut>(
@@ -225,9 +266,15 @@ async fn wait_for_change(change_rx: &mut mpsc::Receiver<()>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_WAIT, QUIET_PERIOD, rebuild_on_changes, relevant_change, wait_for_change};
+    use super::{
+        MAX_WAIT, QUIET_PERIOD, created_directories, rebuild_on_changes, relevant_change,
+        wait_for_change,
+    };
     use anyhow::{Context, Result, bail};
-    use notify::{Event, EventKind};
+    use notify::{
+        Event, EventKind,
+        event::{CreateKind, MetadataKind, ModifyKind},
+    };
     use std::{
         path::Path,
         sync::{
@@ -267,6 +314,44 @@ mod tests {
             let event = Event::new(EventKind::Any).add_path(root.join(path));
             assert!(!relevant_change(root, &event), "{path}");
         }
+    }
+
+    #[test]
+    fn created_directories_are_found_without_the_directory_kind() -> Result<()> {
+        let site = tempfile::tempdir()?;
+        let root = site.path();
+        for directory in ["drafts/entries/new", "dist/entries/new"] {
+            std::fs::create_dir_all(root.join(directory))?;
+        }
+        std::fs::write(root.join("drafts/entries/new/index.md"), "")?;
+        let created = |kind, path: &str| {
+            created_directories(root, &Event::new(kind).add_path(root.join(path)))
+        };
+
+        // Docker Desktop on macOS reports a directory created on the host as a file.
+        assert_eq!(
+            created(EventKind::Create(CreateKind::File), "drafts/entries/new"),
+            [root.join("drafts/entries/new")]
+        );
+        assert_eq!(
+            created(EventKind::Create(CreateKind::Folder), "drafts/entries/new"),
+            [root.join("drafts/entries/new")]
+        );
+        for (kind, path) in [
+            (
+                EventKind::Create(CreateKind::File),
+                "drafts/entries/new/index.md",
+            ),
+            (EventKind::Create(CreateKind::Folder), "dist/entries/new"),
+            (EventKind::Create(CreateKind::Folder), "drafts/entries/gone"),
+            (
+                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+                "drafts/entries/new",
+            ),
+        ] {
+            assert!(created(kind, path).is_empty(), "{kind:?} {path}");
+        }
+        Ok(())
     }
 
     // Paused time keeps a slow runner from stretching the 20 ms gaps past the quiet period.
